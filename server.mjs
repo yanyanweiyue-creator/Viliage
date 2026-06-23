@@ -3,7 +3,8 @@ import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
@@ -15,6 +16,8 @@ const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
+const environmentCache = new Map();
+const ENVIRONMENT_CACHE_MS = 10 * 60_000;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -201,6 +204,100 @@ async function getResources(force = false) {
   }
 }
 
+function normalizeIp(value) {
+  const candidate = String(Array.isArray(value) ? value[0] : value || "")
+    .split(",")[0]
+    .trim()
+    .replace(/^::ffff:/, "");
+  return isIP(candidate) ? candidate : "";
+}
+
+function isPrivateIp(ip) {
+  if (!ip || ip === "::1") return true;
+  if (ip.includes(":")) return /^(fc|fd|fe80)/i.test(ip);
+  const parts = ip.split(".").map(Number);
+  return parts[0] === 10 ||
+    parts[0] === 127 ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
+}
+
+function requestIp(req) {
+  const forwarded = req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const ip = normalizeIp(forwarded);
+  return isPrivateIp(ip) ? "" : ip;
+}
+
+function finiteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+async function getEnvironment(req, force = false) {
+  const ip = requestIp(req);
+  const cacheKey = createHash("sha256").update(ip || "local-preview").digest("hex");
+  const cached = environmentCache.get(cacheKey);
+  if (!force && cached && Date.now() - cached.time < ENVIRONMENT_CACHE_MS) return cached.value;
+
+  const geoUrl = ip ? `https://reallyfreegeoip.org/json/${encodeURIComponent(ip)}` : "https://reallyfreegeoip.org/json/";
+  const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(8000) });
+  if (!geoResponse.ok) throw new Error(`IP location returned ${geoResponse.status}.`);
+  const geo = await geoResponse.json();
+  if (geo.error) throw new Error("Approximate IP location is unavailable.");
+
+  const latitude = Number(geo.latitude);
+  const longitude = Number(geo.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error("IP location did not include coordinates.");
+
+  const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  weatherUrl.search = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    current: "temperature_2m,apparent_temperature,is_day,precipitation,rain,snowfall,weather_code,cloud_cover,wind_speed_10m",
+    daily: "sunrise,sunset",
+    timezone: "auto",
+    forecast_days: "1"
+  }).toString();
+  const weatherResponse = await fetch(weatherUrl, { signal: AbortSignal.timeout(8000) });
+  if (!weatherResponse.ok) throw new Error(`Open-Meteo returned ${weatherResponse.status}.`);
+  const weather = await weatherResponse.json();
+
+  const value = {
+    location: {
+      city: String(geo.city || ""),
+      region: String(geo.region_name || ""),
+      country: String(geo.country_name || ""),
+      countryCode: String(geo.country_code || ""),
+      timezone: String(weather.timezone || geo.time_zone || "UTC"),
+      approximate: true
+    },
+    hemisphere: latitude < 0 ? "south" : "north",
+    current: {
+      time: String(weather.current?.time || ""),
+      temperature: finiteNumber(weather.current?.temperature_2m),
+      apparentTemperature: finiteNumber(weather.current?.apparent_temperature),
+      isDay: Boolean(weather.current?.is_day),
+      weatherCode: finiteNumber(weather.current?.weather_code),
+      cloudCover: finiteNumber(weather.current?.cloud_cover),
+      precipitation: finiteNumber(weather.current?.precipitation),
+      rain: finiteNumber(weather.current?.rain),
+      snowfall: finiteNumber(weather.current?.snowfall),
+      windSpeed: finiteNumber(weather.current?.wind_speed_10m)
+    },
+    sun: {
+      sunrise: String(weather.daily?.sunrise?.[0] || ""),
+      sunset: String(weather.daily?.sunset?.[0] || "")
+    },
+    source: "Open-Meteo",
+    fetchedAt: new Date().toISOString()
+  };
+
+  environmentCache.set(cacheKey, { time: Date.now(), value });
+  if (environmentCache.size > 200) environmentCache.delete(environmentCache.keys().next().value);
+  return value;
+}
+
 function profileSummary(responses = {}) {
   const interests = Array.isArray(responses.interests) ? responses.interests.join(", ") : "neurodiversity";
   const situation = Array.isArray(responses.situation) ? responses.situation.join(", ") : responses.situation || "not specified";
@@ -297,6 +394,15 @@ async function updateUser(userId, updater) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     return sendJson(res, 200, { ok: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL) });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/environment") {
+    try {
+      return sendJson(res, 200, await getEnvironment(req, url.searchParams.get("refresh") === "1"));
+    } catch (error) {
+      console.error("Environment update failed:", error.message);
+      return sendError(res, 503, "Local weather is temporarily unavailable.");
+    }
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/register") {
@@ -396,7 +502,7 @@ function serveStatic(req, res, url) {
   const ext = extname(filePath).toLowerCase();
   res.writeHead(200, {
     "Content-Type": mimeTypes[ext] || "application/octet-stream",
-    "Cache-Control": ext === ".html" || ext === ".js" ? "no-cache" : "public, max-age=3600",
+    "Cache-Control": ext === ".html" || ext === ".js" || ext === ".css" ? "no-cache" : "public, max-age=3600",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   });

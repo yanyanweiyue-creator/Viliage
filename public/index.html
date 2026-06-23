@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=weather-20260623" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -113,7 +113,24 @@
         </div>
 
         <section id="village-map" class="village-map" aria-label="Interactive map of Autism Island and ADHD Island">
+          <div id="environment-status" class="environment-status" aria-live="polite">
+            <span id="environment-icon" class="environment-icon" aria-hidden="true">◌</span>
+            <span class="environment-copy"><strong id="environment-summary">Finding your local sky…</strong><small id="environment-detail">Approximate location by IP · Open-Meteo</small></span>
+            <button type="button" data-action="refresh-environment" aria-label="Refresh local weather">↻</button>
+          </div>
           <div id="map-stage" class="map-stage">
+            <div id="environment-layer" class="environment-layer" aria-hidden="true">
+              <div class="sky-tint"></div>
+              <div class="star-field"></div>
+              <div id="environment-sun" class="celestial sun"></div>
+              <div id="environment-moon" class="celestial moon"></div>
+              <div class="cloud cloud-one"></div>
+              <div class="cloud cloud-two"></div>
+              <div class="cloud cloud-three"></div>
+              <div class="weather-particles"></div>
+              <div class="season-particles"></div>
+              <div class="lightning-flash"></div>
+            </div>
             <img id="map-image" alt="Two illustrated green islands connected by a wooden bridge" />
             <button class="island-label autism" data-island="autism"><span class="island-dot"></span><span><small data-i18n="quietGardens">Quiet gardens</small><strong data-i18n="autismIsland">Autism Island</strong></span><span aria-hidden="true">→</span></button>
             <button class="island-label adhd" data-island="adhd"><span class="island-dot"></span><span><small data-i18n="momentumTrails">Momentum trails</small><strong data-i18n="adhdIsland">ADHD Island</strong></span><span aria-hidden="true">→</span></button>

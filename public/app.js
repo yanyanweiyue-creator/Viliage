@@ -16,7 +16,10 @@ const state = {
   currentTopic: "Education",
   resources: [],
   sheetSync: { configured: false },
-  settings: loadSavedSettings()
+  settings: loadSavedSettings(),
+  environment: null,
+  environmentTimer: null,
+  environmentRefreshTimer: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -37,7 +40,10 @@ const i18n = {
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
     aiEyebrow: "JA · Personalized resource matching", aiHello: "Hi, I’m JA.", aiExplain: "I’ll use your personal record, this building’s topic, and the resource database—never made-up links.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "JA is checking the village…", aiDisclaimer: "JA provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.",
     recordTitle: "My personal record", recordIntro: "This record helps JA choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
-    sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet"
+    sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
+    environmentFinding: "Finding your local sky…", environmentUnavailable: "Local weather unavailable", approximateIp: "Approx. by IP · Open-Meteo",
+    spring: "Spring", summer: "Summer", autumn: "Autumn", winter: "Winter",
+    weatherClear: "Clear", weatherCloudy: "Cloudy", weatherFog: "Foggy", weatherRain: "Rain", weatherSnow: "Snow", weatherStorm: "Thunderstorm", weatherRefresh: "Refresh local weather"
   },
   zh: {
     begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——JA 会帮你把每个主题都变得更容易理解。", choosePath: "选择你自己的路径",
@@ -53,7 +59,10 @@ const i18n = {
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
     aiEyebrow: "JA · 个性化资源匹配", aiHello: "你好，我是 JA。", aiExplain: "我会结合你的个人记录、建筑主题和资源数据库，不会编造链接。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "JA 正在查找村庄资源…", aiDisclaimer: "JA 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。",
     recordTitle: "我的个人记录", recordIntro: "这份记录帮助 JA 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
-    sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接"
+    sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
+    environmentFinding: "正在寻找你当地的天空…", environmentUnavailable: "暂时无法获取当地天气", approximateIp: "IP 大致位置 · Open-Meteo",
+    spring: "春季", summer: "夏季", autumn: "秋季", winter: "冬季",
+    weatherClear: "晴朗", weatherCloudy: "多云", weatherFog: "有雾", weatherRain: "下雨", weatherSnow: "下雪", weatherStorm: "雷雨", weatherRefresh: "刷新当地天气"
   },
   es: {
     begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; JA puede hacer que cada tema sea más manejable.", choosePath: "Elige tu propio camino",
@@ -69,7 +78,10 @@ const i18n = {
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
     aiEyebrow: "JA · Recursos personalizados", aiHello: "Hola, soy JA.", aiExplain: "Usaré tu registro, el tema y la base de recursos; nunca inventaré enlaces.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "JA está buscando recursos…", aiDisclaimer: "JA orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.",
     recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a JA a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
-    sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada"
+    sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
+    environmentFinding: "Buscando tu cielo local…", environmentUnavailable: "Clima local no disponible", approximateIp: "Ubicación aproximada por IP · Open-Meteo",
+    spring: "Primavera", summer: "Verano", autumn: "Otoño", winter: "Invierno",
+    weatherClear: "Despejado", weatherCloudy: "Nublado", weatherFog: "Niebla", weatherRain: "Lluvia", weatherSnow: "Nieve", weatherStorm: "Tormenta", weatherRefresh: "Actualizar el clima local"
   }
 };
 
@@ -347,6 +359,7 @@ function applySettings() {
   document.documentElement.lang = language;
   if ($("#building-layer")) renderBuildings();
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
+  renderEnvironmentStatus();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
 
@@ -389,6 +402,155 @@ async function loadResources(force = false) {
   }
 }
 
+const WEATHER_ICONS = { clear: "☀", cloudy: "☁", fog: "≋", rain: "☂", snow: "❄", storm: "ϟ" };
+
+function weatherKind(code) {
+  if ([95, 96, 99].includes(code)) return "storm";
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return "snow";
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "rain";
+  if ([45, 48].includes(code)) return "fog";
+  if ([1, 2, 3].includes(code)) return "cloudy";
+  return "clear";
+}
+
+function seasonFor(month, hemisphere = "north") {
+  const shifted = hemisphere === "south" ? ((month + 5) % 12) + 1 : month;
+  if (shifted >= 3 && shifted <= 5) return "spring";
+  if (shifted >= 6 && shifted <= 8) return "summer";
+  if (shifted >= 9 && shifted <= 11) return "autumn";
+  return "winter";
+}
+
+function zonedParts(timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date());
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+function minutesFromIso(value, fallback) {
+  const match = String(value || "").match(/T(\d{2}):(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : fallback;
+}
+
+function localFallbackEnvironment() {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const parts = zonedParts(timezone);
+  const hour = Number(parts.hour);
+  return {
+    available: false,
+    location: { city: "", region: "", country: "", timezone, approximate: true },
+    hemisphere: "north",
+    current: { isDay: hour >= 6 && hour < 18, weatherCode: 0, cloudCover: 0, temperature: null },
+    sun: { sunrise: "2000-01-01T06:00", sunset: "2000-01-01T18:00" },
+    source: "Device time"
+  };
+}
+
+function renderEnvironmentStatus() {
+  const environment = state.environment;
+  const summary = $("#environment-summary");
+  const detail = $("#environment-detail");
+  const icon = $("#environment-icon");
+  if (!environment || !summary || !detail || !icon) return;
+
+  const timezone = environment.location?.timezone || "UTC";
+  const localTime = new Intl.DateTimeFormat(state.settings.language || "en", {
+    timeZone: timezone,
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date());
+  const location = [environment.location?.city, environment.location?.region].filter(Boolean).join(", ");
+  const season = environment.season || "summer";
+  const kind = environment.weatherKind || "clear";
+  icon.textContent = WEATHER_ICONS[kind];
+  summary.textContent = environment.available
+    ? `${t(`weather${kind.charAt(0).toUpperCase() + kind.slice(1)}`)} · ${Math.round(environment.current.temperature)}°C`
+    : t("environmentUnavailable");
+  detail.textContent = [location, t(season), localTime, environment.available ? t("approximateIp") : ""].filter(Boolean).join(" · ");
+  $("#environment-status").title = environment.available ? t("approximateIp") : t("environmentUnavailable");
+  $("#environment-status button")?.setAttribute("aria-label", t("weatherRefresh"));
+}
+
+function updateCelestialScene() {
+  const environment = state.environment;
+  const stage = $("#map-stage");
+  if (!environment || !stage) return;
+  const parts = zonedParts(environment.location?.timezone || "UTC");
+  const currentMinutes = Number(parts.hour) * 60 + Number(parts.minute) + Number(parts.second) / 60;
+  const sunrise = minutesFromIso(environment.sun?.sunrise, 360);
+  const sunset = minutesFromIso(environment.sun?.sunset, 1080);
+  const isDay = currentMinutes >= sunrise && currentMinutes <= sunset;
+  let sunX = 50;
+  let sunY = 18;
+  let moonX = 50;
+  let moonY = 18;
+
+  if (isDay) {
+    const progress = Math.max(0, Math.min(1, (currentMinutes - sunrise) / Math.max(1, sunset - sunrise)));
+    sunX = 7 + progress * 86;
+    sunY = 76 - Math.sin(Math.PI * progress) * 61;
+  } else {
+    const nightLength = 1440 - sunset + sunrise;
+    const elapsed = currentMinutes >= sunset ? currentMinutes - sunset : 1440 - sunset + currentMinutes;
+    const progress = Math.max(0, Math.min(1, elapsed / Math.max(1, nightLength)));
+    moonX = 7 + progress * 86;
+    moonY = 75 - Math.sin(Math.PI * progress) * 59;
+  }
+
+  stage.classList.toggle("time-day", isDay);
+  stage.classList.toggle("time-night", !isDay);
+  $("#environment-status")?.classList.toggle("night", !isDay);
+  stage.style.setProperty("--celestial-x", `${sunX}%`);
+  stage.style.setProperty("--celestial-y", `${sunY}%`);
+  stage.style.setProperty("--moon-x", `${moonX}%`);
+  stage.style.setProperty("--moon-y", `${moonY}%`);
+  stage.style.setProperty("--sun-visible", isDay ? "1" : "0");
+  stage.style.setProperty("--moon-visible", isDay ? "0" : ".9");
+  stage.style.setProperty("--night-strength", isDay ? ".03" : ".72");
+  stage.style.setProperty("--star-opacity", isDay ? "0" : ".92");
+  renderEnvironmentStatus();
+}
+
+function applyEnvironment(environment, available = true) {
+  const stage = $("#map-stage");
+  if (!stage) return;
+  const parts = zonedParts(environment.location?.timezone || "UTC");
+  const season = seasonFor(Number(parts.month), environment.hemisphere);
+  const kind = weatherKind(Number(environment.current?.weatherCode || 0));
+  state.environment = { ...environment, available, season, weatherKind: kind };
+  stage.classList.remove("season-spring", "season-summer", "season-autumn", "season-winter", "weather-clear", "weather-cloudy", "weather-fog", "weather-rain", "weather-snow", "weather-storm");
+  stage.classList.add(`season-${season}`, `weather-${kind}`);
+  stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
+  updateCelestialScene();
+  clearInterval(state.environmentTimer);
+  state.environmentTimer = setInterval(updateCelestialScene, 60_000);
+}
+
+async function loadEnvironment(force = false) {
+  const status = $("#environment-status");
+  status?.classList.add("loading");
+  if (!state.environment && $("#environment-summary")) $("#environment-summary").textContent = t("environmentFinding");
+  try {
+    const environment = await api(`/api/environment${force ? "?refresh=1" : ""}`);
+    applyEnvironment(environment, true);
+    if (force) toast(t("approximateIp"));
+  } catch {
+    applyEnvironment(localFallbackEnvironment(), false);
+  } finally {
+    status?.classList.remove("loading");
+    clearTimeout(state.environmentRefreshTimer);
+    state.environmentRefreshTimer = setTimeout(() => loadEnvironment(false), 10 * 60_000);
+  }
+}
+
 function hydrateApp() {
   $("#avatar-initial").textContent = (state.user?.name || "C").charAt(0).toUpperCase();
   $("#map-image").src = config.map.image;
@@ -397,11 +559,14 @@ function hydrateApp() {
   applySettings();
   loadIntegrationStatus();
   loadResources();
+  loadEnvironment();
 }
 
 async function logout() {
   await api("/api/auth/logout", { method: "POST" }).catch(() => {});
   state.user = null;
+  clearInterval(state.environmentTimer);
+  clearTimeout(state.environmentRefreshTimer);
   closePanel();
   showScreen("auth");
   $("#auth-form").reset();
@@ -439,6 +604,7 @@ document.addEventListener("click", (event) => {
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
   if (action === "refresh-resources") loadResources(true);
+  if (action === "refresh-environment") loadEnvironment(true);
 });
 
 document.addEventListener("submit", (event) => {

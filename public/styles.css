@@ -112,8 +112,50 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .hero-copy p:not(.eyebrow) { max-width: 46rem; color: var(--muted); font-size: 1.05rem; }
 .village-map { position: relative; background: #d6efed; border: 1px solid #c8e2df; border-radius: 2.2rem; overflow: hidden; box-shadow: 0 28px 70px rgba(60,105,94,.14); }
 .map-stage { position: relative; aspect-ratio: 16 / 9; transform-origin: center; transition: transform .8s cubic-bezier(.2,.8,.2,1); overflow: hidden; }
-.map-stage::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(255,255,255,.1), transparent 20%, transparent 80%, rgba(29,66,56,.06)); pointer-events: none; }
-#map-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.map-stage::after { content: ""; position: absolute; z-index: 2; inset: 0; background: linear-gradient(to bottom, rgba(255,255,255,.1), transparent 20%, transparent 80%, rgba(29,66,56,.06)); pointer-events: none; }
+#map-image { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; transition: filter 1.2s ease; }
+
+/* Live local environment */
+.environment-layer { position: absolute; z-index: 2; inset: 0; overflow: hidden; pointer-events: none; isolation: isolate; }
+.sky-tint { position: absolute; z-index: 1; inset: 0; background: linear-gradient(180deg, #071a42 0%, #163660 52%, #10283f 100%); opacity: var(--night-strength, 0); transition: opacity 1.8s ease; mix-blend-mode: multiply; }
+.star-field { position: absolute; z-index: 2; inset: 0 0 42%; opacity: var(--star-opacity, 0); transition: opacity 1.8s ease; background-image: radial-gradient(circle, #fff 0 1px, transparent 1.8px), radial-gradient(circle, #ffeab4 0 1.2px, transparent 2px), radial-gradient(circle, #d8eeff 0 .8px, transparent 1.6px); background-position: 9px 17px, 48px 8px, 91px 46px; background-size: 103px 79px, 149px 113px, 77px 97px; filter: drop-shadow(0 0 3px rgba(255,255,255,.9)); animation: starTwinkle 4.8s ease-in-out infinite alternate; }
+.celestial { position: absolute; z-index: 3; left: var(--celestial-x, 50%); top: var(--celestial-y, 18%); width: clamp(2.6rem, 5vw, 5.2rem); aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); transition: left 55s linear, top 55s linear, opacity 1.5s ease; }
+.celestial.sun { opacity: var(--sun-visible, 1); background: radial-gradient(circle at 38% 35%, #fff9c9 0 8%, #ffd86f 34%, #f4a93e 72%); box-shadow: 0 0 1.5rem .45rem rgba(255,210,100,.72), 0 0 5rem 1.7rem rgba(255,225,137,.38); }
+.celestial.moon { left: var(--moon-x, 70%); top: var(--moon-y, 17%); opacity: var(--moon-visible, 0); background: radial-gradient(circle at 35% 30%, #fff 0 15%, #dfe9ec 48%, #aebdc5 100%); box-shadow: 0 0 2.4rem .6rem rgba(220,239,255,.52); }
+.celestial.moon::after { content: ""; position: absolute; width: 22%; height: 22%; border-radius: 50%; left: 22%; top: 54%; background: rgba(125,145,154,.23); box-shadow: 1.05rem -1.25rem 0 .12rem rgba(125,145,154,.18); }
+.cloud { position: absolute; z-index: 4; width: clamp(6rem, 13vw, 12rem); height: clamp(1.8rem, 4vw, 3.6rem); border-radius: 999px; background: rgba(242,248,249,.92); box-shadow: 0 .45rem 1.2rem rgba(47,70,78,.18); opacity: 0; transition: opacity 1.4s ease; animation: cloudDrift 32s linear infinite; }
+.cloud::before, .cloud::after { content: ""; position: absolute; bottom: 18%; border-radius: 50%; background: inherit; }
+.cloud::before { width: 43%; aspect-ratio: 1; left: 14%; }.cloud::after { width: 34%; aspect-ratio: 1; right: 14%; }
+.cloud-one { left: -16%; top: 15%; }.cloud-two { left: 38%; top: 25%; animation-delay: -12s; transform: scale(.72); }.cloud-three { left: 76%; top: 11%; animation-delay: -23s; transform: scale(.9); }
+.map-stage:is(.weather-cloudy,.weather-fog,.weather-rain,.weather-snow,.weather-storm) .cloud { opacity: calc(var(--cloud-strength, .7) * .78); }
+.map-stage:is(.weather-rain,.weather-storm) .cloud { background: rgba(114,135,146,.9); }
+.weather-particles, .season-particles, .lightning-flash { position: absolute; z-index: 5; inset: 0; pointer-events: none; opacity: 0; }
+.map-stage.weather-rain .weather-particles, .map-stage.weather-storm .weather-particles { opacity: .58; background-image: repeating-linear-gradient(104deg, transparent 0 13px, rgba(224,243,255,.8) 14px 15px, transparent 16px 29px); background-size: 33px 42px; animation: rainFall .55s linear infinite; }
+.map-stage.weather-snow .weather-particles { opacity: .85; background-image: radial-gradient(circle, #fff 0 2px, transparent 2.8px), radial-gradient(circle, #e9f6ff 0 1.4px, transparent 2.2px); background-position: 0 0, 29px 17px; background-size: 58px 52px, 73px 69px; animation: snowFall 7s linear infinite; }
+.map-stage.weather-fog .weather-particles { opacity: .72; background: repeating-linear-gradient(0deg, rgba(236,244,242,.72) 0 7%, rgba(218,232,231,.3) 13% 20%, transparent 28% 35%); filter: blur(8px); animation: fogBreathe 8s ease-in-out infinite alternate; }
+.map-stage.weather-storm .lightning-flash { background: #f1f6ff; animation: lightning 7s steps(1) infinite; }
+.season-particles { z-index: 4; transition: opacity 1.5s ease; }
+.map-stage.season-spring .season-particles { opacity: .42; background-image: radial-gradient(circle, #fff2fb 0 2px, transparent 2.5px), radial-gradient(circle, #ffd1df 0 1.6px, transparent 2.2px); background-size: 71px 65px, 93px 79px; background-position: 8px 4px, 39px 31px; }
+.map-stage.season-autumn .season-particles { opacity: .55; background-image: radial-gradient(ellipse at 30% 50%, #d98236 0 3px, transparent 4px), radial-gradient(ellipse at 60% 50%, #e8b64b 0 2.5px, transparent 3.5px); background-size: 92px 83px, 117px 101px; animation: leavesDrift 13s linear infinite; }
+.map-stage.season-winter .season-particles { opacity: .35; background: linear-gradient(rgba(223,242,248,.25), rgba(238,249,252,.52)); }
+.map-stage.season-spring #map-image { filter: saturate(1.1) brightness(1.02) hue-rotate(-4deg); }
+.map-stage.season-summer #map-image { filter: saturate(1.16) brightness(1.05) contrast(1.02); }
+.map-stage.season-autumn #map-image { filter: saturate(.92) sepia(.16) hue-rotate(-8deg) contrast(1.03); }
+.map-stage.season-winter #map-image { filter: saturate(.72) brightness(1.08) hue-rotate(7deg); }
+.environment-status { position: absolute; z-index: 7; left: 50%; top: 1rem; transform: translateX(-50%); display: grid; grid-template-columns: auto auto auto; align-items: center; gap: .65rem; max-width: min(32rem, 70%); padding: .56rem .7rem; border: 1px solid rgba(255,255,255,.68); border-radius: 1rem; background: rgba(255,255,255,.88); color: #243a35; box-shadow: 0 9px 24px rgba(31,54,48,.18); backdrop-filter: blur(12px); transition: color .8s ease, background .8s ease; }
+.environment-status.night { color: #f4f7f8; background: rgba(13,31,52,.78); border-color: rgba(220,235,247,.32); }
+.environment-icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: .7rem; background: rgba(255,255,255,.58); font-size: 1.15rem; }
+.environment-copy { min-width: 0; }.environment-copy strong, .environment-copy small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.environment-copy strong { font-size: .8rem; }.environment-copy small { color: inherit; opacity: .72; font-size: .62rem; }
+.environment-status button { display: grid; place-items: center; width: 2rem; height: 2rem; border: 0; border-radius: 50%; background: rgba(255,255,255,.7); color: #29493f; cursor: pointer; }
+.environment-status.loading button { animation: weatherSpin 1s linear infinite; }
+@keyframes starTwinkle { 50% { filter: brightness(.7) drop-shadow(0 0 2px rgba(255,255,255,.7)); } }
+@keyframes cloudDrift { from { translate: 0 0; } to { translate: 118vw 0; } }
+@keyframes rainFall { from { background-position: 0 -42px; } to { background-position: -12px 42px; } }
+@keyframes snowFall { from { background-position: 0 -70px, 29px -52px; } to { background-position: 25px 70px, 5px 86px; } }
+@keyframes fogBreathe { to { transform: translateX(2%); opacity: .5; } }
+@keyframes leavesDrift { from { background-position: 0 -90px, 39px -110px; } to { background-position: 66px 100px, -15px 120px; } }
+@keyframes lightning { 0%, 91%, 94%, 100% { opacity: 0; } 92%, 95% { opacity: .68; } 93% { opacity: .14; } }
+@keyframes weatherSpin { to { transform: rotate(360deg); } }
 .island-label { position: absolute; z-index: 4; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .7rem; min-width: 13.5rem; padding: .72rem .9rem; border: 0; border-radius: 1rem; background: rgba(255,255,255,.94); color: var(--ink); text-align: left; box-shadow: 0 11px 26px rgba(38,69,60,.17); cursor: pointer; transition: transform .2s ease, opacity .3s; }
 .island-label:hover { transform: translateY(-4px); }
 .island-label.autism { left: 8%; top: 7%; } .island-label.adhd { right: 7%; top: 7%; }
@@ -210,6 +252,8 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 body.low-stimulation *, body.low-stimulation *::before, body.low-stimulation *::after { animation: none !important; transition-duration: .01ms !important; }
 body.low-stimulation .map-stage { transform: none !important; }
 body.low-stimulation .map-stage.focus-autism .building[data-island="adhd"], body.low-stimulation .map-stage.focus-adhd .building[data-island="autism"] { display: none; }
+body.low-stimulation .weather-particles, body.low-stimulation .season-particles, body.low-stimulation .lightning-flash { display: none; }
+body.low-stimulation .cloud { opacity: .16 !important; }
 body.theme-sage { --ink: #243a35; --muted: #6d7d78; --cream: #f9faf6; --paper: #ffffff; --line: #dfe7e1; --sage: #4e856d; --sage-dark: #2f634f; --sage-soft: #e3f0e8; --butter: #f4d887; }
 body.theme-blue { --ink: #213c4a; --muted: #607883; --cream: #f1f8fb; --paper: #fafdff; --line: #cbdde7; --sage: #517c97; --sage-dark: #315b73; --sage-soft: #dcecf4; --butter: #e9d9a9; }
 body.theme-plum { --ink: #45374c; --muted: #756779; --cream: #faf5fb; --paper: #fffaff; --line: #dfd0e3; --sage: #796683; --sage-dark: #594862; --sage-soft: #eee2f0; --butter: #e8ce92; }
@@ -221,6 +265,8 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   .survey-grid { grid-template-columns: 1fr; }.wide-field, .form-actions, .survey-grid > .form-error { grid-column: 1; }
   .app-header { grid-template-columns: 1fr auto; }.app-header nav { display: none; }.pill-button { font-size: 0; }.pill-button span { font-size: 1rem; }
   .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 62rem; max-width: none; }
+  .environment-status { position: sticky; left: 1rem; top: .75rem; transform: none; width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: -3.9rem; }
+  .island-label.autism, .island-label.adhd { top: 18%; }
   .village-footer-cards { grid-template-columns: 1fr; }.building { width: 5.2rem; height: 5.2rem; }.building::after { font-size: .68rem; }
 }
 

@@ -64,6 +64,14 @@ Use `integrations/google-apps-script.gs`:
 
 The script finds the header row, updates the same user instead of creating duplicates, wraps long text, sizes columns appropriately, and deliberately leaves `Password` blank. Passwords must never be stored in a spreadsheet.
 
+## Live local environment
+
+The village map uses an approximate IP location to choose the user's hemisphere and local time zone. The server sends coordinates to Open-Meteo for current conditions, sunrise, and sunset, then returns only an approximate city, weather, and sky timing to the browser. Raw IP addresses are not returned to the browser, written to the user record, or stored on disk.
+
+The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; moves the sun between the local sunrise and sunset; and shows the moon and stars at night. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
+
+Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation: [Really Free GeoIP](https://reallyfreegeoip.org/).
+
 ## Editable content
 
 Project editors can update these values in `public/site-config.js` without touching application logic:
