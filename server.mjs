@@ -232,7 +232,7 @@ async function callOpenAI({ topic, description, profile, matches }) {
       model: process.env.OPENAI_MODEL || "gpt-5.5",
       reasoning: { effort: "low" },
       text: { verbosity: "low" },
-      instructions: "You are Mori, a warm capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top 2–4 options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words.",
+      instructions: "You are JA, a warm capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top 2–4 options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words.",
       input: JSON.stringify(input)
     }),
     signal: AbortSignal.timeout(30_000)
@@ -336,7 +336,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
     const { topic = "Education", description = "" } = await readJsonBody(req);
-    if (String(description).trim().length < 8) return sendError(res, 400, "Tell Mori a little more so the recommendations can be useful.");
+    if (String(description).trim().length < 8) return sendError(res, 400, "Tell JA a little more so the recommendations can be useful.");
     const { rows, source } = await getResources();
     const matches = rows
       .map((resource) => ({ ...resource, score: scoreResource(resource, topic, user.profile, description) }))

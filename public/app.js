@@ -12,9 +12,9 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const i18n = {
-  en: { begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and Mori can help make any topic feel more manageable." },
-  zh: { begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——Mori 会帮你把每个主题都变得更容易理解。" },
-  es: { begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; Mori puede hacer que cada tema sea más manejable." }
+  en: { begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and JA can help make any topic feel more manageable." },
+  zh: { begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——JA 会帮你把每个主题都变得更容易理解。" },
+  es: { begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; JA puede hacer que cada tema sea más manejable." }
 };
 
 async function api(path, options = {}) {
@@ -202,12 +202,12 @@ function aiPanel(topic = "Education") {
   const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : "For example: I’m looking for executive-function support for a middle-school student…";
   openPanel({
     title: `${topic} Guide`,
-    eyebrow: "Mori · Personalized resource matching",
+    eyebrow: "JA · Personalized resource matching",
     html: `<div class="ai-shell">
-      <div class="mori-stage"><div class="mori-character" id="mori-character"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><div><h3>Hi, I’m Mori.</h3><p>I’ll use your personal record, this building’s topic, and the resource database—never made-up links.</p></div></div>
+      <div class="mori-stage"><div class="mori-character" id="mori-character"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><div><h3>Hi, I’m JA.</h3><p>I’ll use your personal record, this building’s topic, and the resource database—never made-up links.</p></div></div>
       <form id="ai-form" class="ai-form"><label>What are you trying to find?<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><button class="primary-button" type="submit">Find fitting resources <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
       <div id="ai-results"></div>
-      <p class="privacy-note">Mori provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.</p>
+      <p class="privacy-note">JA provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.</p>
     </div>`
   });
 }
@@ -219,7 +219,7 @@ async function submitAi(event) {
   const button = formElement.querySelector("button[type='submit']");
   const character = $("#mori-character");
   button.disabled = true;
-  button.textContent = "Mori is checking the village…";
+  button.textContent = "JA is checking the village…";
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
@@ -248,7 +248,7 @@ function profilePanel() {
   openPanel({
     title: "My personal record",
     eyebrow: state.user?.name || "Village visitor",
-    html: `<p class="panel-intro">This record helps Mori choose more relevant entries from the resource database.</p>
+    html: `<p class="panel-intro">This record helps JA choose more relevant entries from the resource database.</p>
       <div class="record-summary">${escapeHtml(profile?.summary || "Complete the Community Compass to create your record.")}</div>
       <div class="card-list"><article class="record-card"><strong>Recent resource searches</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : "<li>No searches yet.</li>"}</ul></article></div>
       <form id="feedback-form" class="feedback-form"><label>Feedback for the project team<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?"></textarea></label><button class="secondary-button" type="submit">Save feedback</button><p id="feedback-status" role="status"></p></form>
