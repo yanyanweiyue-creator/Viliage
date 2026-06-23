@@ -1,0 +1,68 @@
+[
+  {
+    "url": "https://www.understood.org",
+    "name": "Understood.org",
+    "description": "Practical ADHD school strategies, IEP preparation, and learning resources for families.",
+    "diagnosis": "ADHD",
+    "categories": ["Education", "Legal"],
+    "age": "K–12",
+    "tags": ["Advocacy", "IEP", "Accommodations", "Academic"],
+    "location": "Online",
+    "price": "Free"
+  },
+  {
+    "url": "https://disabilityrightsca.org",
+    "name": "Disability Rights California",
+    "description": "Free legal information, representation, and self-advocacy guides for disability rights.",
+    "diagnosis": "Both",
+    "categories": ["Legal"],
+    "age": "All ages",
+    "tags": ["Rights", "Advocacy", "IEP"],
+    "location": "Online / California",
+    "price": "Free"
+  },
+  {
+    "url": "https://stanfordneurodiversityproject.stanford.edu/",
+    "name": "Stanford Neurodiversity Project",
+    "description": "A community-built directory of neurodiversity education and support resources.",
+    "diagnosis": "Both",
+    "categories": ["Education", "Caregiver Support"],
+    "age": "All ages",
+    "tags": ["Directory", "Research", "Community"],
+    "location": "Online / Stanford, CA",
+    "price": "Free"
+  },
+  {
+    "url": "https://www.wrightslaw.com",
+    "name": "Wrightslaw",
+    "description": "Parent-friendly special education law, IEP, and Section 504 guidance.",
+    "diagnosis": "Both",
+    "categories": ["Legal"],
+    "age": "School age",
+    "tags": ["IEP", "504", "Advocacy", "Rights"],
+    "location": "Online",
+    "price": "Free / books available"
+  },
+  {
+    "url": "https://www.friendshipcirclebayarea.org",
+    "name": "Bay Area Friendship Circle",
+    "description": "Buddy programs and social clubs connecting neurodivergent children with teen volunteers.",
+    "diagnosis": "Both",
+    "categories": ["Recreation", "Caregiver Support"],
+    "age": "5–22",
+    "tags": ["Friendship", "Volunteer", "Community", "Social"],
+    "location": "Bay Area, CA",
+    "price": "Free / donations"
+  },
+  {
+    "url": "https://thinkcollege.net",
+    "name": "Think College",
+    "description": "A searchable national directory of inclusive college programs for neurodivergent students.",
+    "diagnosis": "Both",
+    "categories": ["Education", "Legal"],
+    "age": "18–26",
+    "tags": ["College", "Transition", "Inclusive", "Directory"],
+    "location": "Online",
+    "price": "Free"
+  }
+]
