@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "weights": {
+    "directExactTag": 10,
+    "directPartialTag": 5,
+    "directExactDescription": 3,
+    "directPartialDescription": 1,
+    "directCategory": 4,
+    "suggestedExactTag": 5,
+    "suggestedPartialTag": 2,
+    "suggestedExactDescription": 1,
+    "suggestedPartialDescription": 0.5,
+    "suggestedCategory": 2,
+    "issueExactPenalty": -10,
+    "issuePartialPenalty": -5
+  },
+  "limits": {
+    "minimumScore": 0.5,
+    "defaultResults": 5,
+    "maximumResults": 10,
+    "maximumDirectKeywords": 24,
+    "maximumSuggestedKeywords": 16
+  }
+}

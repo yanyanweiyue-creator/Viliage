@@ -1,15 +1,16 @@
-# Capy Village
+# It Takes a Village
 
-A full-stack, no-dependency web prototype for a personalized caregiver resource village. Users create an account, complete a first-visit survey, enter an interactive two-island scene, and use an animated capybara guide to find education or legal resources from a Google Sheet.
+A full-stack, no-dependency web prototype for a personalized caregiver resource village. Users create an account, complete a first-visit survey, enter an interactive two-island scene, and use Waffles—the animated capybara guide—to find education or legal resources from a Google Sheet.
 
 ## What is included
 
 - Account creation and login with salted `scrypt` password hashes and HTTP-only session cookies
 - First-visit Community Compass survey and personal record
-- Two-island scene with island zoom and ten independently configured building hotspots
+- Two-island scene with island zoom, ten independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
 - Support/contact, settings, education AI, legal AI, and activity panels
-- Font size, color palette, language, reduced-motion, and low-stimulation controls
+- Font size, color palette, language, reduced-motion, low-stimulation, and three-channel sound controls
 - Dynamic resource loading from the provided Google Sheet with a local fallback
+- Configurable resource scoring with tag-first matching, issue penalties, AI-assisted synonym expansion, result counts from 3–10, and a visible explanation for every score
 - Server-side OpenAI Responses API integration; the API key is never sent to the browser
 - Google Apps Script webhook that updates one user per row according to sheet headers
 - Editable content and asset paths in one configuration file
@@ -51,7 +52,15 @@ The server reads the selected worksheet through the public Google Visualization 
 
 To switch databases later, set `RESOURCE_SHEET_ID` and `RESOURCE_SHEET_GID` in `.env`; no application-code change is required.
 
-Add rows beneath the existing headers and the app will pick them up automatically. Keep `URL`, description, `Diagnosis`, `Category`, `Age`, tag, `Location`, and `Price` columns. If the sheet becomes private, use a service account or an authenticated backend instead of exposing credentials to the browser.
+Add rows beneath the existing headers and the app will pick them up automatically. Keep `Resource Name`, `URL`, `Description`, `Diagnosis`, `Category1/2`, `Age`, `Tag1–5`, `Location1–4`, `Price`, and optional `Issues` or `Issue1–4` columns. If the sheet becomes private, use a service account or an authenticated backend instead of exposing credentials to the browser.
+
+## Personalized scoring engine
+
+The ranking pipeline is `query + personal record → normalized direct keywords → AI/heuristic related terms → per-resource scoring → threshold → descending rank → selected result count`. Tags are evaluated before descriptions for each keyword, so a tag match is not double-counted again in the description. Exact phrases, partial phrases, common synonyms, punctuation, casing, and basic singular/plural forms are normalized. Preferences such as “affordable,” “soon,” or “takes insurance” can trigger stacked penalties against matching `Issues` values.
+
+Administrators can change every weight, minimum score, default count, and maximum count in `config/scoring-config.json` without editing application code. The default direct weights are +10 exact tag, +5 partial tag, +3 exact description phrase, +1 partial description, -10 exact issue conflict, and -5 partial issue conflict. AI-suggested matches use lower weights. `GET /api/scoring-config` exposes the active non-secret configuration for debugging; every returned resource includes `score`, `explanation`, and `matchedKeywords`.
+
+For production-scale storage, use normalized `resources`, `resource_tags`, `resource_categories`, and `resource_issues` tables with indexes on normalized terms and resource IDs. The current in-memory pass is linear and suitable for thousands of cached rows. Tens of thousands of rows should add a database full-text index or precomputed inverted tag index while keeping this same scoring contract.
 
 ## Connect the user record sheet
 
@@ -70,6 +79,8 @@ The village map uses an approximate IP location to choose the user's hemisphere 
 
 The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; moves the sun between the local sunrise and sunset; and shows the moon and stars at night. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
 
+Weather-aware ambience is synthesized locally with the browser Web Audio API, so no sound file or listening data is uploaded. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, and animal volumes are saved on the device; environment defaults louder than the gentler animal channel. Low-stimulation mode reduces both channels.
+
 Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation: [Really Free GeoIP](https://reallyfreegeoip.org/).
 
 ## Editable content
@@ -80,6 +91,7 @@ Project editors can update these values in `public/site-config.js` without touch
 - support and contact cards
 - activity listings
 - island image path
+- logo SVG path in `public/index.html`
 - building labels, topics, icons, and positions
 
 Users have no activity-editing controls.

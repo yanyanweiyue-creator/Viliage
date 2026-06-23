@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f3e8" />
-    <meta name="description" content="Capy Village: a personalized neurodiversity resource guide for caregivers." />
-    <title>Capy Village</title>
+    <meta name="description" content="It Takes a Village: a personalized neurodiversity resource guide for caregivers." />
+    <title>It Takes a Village</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=weather-20260623" />
+    <link rel="stylesheet" href="/styles.css?v=habitat-audio-20260623" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -21,7 +21,7 @@
         <p>A small village can hold a lot of help.</p>
       </div>
       <div class="auth-card">
-        <div class="brand-lockup"><span class="brand-mark">C</span><span>Capy Village</span></div>
+        <div class="brand-lockup brand-logo-lockup"><img src="/assets/it-takes-a-village-logo.svg" alt="It Takes a Village" /></div>
         <p class="eyebrow">A calmer place to begin</p>
         <h1 id="auth-title">Welcome to your village.</h1>
         <p class="lede">Create an account, tell us what matters, and explore resources at your own pace.</p>
@@ -42,7 +42,7 @@
 
     <section id="survey-screen" class="screen survey-shell hidden" aria-labelledby="survey-title">
       <header class="simple-header">
-        <div class="brand-lockup"><span class="brand-mark">C</span><span>Capy Village</span></div>
+        <div class="brand-lockup brand-logo-lockup"><img src="/assets/it-takes-a-village-logo.svg" alt="It Takes a Village" /></div>
         <button class="text-button" data-action="logout">Log out</button>
       </header>
       <main class="survey-main">
@@ -86,7 +86,7 @@
               <label class="choice"><input type="checkbox" name="situation" value="Prefer not to say" /><span>Prefer not to say</span></label>
             </div>
           </fieldset>
-          <label class="wide-field">Anything you want JA to keep in mind? <span>(optional)</span><textarea name="note" rows="3" placeholder="For example: free local programs, help preparing for an IEP meeting…"></textarea></label>
+          <label class="wide-field">Anything you want Waffles to keep in mind? <span>(optional)</span><textarea name="note" rows="3" placeholder="For example: free local programs, help preparing for an IEP meeting…"></textarea></label>
           <div class="form-actions">
             <a id="original-survey-link" class="secondary-button" target="_blank" rel="noreferrer">Open original Google Form ↗</a>
             <button class="primary-button" type="submit">Create my personal record <span aria-hidden="true">→</span></button>
@@ -98,7 +98,7 @@
 
     <section id="app-screen" class="screen app-shell hidden">
       <header class="app-header">
-        <a class="brand-lockup" href="#" data-action="home"><span class="brand-mark">C</span><span>Capy Village</span></a>
+        <a class="brand-lockup brand-logo-lockup" href="#" data-action="home"><img src="/assets/it-takes-a-village-logo.svg" alt="It Takes a Village" /></a>
         <nav aria-label="Main navigation"><button data-action="home" class="nav-button active" data-i18n="village">Village</button><button data-action="open-profile" class="nav-button" data-i18n="myRecord">My record</button></nav>
         <div class="header-tools">
           <button id="calm-toggle" class="pill-button" aria-pressed="false"><span aria-hidden="true">✧</span> <span data-i18n="lowStimulation">Low-stimulation</span></button>
@@ -108,7 +108,7 @@
 
       <main id="main" class="village-main">
         <div class="hero-copy">
-          <div><p class="eyebrow" data-i18n="choosePath">Choose your own path</p><h1 data-i18n="begin">Where would you like to begin?</h1><p data-i18n="explore">Explore at your own pace. There is no wrong door—and JA can help make any topic feel more manageable.</p></div>
+          <div><p class="eyebrow" data-i18n="choosePath">Choose your own path</p><h1 data-i18n="begin">Where would you like to begin?</h1><p data-i18n="explore">Explore at your own pace. There is no wrong door—and Waffles can help make any topic feel more manageable.</p></div>
           <button id="reset-map" class="secondary-button hidden" data-action="reset-map" data-i18n="viewBoth">← View both islands</button>
         </div>
 
@@ -132,6 +132,17 @@
               <div class="lightning-flash"></div>
             </div>
             <img id="map-image" alt="Two illustrated green islands connected by a wooden bridge" />
+            <div id="habitat-layer" class="habitat-layer" aria-hidden="true">
+              <span class="habitat-feature autism-grove"></span><span class="habitat-feature autism-pond"></span><span class="habitat-feature adhd-wildflowers"></span><span class="habitat-feature adhd-stream"></span>
+              <span class="creature autism-pet moon-bunny" title="Moon bunny">🐇</span>
+              <span class="creature autism-pet quiet-deer" title="Quiet deer">🦌</span>
+              <span class="creature autism-pet woolly-sheep" title="Woolly sheep">🐑</span>
+              <span class="creature adhd-pet spark-dragon" title="Spark dragon">🐉</span>
+              <span class="creature adhd-pet trail-fox" title="Trail fox">🦊</span>
+              <span class="creature adhd-pet meadow-cow" title="Meadow cow">🐄</span>
+              <span class="creature village-bird bird-one" title="Village bird">🕊️</span><span class="creature village-bird bird-two" title="Village bird">🦜</span>
+              <span class="villager walker-one" title="Village visitor">🚶</span><span class="villager walker-two" title="Village visitor">🚶‍♀️</span>
+            </div>
             <button class="island-label autism" data-island="autism"><span class="island-dot"></span><span><small data-i18n="quietGardens">Quiet gardens</small><strong data-i18n="autismIsland">Autism Island</strong></span><span aria-hidden="true">→</span></button>
             <button class="island-label adhd" data-island="adhd"><span class="island-dot"></span><span><small data-i18n="momentumTrails">Momentum trails</small><strong data-i18n="adhdIsland">ADHD Island</strong></span><span aria-hidden="true">→</span></button>
             <div id="building-layer"></div>
@@ -141,7 +152,7 @@
 
         <section class="village-footer-cards" aria-label="Village status">
           <article><span class="mini-icon">↻</span><div><strong id="resource-count" data-i18n="resourcesLoading">Loading resources…</strong><small id="resource-source" data-i18n="resourcesChecking">Checking the live database</small></div><button data-action="refresh-resources" data-i18n="refresh">Refresh</button></article>
-          <article><span class="mini-icon warm">✓</span><div><strong data-i18n="personalReady">Your personal record is ready</strong><small data-i18n="personalMatch">JA uses it only to improve matching</small></div><button data-action="open-profile" data-i18n="view">View</button></article>
+          <article><span class="mini-icon warm">✓</span><div><strong data-i18n="personalReady">Your personal record is ready</strong><small data-i18n="personalMatch">Waffles uses it only to improve matching</small></div><button data-action="open-profile" data-i18n="view">View</button></article>
         </section>
       </main>
 
@@ -151,9 +162,9 @@
       </aside>
       <button id="panel-scrim" class="panel-scrim" data-action="close-panel" aria-label="Close panel"></button>
 
-      <button id="mori-dock" class="mori-dock" data-action="open-mori" aria-label="Open JA resource guide">
+      <button id="mori-dock" class="mori-dock" data-action="open-mori" aria-label="Open Waffles resource guide">
         <span class="capy-avatar"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></span>
-        <span><small data-i18n="jaGuide">JA · AI guide</small><strong data-i18n="jaReady">I’m here when you’re ready.</strong></span><span class="dock-arrow">↑</span>
+        <span><small data-i18n="jaGuide">Waffles · AI guide</small><strong data-i18n="jaReady">I’m here when you’re ready.</strong></span><span class="dock-arrow">↑</span>
       </button>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>

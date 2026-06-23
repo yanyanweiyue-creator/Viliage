@@ -5,12 +5,14 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const DATA_DIR = join(ROOT, "data");
-const USERS_FILE = join(DATA_DIR, "users.json");
+const USERS_FILE = process.env.USERS_FILE || join(DATA_DIR, "users.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
+const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
 const sessions = new Map();
@@ -30,6 +32,20 @@ const mimeTypes = {
 };
 
 await mkdir(DATA_DIR, { recursive: true });
+
+async function loadScoringConfig() {
+  try {
+    const saved = JSON.parse(await readFile(SCORING_CONFIG_FILE, "utf8"));
+    return {
+      version: saved.version || DEFAULT_SCORE_CONFIG.version,
+      weights: { ...DEFAULT_SCORE_CONFIG.weights, ...(saved.weights || {}) },
+      limits: { ...DEFAULT_SCORE_CONFIG.limits, ...(saved.limits || {}) }
+    };
+  } catch (error) {
+    console.warn(`Scoring configuration fallback: ${error.message}`);
+    return DEFAULT_SCORE_CONFIG;
+  }
+}
 
 function sendJson(res, status, value, headers = {}) {
   res.writeHead(status, {
@@ -151,6 +167,7 @@ export function normalizeSheetRows(table) {
     const index = columns.has(label.toLowerCase()) ? columns.get(label.toLowerCase()) : fallbackIndex;
     return values[index] || "";
   };
+  const valuesAt = (values, labels) => labels.map((label) => valueAt(values, label, -1)).filter(Boolean);
 
   return (table.rows || [])
     .map((row) => {
@@ -163,20 +180,23 @@ export function normalizeSheetRows(table) {
         .flatMap((value) => value.split(/[,;/]/))
         .map((value) => value.trim())
         .filter(Boolean);
-      const tags = ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"]
-        .map((label, index) => valueAt(values, label, index + 6))
-        .filter(Boolean);
+      const tags = ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"].map((label, index) => valueAt(values, label, index + 6)).filter(Boolean);
       const locations = ["Location1", "Location2", "Location3", "Location4"]
         .map((label, index) => valueAt(values, label, index + 12))
         .filter(Boolean);
+      const issues = valuesAt(values, ["Issues", "Issue", "Issue1", "Issue2", "Issue3", "Issue4"])
+        .flatMap((value) => value.split(/[,;/]/))
+        .map((value) => value.trim())
+        .filter(Boolean);
       return {
         url,
-        name: deriveName(description, url),
+        name: valueAt(values, "Resource Name", -1) || valueAt(values, "Name", -1) || deriveName(description, url),
         description,
         diagnosis,
         categories: categories.length ? categories : ["Education"],
         age: valueAt(values, "Age", 5) || "All ages",
         tags,
+        issues,
         location: locations[0] || "See website",
         price: valueAt(values, "Price", 17) || "See website"
       };
@@ -304,23 +324,58 @@ function profileSummary(responses = {}) {
   return `Exploring ${interests}. Age group: ${responses.age || "not specified"}. Journey: ${responses.journey || "not specified"}. Current situation: ${situation}. ${responses.note ? `Priority: ${responses.note}` : ""}`.trim();
 }
 
-function scoreResource(resource, topic, profile, description) {
-  const haystack = [resource.name, resource.description, resource.diagnosis, ...(resource.categories || []), ...(resource.tags || []), resource.age]
-    .join(" ")
-    .toLowerCase();
-  const needles = [topic, description, profile?.responses?.age, ...(profile?.responses?.interests || []), ...(profile?.responses?.situation || [])]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .split(/[^a-z0-9+]+/)
-    .filter((word) => word.length > 2);
-  return needles.reduce((score, word) => score + (haystack.includes(word) ? 2 : 0), 0) +
-    ((resource.categories || []).some((category) => category.toLowerCase().includes(String(topic).toLowerCase())) ? 5 : 0);
-}
-
 function deterministicAnswer(topic, description, matches) {
   const names = matches.slice(0, 3).map((item) => item.name).join(", ");
-  return `I found ${matches.length} promising ${topic.toLowerCase()} resources for “${description}”. Start with ${names}. I matched these against the live resource database when available; please confirm eligibility, cost, and current availability directly with each provider.`;
+  return `Waffles found ${matches.length} promising ${topic.toLowerCase()} resources for “${description}”. Start with ${names}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+}
+
+function responseText(data) {
+  return (data.output || [])
+    .flatMap((item) => item.content || [])
+    .filter((part) => part.type === "output_text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
+
+async function expandKeywordsWithAI({ topic, description, profile, directKeywords, limit }) {
+  const key = process.env.OPENAI_API_KEY;
+  const fallback = heuristicKeywordExpansion(directKeywords, limit);
+  if (!key) return { keywords: fallback, ai: false };
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-5.5",
+        reasoning: { effort: "low" },
+        text: {
+          verbosity: "low",
+          format: {
+            type: "json_schema",
+            name: "keyword_expansion",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: { keywords: { type: "array", items: { type: "string" }, maxItems: limit } },
+              required: ["keywords"],
+              additionalProperties: false
+            }
+          }
+        },
+        instructions: "Suggest only short search synonyms, related resource tags, category terms, and common alternative phrases. Do not answer the user or add sensitive inferences. Avoid duplicates and keep phrases under five words.",
+        input: JSON.stringify({ topic, query: description, personalRecord: profile?.summary || "", directKeywords })
+      }),
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!response.ok) throw new Error(`keyword expansion returned ${response.status}`);
+    const parsed = JSON.parse(responseText(await response.json()) || "{}");
+    const keywords = extractKeywords(parsed.keywords || [], limit).filter((keyword) => !directKeywords.includes(keyword));
+    return { keywords: [...new Set([...keywords, ...fallback])].slice(0, limit), ai: true };
+  } catch (error) {
+    console.warn(`AI keyword expansion fallback: ${error.message}`);
+    return { keywords: fallback, ai: false };
+  }
 }
 
 async function callOpenAI({ topic, description, profile, matches }) {
@@ -330,7 +385,7 @@ async function callOpenAI({ topic, description, profile, matches }) {
     topic,
     userDescription: description,
     personalRecord: profile?.summary || "No personal record available",
-    candidateResources: matches.map(({ name, description: detail, url, age, location, price, tags }) => ({ name, detail, url, age, location, price, tags }))
+    candidateResources: matches.map(({ name, description: detail, url, age, location, price, tags, score, explanation }) => ({ name, detail, url, age, location, price, tags, score, explanation }))
   };
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -339,19 +394,14 @@ async function callOpenAI({ topic, description, profile, matches }) {
       model: process.env.OPENAI_MODEL || "gpt-5.5",
       reasoning: { effort: "low" },
       text: { verbosity: "low" },
-      instructions: "You are JA, a warm capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top 2–4 options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words.",
+      instructions: "You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Treat their score explanations as ranking evidence. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words.",
       input: JSON.stringify(input)
     }),
     signal: AbortSignal.timeout(30_000)
   });
   if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
   const data = await response.json();
-  return (data.output || [])
-    .flatMap((item) => item.content || [])
-    .filter((part) => part.type === "output_text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
+  return responseText(data);
 }
 
 async function syncUserRecord(user) {
@@ -394,6 +444,11 @@ async function updateUser(userId, updater) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     return sendJson(res, 200, { ok: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL) });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/scoring-config") {
+    const config = await loadScoringConfig();
+    return sendJson(res, 200, { version: config.version, weights: config.weights, limits: config.limits });
   }
 
   if (req.method === "GET" && url.pathname === "/api/environment") {
@@ -458,14 +513,15 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", description = "" } = await readJsonBody(req);
-    if (String(description).trim().length < 8) return sendError(res, 400, "Tell JA a little more so the recommendations can be useful.");
+    const { topic = "Education", description = "", count } = await readJsonBody(req);
+    if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     const { rows, source } = await getResources();
-    const matches = rows
-      .map((resource) => ({ ...resource, score: scoreResource(resource, topic, user.profile, description) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6)
-      .map(({ score, ...resource }) => resource);
+    const config = await loadScoringConfig();
+    const profileInputs = [user.profile?.responses?.age, ...(user.profile?.responses?.interests || []), ...(user.profile?.responses?.situation || []), user.profile?.responses?.note];
+    const directKeywords = extractKeywords([topic, description, ...profileInputs], config.limits.maximumDirectKeywords);
+    const expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords, limit: config.limits.maximumSuggestedKeywords });
+    const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
+    const matches = rankResources(rows, { directKeywords, suggestedKeywords: expanded.keywords, issuePreferences, count, config });
     let answer;
     let ai = false;
     try {
@@ -479,7 +535,15 @@ async function handleApi(req, res, url) {
     const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
     let sync = { synced: false };
     try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return sendJson(res, 200, { answer, resources: matches.slice(0, 4), source, ai, sync });
+    return sendJson(res, 200, {
+      answer,
+      resources: matches,
+      source,
+      ai,
+      keywordExpansion: { ai: expanded.ai, suggested: expanded.keywords },
+      scoring: { version: config.version, minimumScore: config.limits.minimumScore },
+      sync
+    });
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {
@@ -526,6 +590,6 @@ export function createAppServer() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT || 4173);
   createAppServer().listen(port, "127.0.0.1", () => {
-    console.log(`Capy Village is running at http://127.0.0.1:${port}`);
+    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
   });
 }

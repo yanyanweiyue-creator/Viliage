@@ -2,10 +2,12 @@ import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { unlink } from "node:fs/promises";
 import { createServer as createHttpServer, request } from "node:http";
-import { fileURLToPath } from "node:url";
-import { createAppServer } from "../server.mjs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
-const usersFile = fileURLToPath(new URL("../data/users.json", import.meta.url));
+const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
+process.env.USERS_FILE = usersFile;
+const { createAppServer } = await import("../server.mjs");
 after(async () => { await unlink(usersFile).catch(() => {}); });
 
 function httpRequest(url, options = {}) {
@@ -31,7 +33,7 @@ test("health endpoint and homepage are available", async () => {
     assert.equal(typeof health.openaiConfigured, "boolean");
 
     const homepage = (await httpRequest(`http://127.0.0.1:${port}/`)).text;
-    assert.match(homepage, /Capy Village/);
+    assert.match(homepage, /It Takes a Village/);
     assert.match(homepage, /auth-form/);
   } finally {
     server.closeAllConnections();

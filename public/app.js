@@ -19,7 +19,8 @@ const state = {
   settings: loadSavedSettings(),
   environment: null,
   environmentTimer: null,
-  environmentRefreshTimer: null
+  environmentRefreshTimer: null,
+  audio: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -27,63 +28,190 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
 const i18n = {
   en: {
-    begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and JA can help make any topic feel more manageable.", choosePath: "Choose your own path",
+    begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and Waffles can help make any topic feel more manageable.", choosePath: "Choose your own path",
     village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Select an island, then choose a building",
     quietGardens: "Quiet gardens", momentumTrails: "Momentum trails", autismIsland: "Autism Island", adhdIsland: "ADHD Island",
-    resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "JA uses it only to improve matching", view: "View", refresh: "Refresh",
-    jaGuide: "JA · AI guide", jaReady: "I’m here when you’re ready.",
+    resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", view: "View", refresh: "Refresh",
+    jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
-    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.",
+    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", animalVolume: "Animals", soundHint: "Weather and environment stay prominent; animal calls remain gentler.",
     support: "Support", settings: "Settings", education: "Education", legal: "Legal", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
-    aiEyebrow: "JA · Personalized resource matching", aiHello: "Hi, I’m JA.", aiExplain: "I’ll use your personal record, this building’s topic, and the resource database—never made-up links.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "JA is checking the village…", aiDisclaimer: "JA provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.",
-    recordTitle: "My personal record", recordIntro: "This record helps JA choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
+    aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used",
+    recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
     sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
     environmentFinding: "Finding your local sky…", environmentUnavailable: "Local weather unavailable", approximateIp: "Approx. by IP · Open-Meteo",
     spring: "Spring", summer: "Summer", autumn: "Autumn", winter: "Winter",
     weatherClear: "Clear", weatherCloudy: "Cloudy", weatherFog: "Foggy", weatherRain: "Rain", weatherSnow: "Snow", weatherStorm: "Thunderstorm", weatherRefresh: "Refresh local weather"
   },
   zh: {
-    begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——JA 会帮你把每个主题都变得更容易理解。", choosePath: "选择你自己的路径",
+    begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——Waffles 会帮你把每个主题都变得更容易理解。", choosePath: "选择你自己的路径",
     village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "先选择一座岛，再选择一栋建筑",
     quietGardens: "安静花园", momentumTrails: "活力小径", autismIsland: "自闭症岛", adhdIsland: "ADHD 岛",
-    resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "JA 只用它来改善资源匹配", view: "查看", refresh: "刷新",
-    jaGuide: "JA · AI 向导", jaReady: "准备好时，我就在这里。",
+    resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", view: "查看", refresh: "刷新",
+    jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
-    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。",
+    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", animalVolume: "动物", soundHint: "天气与环境声较明显，动物声保持轻柔。",
     support: "支持", settings: "设置", education: "教育", legal: "法律", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
-    aiEyebrow: "JA · 个性化资源匹配", aiHello: "你好，我是 JA。", aiExplain: "我会结合你的个人记录、建筑主题和资源数据库，不会编造链接。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "JA 正在查找村庄资源…", aiDisclaimer: "JA 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。",
-    recordTitle: "我的个人记录", recordIntro: "这份记录帮助 JA 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
+    aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词",
+    recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
     sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
     environmentFinding: "正在寻找你当地的天空…", environmentUnavailable: "暂时无法获取当地天气", approximateIp: "IP 大致位置 · Open-Meteo",
     spring: "春季", summer: "夏季", autumn: "秋季", winter: "冬季",
     weatherClear: "晴朗", weatherCloudy: "多云", weatherFog: "有雾", weatherRain: "下雨", weatherSnow: "下雪", weatherStorm: "雷雨", weatherRefresh: "刷新当地天气"
   },
   es: {
-    begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; JA puede hacer que cada tema sea más manejable.", choosePath: "Elige tu propio camino",
+    begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; Waffles puede hacer que cada tema sea más manejable.", choosePath: "Elige tu propio camino",
     village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Elige una isla y luego un edificio",
     quietGardens: "Jardines tranquilos", momentumTrails: "Senderos activos", autismIsland: "Isla Autismo", adhdIsland: "Isla TDAH",
-    resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "JA lo usa solo para mejorar las coincidencias", view: "Ver", refresh: "Actualizar",
-    jaGuide: "JA · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
+    resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", view: "Ver", refresh: "Actualizar",
+    jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
-    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.",
+    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", animalVolume: "Animales", soundHint: "El clima y el ambiente son más presentes; los animales se mantienen suaves.",
     support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
-    aiEyebrow: "JA · Recursos personalizados", aiHello: "Hola, soy JA.", aiExplain: "Usaré tu registro, el tema y la base de recursos; nunca inventaré enlaces.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "JA está buscando recursos…", aiDisclaimer: "JA orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.",
-    recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a JA a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
+    aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados",
+    recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
     sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
     environmentFinding: "Buscando tu cielo local…", environmentUnavailable: "Clima local no disponible", approximateIp: "Ubicación aproximada por IP · Open-Meteo",
     spring: "Primavera", summer: "Verano", autumn: "Otoño", winter: "Invierno",
     weatherClear: "Despejado", weatherCloudy: "Nublado", weatherFog: "Niebla", weatherRain: "Lluvia", weatherSnow: "Nieve", weatherStorm: "Tormenta", weatherRefresh: "Actualizar el clima local"
   }
 };
+
+class VillageAudio {
+  constructor() {
+    this.context = null;
+    this.master = null;
+    this.environmentGain = null;
+    this.animalGain = null;
+    this.environmentNodes = [];
+    this.animalTimer = null;
+    this.weather = "clear";
+  }
+
+  createNoiseBuffer() {
+    const length = this.context.sampleRate * 2;
+    const buffer = this.context.createBuffer(1, length, this.context.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for (let index = 0; index < length; index += 1) {
+      const white = Math.random() * 2 - 1;
+      last = last * .965 + white * .035;
+      data[index] = last * 3.2;
+    }
+    return buffer;
+  }
+
+  async enable() {
+    if (!this.context) {
+      this.context = new (window.AudioContext || window.webkitAudioContext)();
+      this.master = this.context.createGain();
+      this.environmentGain = this.context.createGain();
+      this.animalGain = this.context.createGain();
+      this.environmentGain.connect(this.master);
+      this.animalGain.connect(this.master);
+      this.master.connect(this.context.destination);
+      this.noiseBuffer = this.createNoiseBuffer();
+    }
+    await this.context.resume();
+    this.restartEnvironment();
+    this.scheduleAnimal();
+    this.applySettings();
+  }
+
+  stopEnvironment() {
+    this.environmentNodes.forEach((node) => { try { node.stop?.(); } catch {} try { node.disconnect?.(); } catch {} });
+    this.environmentNodes = [];
+  }
+
+  restartEnvironment() {
+    if (!this.context || this.context.state !== "running") return;
+    this.stopEnvironment();
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const texture = this.context.createGain();
+    source.buffer = this.noiseBuffer;
+    source.loop = true;
+    const presets = {
+      clear: ["lowpass", 540, .035], cloudy: ["lowpass", 420, .055], fog: ["lowpass", 260, .075],
+      rain: ["highpass", 850, .2], snow: ["lowpass", 320, .035], storm: ["bandpass", 480, .28]
+    };
+    const [type, frequency, level] = presets[this.weather] || presets.clear;
+    filter.type = type;
+    filter.frequency.value = frequency;
+    texture.gain.value = level;
+    source.connect(filter).connect(texture).connect(this.environmentGain);
+    source.start();
+    this.environmentNodes.push(source, filter, texture);
+    if (this.weather === "storm") {
+      const rumble = this.context.createOscillator();
+      const rumbleGain = this.context.createGain();
+      rumble.type = "sine";
+      rumble.frequency.value = 42;
+      rumbleGain.gain.value = .035;
+      rumble.connect(rumbleGain).connect(this.environmentGain);
+      rumble.start();
+      this.environmentNodes.push(rumble, rumbleGain);
+    }
+  }
+
+  animalCall() {
+    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
+    const adhd = state.selectedIsland === "adhd";
+    const now = this.context.currentTime;
+    const notes = adhd ? [150, 210, 280] : [740, 940, 820];
+    notes.forEach((frequency, index) => {
+      const oscillator = this.context.createOscillator();
+      const gain = this.context.createGain();
+      oscillator.type = adhd ? "triangle" : "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + index * .16);
+      oscillator.frequency.exponentialRampToValueAtTime(frequency * (adhd ? .72 : 1.08), now + index * .16 + .28);
+      gain.gain.setValueAtTime(.0001, now + index * .16);
+      gain.gain.exponentialRampToValueAtTime(.035, now + index * .16 + .04);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + index * .16 + .32);
+      oscillator.connect(gain).connect(this.animalGain);
+      oscillator.start(now + index * .16);
+      oscillator.stop(now + index * .16 + .34);
+    });
+  }
+
+  scheduleAnimal() {
+    clearTimeout(this.animalTimer);
+    if (!state.settings.soundEnabled) return;
+    this.animalTimer = setTimeout(() => {
+      this.animalCall();
+      this.scheduleAnimal();
+    }, 9000 + Math.random() * 9000);
+  }
+
+  setWeather(kind) {
+    if (kind === this.weather) return;
+    this.weather = kind;
+    this.restartEnvironment();
+  }
+
+  applySettings() {
+    if (!this.context) return;
+    const enabled = Boolean(state.settings.soundEnabled);
+    const calmScale = state.settings.calm ? .55 : 1;
+    const now = this.context.currentTime;
+    this.master.gain.setTargetAtTime(enabled ? Number(state.settings.masterVolume ?? .35) : 0, now, .08);
+    this.environmentGain.gain.setTargetAtTime(Number(state.settings.environmentVolume ?? .65) * calmScale, now, .08);
+    this.animalGain.gain.setTargetAtTime(Number(state.settings.animalVolume ?? .22) * calmScale, now, .08);
+    if (!enabled) clearTimeout(this.animalTimer);
+    else this.scheduleAnimal();
+  }
+}
+
+state.audio = new VillageAudio();
 
 function t(key) {
   const language = state.settings.language || "en";
@@ -208,6 +336,7 @@ function selectIsland(island) {
   stage.classList.add(`focus-${island}`);
   $("#reset-map").classList.remove("hidden");
   $(".map-hint").textContent = `${t("selectIsland")} · ${island === "autism" ? t("autismIsland") : t("adhdIsland")}`;
+  state.audio?.scheduleAnimal();
 }
 
 function resetMap() {
@@ -260,7 +389,12 @@ function settingsPanel() {
       <div class="setting-group"><strong>${escapeHtml(t("language"))}</strong><div class="setting-options">
         ${[["en","English"],["zh","中文"],["es","Español"]].map(([value,label]) => `<button type="button" aria-pressed="${String((current.language || "en") === value)}" class="setting-option ${(current.language || "en") === value ? "active" : ""}" data-setting="language" data-value="${value}">${label}</button>`).join("")}
       </div></div>
-      <div class="setting-group"><strong>${escapeHtml(t("motion"))}</strong><button type="button" class="secondary-button" data-action="toggle-calm">${escapeHtml(document.body.classList.contains("low-stimulation") ? t("useStandard") : t("useLow"))}</button></div>`
+      <div class="setting-group"><strong>${escapeHtml(t("motion"))}</strong><button type="button" class="secondary-button" data-action="toggle-calm">${escapeHtml(document.body.classList.contains("low-stimulation") ? t("useStandard") : t("useLow"))}</button></div>
+      <div class="setting-group sound-settings"><div class="sound-heading"><strong>${escapeHtml(t("sound"))}</strong><span class="sound-status">${escapeHtml(current.soundEnabled ? t("soundOn") : t("soundOff"))}</span></div>
+        <button type="button" class="secondary-button sound-toggle" data-action="toggle-sound">${escapeHtml(current.soundEnabled ? t("muteSound") : t("enableSound"))}</button>
+        ${[["masterVolume",t("masterVolume"),current.masterVolume ?? .35],["environmentVolume",t("environmentVolume"),current.environmentVolume ?? .65],["animalVolume",t("animalVolume"),current.animalVolume ?? .22]].map(([key,label,value]) => `<label class="volume-control"><span>${escapeHtml(label)}</span><output>${Math.round(Number(value) * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${Number(value)}" data-volume="${key}" aria-label="${escapeHtml(label)}" /></label>`).join("")}
+        <small>${escapeHtml(t("soundHint"))}</small>
+      </div>`
   });
 }
 
@@ -278,11 +412,11 @@ function aiPanel(topic = "Education") {
   state.currentTopic = topic;
   const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : "For example: I’m looking for executive-function support for a middle-school student…";
   openPanel({
-    title: `${t(topic === "Legal" ? "legal" : "education")} · JA`,
+    title: `${t(topic === "Legal" ? "legal" : "education")} · Waffles`,
     eyebrow: t("aiEyebrow"),
     html: `<div class="ai-shell">
       <div class="mori-stage"><div class="mori-character" id="mori-character"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><div><h3>${escapeHtml(t("aiHello"))}</h3><p>${escapeHtml(t("aiExplain"))}</p></div></div>
-      <form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
+      <form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
       <div id="ai-results"></div>
       <p class="privacy-note">${escapeHtml(t("aiDisclaimer"))}</p>
     </div>`
@@ -292,7 +426,11 @@ function aiPanel(topic = "Education") {
 async function submitAi(event) {
   event.preventDefault();
   const formElement = event.target;
-  const description = new FormData(formElement).get("description");
+  const formData = new FormData(formElement);
+  const description = formData.get("description");
+  const count = Number(formData.get("count") || 5);
+  state.settings.resourceCount = count;
+  localStorage.setItem("capy-settings", JSON.stringify(state.settings));
   const button = formElement.querySelector("button[type='submit']");
   const character = $("#mori-character");
   button.disabled = true;
@@ -300,12 +438,13 @@ async function submitAi(event) {
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
-    const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify({ topic: state.currentTopic, description }) });
+    const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify({ topic: state.currentTopic, description, count }) });
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
     character?.classList.add("celebrate");
     setTimeout(() => character?.classList.remove("celebrate"), 1500);
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div><div class="card-list">${data.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(data.source)} · ${data.ai ? "AI-assisted explanation" : "Rule-based demo mode"}</p>`;
+    const expanded = data.keywordExpansion?.suggested || [];
+    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(data.source)} · scoring v${escapeHtml(data.scoring?.version || "1.0")} · ${data.keywordExpansion?.ai ? "AI-expanded keywords" : "local synonym expansion"}</p>`;
   } catch (error) {
     $("#ai-error").textContent = error.message;
     character?.classList.remove("thinking");
@@ -317,7 +456,8 @@ async function submitAi(event) {
 
 function resourceCard(resource) {
   const categories = [...(resource.categories || []), ...(resource.tags || [])].slice(0, 5);
-  return `<article class="resource-card"><h3>${escapeHtml(resource.name)}</h3><p>${escapeHtml(resource.description)}</p><div class="resource-meta"><span>${escapeHtml(resource.age || "All ages")}</span><span>${escapeHtml(resource.location || "See website")}</span><span>${escapeHtml(resource.price || "See website")}</span>${categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div><a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer">Visit resource ↗</a></article>`;
+  const reasons = resource.explanation || [];
+  return `<article class="resource-card"><div class="resource-heading"><h3>${escapeHtml(resource.name)}</h3><span class="score-badge">${escapeHtml(String(resource.score ?? 0))} pts</span></div><p>${escapeHtml(resource.description)}</p><div class="resource-meta"><span>${escapeHtml(resource.age || "All ages")}</span><span>${escapeHtml(resource.location || "See website")}</span><span>${escapeHtml(resource.price || "See website")}</span>${categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>${reasons.length ? `<details class="score-details"><summary>${escapeHtml(t("scoreWhy"))}</summary><ul>${reasons.map((reason) => `<li><b class="${reason.points < 0 ? "negative" : "positive"}">${reason.points > 0 ? "+" : ""}${escapeHtml(String(reason.points))}</b> ${escapeHtml(reason.label)} · “${escapeHtml(reason.keyword)}”</li>`).join("")}</ul></details>` : ""}<a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer">Visit resource ↗</a></article>`;
 }
 
 function profilePanel() {
@@ -345,7 +485,7 @@ function handleBuilding(id) {
 }
 
 function applySettings() {
-  state.settings = { fontSize: "normal", theme: "sage", language: "en", calm: false, ...state.settings };
+  state.settings = { fontSize: "normal", theme: "sage", language: "en", calm: false, soundEnabled: false, masterVolume: .35, environmentVolume: .65, animalVolume: .22, resourceCount: 5, ...state.settings };
   const { fontSize, theme, language, calm } = state.settings;
   const scales = { small: ".9", normal: "1", large: "1.12", xlarge: "1.25" };
   document.documentElement.style.setProperty("--font-scale", scales[fontSize] || "1");
@@ -360,6 +500,7 @@ function applySettings() {
   if ($("#building-layer")) renderBuildings();
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
   renderEnvironmentStatus();
+  state.audio?.applySettings();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
 
@@ -375,6 +516,24 @@ function toggleCalm() {
   applySettings();
   toast(t("settingsSaved"));
   if ($("#panel").classList.contains("open") && $("#panel-content [data-setting]")) settingsPanel();
+}
+
+async function toggleSound() {
+  state.settings.soundEnabled = !state.settings.soundEnabled;
+  if (state.settings.soundEnabled) {
+    try { await state.audio.enable(); } catch { state.settings.soundEnabled = false; toast("Audio is not available in this browser."); }
+  }
+  applySettings();
+  settingsPanel();
+  toast(state.settings.soundEnabled ? t("soundOn") : t("soundOff"));
+}
+
+function updateVolume(input) {
+  const value = Math.max(0, Math.min(1, Number(input.value)));
+  state.settings[input.dataset.volume] = value;
+  input.closest("label")?.querySelector("output")?.replaceChildren(`${Math.round(value * 100)}%`);
+  state.audio?.applySettings();
+  localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
 
 async function loadIntegrationStatus() {
@@ -529,6 +688,7 @@ function applyEnvironment(environment, available = true) {
   stage.classList.remove("season-spring", "season-summer", "season-autumn", "season-winter", "weather-clear", "weather-cloudy", "weather-fog", "weather-rain", "weather-snow", "weather-storm");
   stage.classList.add(`season-${season}`, `weather-${kind}`);
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
+  state.audio?.setWeather(kind);
   updateCelestialScene();
   clearInterval(state.environmentTimer);
   state.environmentTimer = setInterval(updateCelestialScene, 60_000);
@@ -567,6 +727,7 @@ async function logout() {
   state.user = null;
   clearInterval(state.environmentTimer);
   clearTimeout(state.environmentRefreshTimer);
+  state.audio?.context?.suspend().catch(() => {});
   closePanel();
   showScreen("auth");
   $("#auth-form").reset();
@@ -603,8 +764,14 @@ document.addEventListener("click", (event) => {
   if (action === "open-mori") aiPanel("Education");
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
+  if (action === "toggle-sound") toggleSound();
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
+});
+
+document.addEventListener("input", (event) => {
+  const volume = event.target.closest("[data-volume]");
+  if (volume) updateVolume(volume);
 });
 
 document.addEventListener("submit", (event) => {

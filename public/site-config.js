@@ -2,7 +2,7 @@
 // Replace URLs, text, image paths, and building coordinates here.
 window.CAPY_CONFIG = {
   brand: {
-    name: "Capy Village",
+    name: "It Takes a Village",
     eyebrow: "Your caregiver village",
     tagline: "A calmer way to find the next useful step."
   },
@@ -30,7 +30,7 @@ window.CAPY_CONFIG = {
   },
   activities: [
     { date: "Jul 12", title: "Quiet family picnic", meta: "Palo Alto · Low-stimulation area available", description: "A relaxed community meet-up with optional activities and a calm corner." },
-    { date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future Capy Village events and resource reviews." },
+    { date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future It Takes a Village events and resource reviews." },
     { date: "Aug 09", title: "IEP preparation workshop", meta: "San Jose · Free", description: "Bring your questions and leave with a one-page meeting plan." }
   ],
   buildings: [

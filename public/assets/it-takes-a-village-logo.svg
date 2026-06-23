@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 280" role="img" aria-labelledby="title desc">
+  <title id="title">it takes a village</title>
+  <desc id="desc">Warm terracotta wordmark with a small thatched village hut.</desc>
+  <g fill="#bf5527">
+    <path d="M135 78c8-29 28-47 54-47s49 17 58 47l-6 3H140z" fill="#7f371f"/>
+    <path d="M143 76h96v42h-96z" fill="#d66a35"/>
+    <path d="M153 78h10v40h-10zm21 0h7v40h-7zm37 0h8v40h-8zm18 0h6v40h-6z" fill="#8e3d24" opacity=".75"/>
+    <path d="M127 79h124l-8-13-12 3-10-14-14 7-14-20-14 13-15-8-9 15-18-3z" fill="#8f4125"/>
+    <circle cx="77" cy="95" r="10"/>
+    <text x="58" y="152" font-family="Arial, Helvetica, sans-serif" font-size="75" font-weight="500" letter-spacing="-5">it</text>
+    <text x="126" y="152" font-family="Arial, Helvetica, sans-serif" font-size="75" font-weight="500" letter-spacing="-5">takes a</text>
+    <text x="57" y="250" font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="500" letter-spacing="-9">village</text>
+  </g>
+</svg>
