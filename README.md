@@ -45,9 +45,11 @@ The placeholder scene was generated specifically for this prototype. Buildings a
 
 ## Google Sheet resource database
 
-The server reads this sheet through the public Google Visualization endpoint and refreshes its cache every 60 seconds:
+The server reads the selected worksheet through the public Google Visualization endpoint and refreshes its cache every 60 seconds:
 
-`1wC9NTW3gN38F00d6w_hnEL2lUPL09LlUN7gRqwca2bs`
+`https://docs.google.com/spreadsheets/d/1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0/edit?gid=1709372674`
+
+To switch databases later, set `RESOURCE_SHEET_ID` and `RESOURCE_SHEET_GID` in `.env`; no application-code change is required.
 
 Add rows beneath the existing headers and the app will pick them up automatically. Keep `URL`, description, `Diagnosis`, `Category`, `Age`, tag, `Location`, and `Price` columns. If the sheet becomes private, use a service account or an authenticated backend instead of exposing credentials to the browser.
 
@@ -76,7 +78,7 @@ Users have no activity-editing controls.
 
 ## Deployment notes
 
-This is a Node server, not a static-only site, because authentication, AI keys, and Google Sheet writes must remain server-side. Deploy it to a Node-capable host such as Render, Railway, Fly.io, or Cloud Run. Add `OPENAI_API_KEY`, `OPENAI_MODEL`, and `USER_SHEET_WEBHOOK_URL` as server secrets.
+This is a Node server, not a static-only site, because authentication, AI keys, and Google Sheet writes must remain server-side. Deploy it to a Node-capable host such as Render, Railway, Fly.io, or Cloud Run. Add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, and `USER_SHEET_WEBHOOK_URL` as server configuration.
 
 Before a real launch, replace the JSON user store and in-memory sessions with a managed database and durable session store, add email verification/password reset, configure HTTPS, and complete a privacy/security review for the data you collect.
 

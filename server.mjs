@@ -10,7 +10,8 @@ const PUBLIC_DIR = join(ROOT, "public");
 const DATA_DIR = join(ROOT, "data");
 const USERS_FILE = join(DATA_DIR, "users.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
-const RESOURCE_SHEET_ID = "1wC9NTW3gN38F00d6w_hnEL2lUPL09LlUN7gRqwca2bs";
+const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
@@ -139,33 +140,42 @@ function deriveName(description, url) {
   }
 }
 
-function normalizeSheetRows(table) {
+export function normalizeSheetRows(table) {
+  const columns = new Map(
+    (table.cols || []).map((column, index) => [String(column.label || column.id || "").trim().toLowerCase(), index])
+  );
+  const valueAt = (values, label, fallbackIndex) => {
+    const index = columns.has(label.toLowerCase()) ? columns.get(label.toLowerCase()) : fallbackIndex;
+    return values[index] || "";
+  };
+
   return (table.rows || [])
     .map((row) => {
       const values = (row.c || []).map(cellValue);
-      // This sheet's first displayed row contains several legacy resources packed
-      // into multi-line cells. Normal rows beneath it consistently use these
-      // positions, so positional parsing is both clearer and more reliable than
-      // the malformed GViz column labels.
-      const url = values[0] || "";
-      const description = values[1] || "";
-      const diagnosis = values[2] || "Both";
-      const categories = [values[3], values[4]]
+      const url = valueAt(values, "URL", 0);
+      const description = valueAt(values, "Description", 1);
+      const diagnosis = valueAt(values, "Diagnosis", 2) || "Both";
+      const categories = [valueAt(values, "Category1", 3), valueAt(values, "Category2", 4)]
         .filter(Boolean)
         .flatMap((value) => value.split(/[,;/]/))
         .map((value) => value.trim())
         .filter(Boolean);
-      const tags = values.slice(6, 11).filter(Boolean);
+      const tags = ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"]
+        .map((label, index) => valueAt(values, label, index + 6))
+        .filter(Boolean);
+      const locations = ["Location1", "Location2", "Location3", "Location4"]
+        .map((label, index) => valueAt(values, label, index + 12))
+        .filter(Boolean);
       return {
         url,
         name: deriveName(description, url),
         description,
         diagnosis,
-        categories: categories.length ? categories : [values[3] || "Education"],
-        age: values[5] || "All ages",
+        categories: categories.length ? categories : ["Education"],
+        age: valueAt(values, "Age", 5) || "All ages",
         tags,
-        location: values[13] || "See website",
-        price: values[17] || "See website"
+        location: locations[0] || "See website",
+        price: valueAt(values, "Price", 17) || "See website"
       };
     })
     .filter((row) => /^https?:\/\//.test(row.url || ""));
@@ -176,7 +186,7 @@ async function getResources(force = false) {
     return { rows: resourceCache.rows, source: "google-sheet-cache" };
   }
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${RESOURCE_SHEET_ID}/gviz/tq?tqx=out:json`;
+    const url = `https://docs.google.com/spreadsheets/d/${RESOURCE_SHEET_ID}/gviz/tq?tqx=out:json&gid=${encodeURIComponent(RESOURCE_SHEET_GID)}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error(`Sheet returned ${response.status}.`);
     const payload = stripGviz(await response.text());
