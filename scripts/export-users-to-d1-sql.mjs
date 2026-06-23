@@ -30,9 +30,7 @@ const statements = users.map((user) => {
 const output = [
   "-- Generated locally. Contains password hashes and user records; never commit this file.",
   "PRAGMA foreign_keys = ON;",
-  "BEGIN TRANSACTION;",
   ...statements,
-  "COMMIT;",
   ""
 ].join("\n");
 

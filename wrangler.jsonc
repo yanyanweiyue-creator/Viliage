@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "it-takes-a-village-db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_id": "23538456-fbc1-4e16-8c6b-b97e252de248",
       "migrations_dir": "migrations"
     }
   ],
