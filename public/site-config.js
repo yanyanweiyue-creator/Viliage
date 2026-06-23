@@ -33,6 +33,61 @@ window.CAPY_CONFIG = {
     { date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future It Takes a Village events and resource reviews." },
     { date: "Aug 09", title: "IEP preparation workshop", meta: "San Jose · Free", description: "Bring your questions and leave with a one-page meeting plan." }
   ],
+  ecosystem: {
+    // Every land route is deliberately drawn over one island. When the map art
+    // changes, adjust only these percentages; the movement engine stays intact.
+    routes: {
+      autismMeadow: [
+        { x: 11, y: 55 }, { x: 15, y: 66 }, { x: 22, y: 72 }, { x: 30, y: 66 },
+        { x: 37, y: 55 }, { x: 35, y: 43 }, { x: 28, y: 34 }, { x: 19, y: 39 }
+      ],
+      adhdMeadow: [
+        { x: 60, y: 43 }, { x: 66, y: 34 }, { x: 75, y: 34 }, { x: 84, y: 42 },
+        { x: 89, y: 56 }, { x: 83, y: 68 }, { x: 73, y: 69 }, { x: 64, y: 59 }
+      ],
+      villagePath: [
+        { x: 17, y: 44, building: "autism-support" }, { x: 29, y: 27, building: "autism-settings" },
+        { x: 39, y: 45, building: "autism-education" }, { x: 34, y: 64, building: "autism-activity" },
+        { x: 20, y: 65, building: "autism-legal" }, { x: 39, y: 63 }, { x: 45, y: 63 },
+        { x: 50, y: 63, bridge: true }, { x: 55, y: 63 }, { x: 61, y: 58 },
+        { x: 66, y: 54, building: "adhd-education" }, { x: 72, y: 70, building: "adhd-activity" },
+        { x: 81, y: 62, building: "adhd-legal" }, { x: 81, y: 41, building: "adhd-settings" },
+        { x: 66, y: 29, building: "adhd-support" }
+      ],
+      skyLoop: [
+        { x: 6, y: 24 }, { x: 25, y: 15 }, { x: 47, y: 22 }, { x: 70, y: 12 }, { x: 94, y: 25 }
+      ]
+    },
+    animals: [
+      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", emoji: "🐇", island: "autism", route: "autismMeadow", start: 0 },
+      { id: "quiet-deer", species: "deer", label: "Quiet deer", emoji: "🦌", island: "autism", route: "autismMeadow", start: 5 },
+      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", emoji: "🐑", island: "autism", route: "autismMeadow", start: 2, livestock: true, grazePoint: 3, waterPoint: 4 },
+      { id: "trail-fox", species: "fox", label: "Trail fox", emoji: "🦊", island: "adhd", route: "adhdMeadow", start: 2 },
+      { id: "meadow-cow", species: "cow", label: "Meadow cow", emoji: "🐄", island: "adhd", route: "adhdMeadow", start: 6, livestock: true, grazePoint: 7, waterPoint: 5 },
+      { id: "village-gull", species: "gull", label: "Village gull", emoji: "🕊️", island: "sky", route: "skyLoop", start: 1, flying: true },
+      { id: "songbird", species: "bird", label: "Songbird", emoji: "🐦", island: "sky", route: "skyLoop", start: 3, flying: true },
+      { id: "walker-one", species: "villager", label: "Village visitor", emoji: "🚶", island: "village", route: "villagePath", start: 0, villager: true, home: 1 },
+      { id: "walker-two", species: "villager", label: "Village visitor", emoji: "🚶‍♀️", island: "village", route: "villagePath", start: 7, villager: true, home: 10 },
+      { id: "walker-three", species: "villager", label: "Village visitor", emoji: "🚶‍♂️", island: "village", route: "villagePath", start: 13, villager: true, home: 13 }
+    ],
+    events: {
+      dragon: { emoji: "🐉", label: "Azure dawn dragon", probability: 0.12, dawnBeforeMinutes: 20, dawnAfterMinutes: 40 },
+      sunsetFlock: { count: 9, beforeMinutes: 8, afterMinutes: 6 }
+    },
+    timings: { grazeEveryMinutes: 5, drinkEveryMinutes: 10 },
+    audio: {
+      // Add owned/licensed day and night OGG/MP3 files here later. Empty values
+      // use the built-in gentle procedural score instead of failing silently.
+      music: { day: "", night: "" },
+      samples: {
+        cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
+        sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
+        gull: { src: "/audio/sfx/gull.ogg", volume: 0.34 },
+        deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
+      },
+      replacementNote: "Replace files or URLs in this manifest without changing the audio engine. See AUDIO_CREDITS.md."
+    }
+  },
   buildings: [
     { id: "autism-support", island: "autism", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 17, y: 42 },
     { id: "autism-settings", island: "autism", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 29, y: 25 },

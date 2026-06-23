@@ -1,3 +1,5 @@
+import { EcosystemController } from "./ecosystem-runtime.mjs";
+
 const config = window.CAPY_CONFIG;
 
 function loadSavedSettings() {
@@ -20,7 +22,8 @@ const state = {
   environment: null,
   environmentTimer: null,
   environmentRefreshTimer: null,
-  audio: null
+  audio: null,
+  ecosystem: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -35,7 +38,7 @@ const i18n = {
     jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
-    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", animalVolume: "Animals", soundHint: "Weather and environment stay prominent; animal calls remain gentler.",
+    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.",
     support: "Support", settings: "Settings", education: "Education", legal: "Legal", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
@@ -54,7 +57,7 @@ const i18n = {
     jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
-    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", animalVolume: "动物", soundHint: "天气与环境声较明显，动物声保持轻柔。",
+    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。",
     support: "支持", settings: "设置", education: "教育", legal: "法律", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
@@ -73,7 +76,7 @@ const i18n = {
     jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
-    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", animalVolume: "Animales", soundHint: "El clima y el ambiente son más presentes; los animales se mantienen suaves.",
+    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.",
     support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
@@ -91,10 +94,16 @@ class VillageAudio {
     this.context = null;
     this.master = null;
     this.environmentGain = null;
+    this.musicGain = null;
     this.animalGain = null;
     this.environmentNodes = [];
+    this.musicNodes = [];
+    this.musicTimer = null;
     this.animalTimer = null;
     this.weather = "clear";
+    this.isDay = true;
+    this.buffers = new Map();
+    this.bufferPromise = null;
   }
 
   createNoiseBuffer() {
@@ -115,16 +124,32 @@ class VillageAudio {
       this.context = new (window.AudioContext || window.webkitAudioContext)();
       this.master = this.context.createGain();
       this.environmentGain = this.context.createGain();
+      this.musicGain = this.context.createGain();
       this.animalGain = this.context.createGain();
       this.environmentGain.connect(this.master);
+      this.musicGain.connect(this.master);
       this.animalGain.connect(this.master);
       this.master.connect(this.context.destination);
       this.noiseBuffer = this.createNoiseBuffer();
     }
     await this.context.resume();
+    await this.loadBuffers();
     this.restartEnvironment();
+    this.restartMusic();
     this.scheduleAnimal();
     this.applySettings();
+  }
+
+  async loadBuffers() {
+    if (this.bufferPromise) return this.bufferPromise;
+    const sampleEntries = Object.entries(config.ecosystem?.audio?.samples || {}).map(([key, item]) => [key, item.src]);
+    const musicEntries = Object.entries(config.ecosystem?.audio?.music || {}).filter(([, url]) => url).map(([key, url]) => [`music-${key}`, url]);
+    this.bufferPromise = Promise.allSettled([...sampleEntries, ...musicEntries].map(async ([key, url]) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Audio ${key} returned ${response.status}`);
+      this.buffers.set(key, await this.context.decodeAudioData(await response.arrayBuffer()));
+    }));
+    return this.bufferPromise;
   }
 
   stopEnvironment() {
@@ -163,24 +188,79 @@ class VillageAudio {
     }
   }
 
-  animalCall() {
-    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
-    const adhd = state.selectedIsland === "adhd";
+  playBuffer(buffer, destination, volume = .3, maximumDuration = null) {
+    if (!buffer) return false;
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    source.buffer = buffer;
+    gain.gain.value = volume;
+    source.connect(gain).connect(destination);
+    source.start(0, 0, maximumDuration || buffer.duration);
+    return true;
+  }
+
+  chirp(frequencies, { type = "sine", level = .025, duration = .28, gap = .13 } = {}) {
     const now = this.context.currentTime;
-    const notes = adhd ? [150, 210, 280] : [740, 940, 820];
-    notes.forEach((frequency, index) => {
+    frequencies.forEach((frequency, index) => {
       const oscillator = this.context.createOscillator();
       const gain = this.context.createGain();
-      oscillator.type = adhd ? "triangle" : "sine";
-      oscillator.frequency.setValueAtTime(frequency, now + index * .16);
-      oscillator.frequency.exponentialRampToValueAtTime(frequency * (adhd ? .72 : 1.08), now + index * .16 + .28);
-      gain.gain.setValueAtTime(.0001, now + index * .16);
-      gain.gain.exponentialRampToValueAtTime(.035, now + index * .16 + .04);
-      gain.gain.exponentialRampToValueAtTime(.0001, now + index * .16 + .32);
+      const start = now + index * gap;
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, start);
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(40, frequency * 1.06), start + duration);
+      gain.gain.setValueAtTime(.0001, start);
+      gain.gain.exponentialRampToValueAtTime(level, start + .035);
+      gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
       oscillator.connect(gain).connect(this.animalGain);
-      oscillator.start(now + index * .16);
-      oscillator.stop(now + index * .16 + .34);
+      oscillator.start(start);
+      oscillator.stop(start + duration + .02);
     });
+  }
+
+  noiseGesture({ frequency = 700, level = .04, duration = .55, type = "bandpass" } = {}) {
+    const now = this.context.currentTime;
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    source.buffer = this.noiseBuffer;
+    filter.type = type;
+    filter.frequency.setValueAtTime(frequency, now);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(80, frequency * .38), now + duration);
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(level, now + .06);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + duration);
+    source.connect(filter).connect(gain).connect(this.animalGain);
+    source.start(now);
+    source.stop(now + duration + .03);
+  }
+
+  synthesizeSpecies(species) {
+    const profiles = {
+      rabbit: () => this.chirp([890, 1120], { level: .012, duration: .16, gap: .1 }),
+      fox: () => { this.noiseGesture({ frequency: 1050, level: .022, duration: .22 }); this.chirp([310], { type: "triangle", level: .02, duration: .24 }); },
+      bird: () => this.chirp([1320, 1680, 1510], { level: .014, duration: .16, gap: .11 }),
+      villager: () => this.chirp([92, 82], { type: "sine", level: .012, duration: .12, gap: .24 }),
+      dragon: () => this.noiseGesture({ frequency: 1800, level: .11, duration: 1.8, type: "highpass" }),
+      capybara: () => this.chirp([420, 560, 470], { type: "triangle", level: .026, duration: .2, gap: .14 }),
+      cow: () => this.chirp([105, 92], { type: "sawtooth", level: .012, duration: .6, gap: .22 }),
+      sheep: () => this.chirp([390, 330], { type: "triangle", level: .018, duration: .34, gap: .17 }),
+      deer: () => this.chirp([220, 180], { type: "sine", level: .016, duration: .42, gap: .18 }),
+      gull: () => this.chirp([720, 610, 760], { type: "triangle", level: .016, duration: .2, gap: .14 })
+    };
+    (profiles[species] || profiles.bird)();
+  }
+
+  playAnimal(species) {
+    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
+    const sample = config.ecosystem?.audio?.samples?.[species];
+    if (sample && this.playBuffer(this.buffers.get(species), this.animalGain, Number(sample.volume || .3), species === "gull" ? 5.8 : null)) return;
+    this.synthesizeSpecies(species);
+  }
+
+  animalCall() {
+    const species = state.ecosystem?.audibleSpecies(state.selectedIsland) || ["bird"];
+    if (!species.length) return;
+    this.playAnimal(species[Math.floor(Math.random() * species.length)]);
   }
 
   scheduleAnimal() {
@@ -198,6 +278,58 @@ class VillageAudio {
     this.restartEnvironment();
   }
 
+  stopMusic() {
+    clearTimeout(this.musicTimer);
+    this.musicTimer = null;
+    this.musicNodes.forEach((node) => { try { node.stop?.(); } catch {} try { node.disconnect?.(); } catch {} });
+    this.musicNodes = [];
+  }
+
+  proceduralMusicPhrase() {
+    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
+    const now = this.context.currentTime;
+    const scale = this.isDay ? [261.63, 329.63, 392, 523.25] : [196, 246.94, 293.66, 392];
+    scale.forEach((frequency, index) => {
+      const oscillator = this.context.createOscillator();
+      const gain = this.context.createGain();
+      const start = now + index * 1.18;
+      oscillator.type = this.isDay ? "sine" : "triangle";
+      oscillator.frequency.value = frequency * (index === 3 ? .5 : 1);
+      gain.gain.setValueAtTime(.0001, start);
+      gain.gain.exponentialRampToValueAtTime(this.isDay ? .022 : .014, start + .18);
+      gain.gain.exponentialRampToValueAtTime(.0001, start + 1.8);
+      oscillator.connect(gain).connect(this.musicGain);
+      oscillator.start(start);
+      oscillator.stop(start + 1.85);
+      this.musicNodes.push(oscillator, gain);
+    });
+    this.musicTimer = setTimeout(() => this.proceduralMusicPhrase(), this.isDay ? 7200 : 8800);
+  }
+
+  restartMusic() {
+    if (!this.context || this.context.state !== "running") return;
+    this.stopMusic();
+    const key = `music-${this.isDay ? "day" : "night"}`;
+    const buffer = this.buffers.get(key);
+    if (buffer) {
+      const source = this.context.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      source.connect(this.musicGain);
+      source.start();
+      this.musicNodes.push(source);
+      return;
+    }
+    this.proceduralMusicPhrase();
+  }
+
+  setDay(isDay) {
+    const next = Boolean(isDay);
+    if (next === this.isDay) return;
+    this.isDay = next;
+    this.restartMusic();
+  }
+
   applySettings() {
     if (!this.context) return;
     const enabled = Boolean(state.settings.soundEnabled);
@@ -205,13 +337,21 @@ class VillageAudio {
     const now = this.context.currentTime;
     this.master.gain.setTargetAtTime(enabled ? Number(state.settings.masterVolume ?? .35) : 0, now, .08);
     this.environmentGain.gain.setTargetAtTime(Number(state.settings.environmentVolume ?? .65) * calmScale, now, .08);
+    this.musicGain.gain.setTargetAtTime(Number(state.settings.musicVolume ?? .26) * calmScale, now, .08);
     this.animalGain.gain.setTargetAtTime(Number(state.settings.animalVolume ?? .22) * calmScale, now, .08);
-    if (!enabled) clearTimeout(this.animalTimer);
-    else this.scheduleAnimal();
+    if (!enabled) { clearTimeout(this.animalTimer); this.stopMusic(); }
+    else { this.scheduleAnimal(); if (!this.musicTimer && !this.musicNodes.length) this.restartMusic(); }
   }
 }
 
 state.audio = new VillageAudio();
+state.ecosystem = new EcosystemController({
+  config: config.ecosystem,
+  stage: $("#map-stage"),
+  creatureLayer: $("#creature-layer"),
+  skyLayer: $("#sky-creature-layer"),
+  onSound: (species) => state.audio?.playAnimal(species)
+});
 
 function t(key) {
   const language = state.settings.language || "en";
@@ -392,7 +532,7 @@ function settingsPanel() {
       <div class="setting-group"><strong>${escapeHtml(t("motion"))}</strong><button type="button" class="secondary-button" data-action="toggle-calm">${escapeHtml(document.body.classList.contains("low-stimulation") ? t("useStandard") : t("useLow"))}</button></div>
       <div class="setting-group sound-settings"><div class="sound-heading"><strong>${escapeHtml(t("sound"))}</strong><span class="sound-status">${escapeHtml(current.soundEnabled ? t("soundOn") : t("soundOff"))}</span></div>
         <button type="button" class="secondary-button sound-toggle" data-action="toggle-sound">${escapeHtml(current.soundEnabled ? t("muteSound") : t("enableSound"))}</button>
-        ${[["masterVolume",t("masterVolume"),current.masterVolume ?? .35],["environmentVolume",t("environmentVolume"),current.environmentVolume ?? .65],["animalVolume",t("animalVolume"),current.animalVolume ?? .22]].map(([key,label,value]) => `<label class="volume-control"><span>${escapeHtml(label)}</span><output>${Math.round(Number(value) * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${Number(value)}" data-volume="${key}" aria-label="${escapeHtml(label)}" /></label>`).join("")}
+        ${[["masterVolume",t("masterVolume"),current.masterVolume ?? .35],["environmentVolume",t("environmentVolume"),current.environmentVolume ?? .65],["musicVolume",t("musicVolume"),current.musicVolume ?? .26],["animalVolume",t("animalVolume"),current.animalVolume ?? .22]].map(([key,label,value]) => `<label class="volume-control"><span>${escapeHtml(label)}</span><output>${Math.round(Number(value) * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${Number(value)}" data-volume="${key}" aria-label="${escapeHtml(label)}" /></label>`).join("")}
         <small>${escapeHtml(t("soundHint"))}</small>
       </div>`
   });
@@ -442,6 +582,7 @@ async function submitAi(event) {
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
     character?.classList.add("celebrate");
+    state.audio?.playAnimal("capybara");
     setTimeout(() => character?.classList.remove("celebrate"), 1500);
     const expanded = data.keywordExpansion?.suggested || [];
     $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(data.source)} · scoring v${escapeHtml(data.scoring?.version || "1.0")} · ${data.keywordExpansion?.ai ? "AI-expanded keywords" : "local synonym expansion"}</p>`;
@@ -485,7 +626,7 @@ function handleBuilding(id) {
 }
 
 function applySettings() {
-  state.settings = { fontSize: "normal", theme: "sage", language: "en", calm: false, soundEnabled: false, masterVolume: .35, environmentVolume: .65, animalVolume: .22, resourceCount: 5, ...state.settings };
+  state.settings = { fontSize: "normal", theme: "sage", language: "en", calm: false, soundEnabled: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
   const { fontSize, theme, language, calm } = state.settings;
   const scales = { small: ".9", normal: "1", large: "1.12", xlarge: "1.25" };
   document.documentElement.style.setProperty("--font-scale", scales[fontSize] || "1");
@@ -500,6 +641,7 @@ function applySettings() {
   if ($("#building-layer")) renderBuildings();
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
   renderEnvironmentStatus();
+  state.ecosystem?.setCalm(calm);
   state.audio?.applySettings();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
@@ -675,6 +817,10 @@ function updateCelestialScene() {
   stage.style.setProperty("--moon-visible", isDay ? "0" : ".9");
   stage.style.setProperty("--night-strength", isDay ? ".03" : ".72");
   stage.style.setProperty("--star-opacity", isDay ? "0" : ".92");
+  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const locationSeed = [environment.location?.city, environment.location?.region, environment.location?.country, environment.location?.timezone].filter(Boolean).join("|") || "village";
+  state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
+  state.audio?.setDay(isDay);
   renderEnvironmentStatus();
 }
 
@@ -689,6 +835,7 @@ function applyEnvironment(environment, available = true) {
   stage.classList.add(`season-${season}`, `weather-${kind}`);
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
   state.audio?.setWeather(kind);
+  state.ecosystem?.setWeather(kind);
   updateCelestialScene();
   clearInterval(state.environmentTimer);
   state.environmentTimer = setInterval(updateCelestialScene, 60_000);
@@ -716,6 +863,7 @@ function hydrateApp() {
   $("#map-image").src = config.map.image;
   $("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
   renderBuildings();
+  state.ecosystem?.init();
   applySettings();
   loadIntegrationStatus();
   loadResources();
@@ -727,6 +875,7 @@ async function logout() {
   state.user = null;
   clearInterval(state.environmentTimer);
   clearTimeout(state.environmentRefreshTimer);
+  state.ecosystem?.destroy();
   state.audio?.context?.suspend().catch(() => {});
   closePanel();
   showScreen("auth");

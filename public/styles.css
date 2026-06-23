@@ -124,21 +124,37 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .autism-pond { left: 28%; top: 50%; width: 12%; height: 8%; border: .45rem solid rgba(229,239,186,.8); border-radius: 50%; background: repeating-radial-gradient(ellipse at center, rgba(185,237,238,.62) 0 9%, rgba(111,195,204,.55) 10% 14%); transform: rotate(-8deg); }
 .adhd-wildflowers { right: 7%; top: 26%; width: 18%; height: 22%; background: radial-gradient(circle, #ffe596 0 2%, transparent 2.5%), radial-gradient(circle, #ed9bb4 0 1.8%, transparent 2.3%), radial-gradient(circle, #d6c1ff 0 2%, transparent 2.5%); background-size: 2.2rem 2rem, 2.8rem 2.4rem, 3.1rem 2.7rem; }
 .adhd-stream { right: 25%; bottom: 19%; width: 18%; height: 10%; border-radius: 50% 10% 50% 20%; background: linear-gradient(145deg, transparent 20%, rgba(114,211,218,.68) 22% 64%, transparent 66%); transform: rotate(15deg); }
-.creature, .villager { position: absolute; display: grid; place-items: center; font-size: clamp(1.15rem, 2.15vw, 2.2rem); filter: drop-shadow(0 .22rem .22rem rgba(39,57,36,.28)); transform-origin: 50% 100%; transition: opacity .35s, filter .8s; }
-.moon-bunny { left: 11%; top: 57%; animation: petHop 5.5s ease-in-out infinite; }.quiet-deer { left: 37%; top: 31%; animation: petLook 7s ease-in-out infinite; }.woolly-sheep { left: 25%; top: 69%; animation: petGraze 6.5s ease-in-out infinite; }
-.spark-dragon { right: 24%; top: 27%; font-size: clamp(1.7rem, 3.4vw, 3.5rem); animation: dragonGlide 8s ease-in-out infinite; }.trail-fox { right: 13%; top: 55%; animation: petHop 4.4s ease-in-out infinite reverse; }.meadow-cow { right: 38%; top: 66%; animation: petGraze 7.5s ease-in-out infinite; }
-.bird-one { left: 43%; top: 22%; animation: birdFly 14s linear infinite; }.bird-two { left: 72%; top: 16%; animation: birdFly 18s linear infinite reverse; }
-.walker-one { left: 44%; top: 72%; animation: bridgeWalk 12s ease-in-out infinite; }.walker-two { left: 52%; top: 76%; animation: bridgeWalk 14s ease-in-out infinite reverse; }
-.map-stage.focus-autism .adhd-pet, .map-stage.focus-adhd .autism-pet { opacity: 0; }
-.map-stage.time-night .creature, .map-stage.time-night .villager { filter: brightness(.72) drop-shadow(0 0 .35rem rgba(220,238,255,.42)); }
-.map-stage:is(.weather-rain,.weather-storm) .moon-bunny, .map-stage:is(.weather-rain,.weather-storm) .trail-fox { opacity: .22; }
+.creature-layer, .sky-creature-layer { position: absolute; inset: 0; pointer-events: none; }
+.creature-layer { z-index: 3; }.sky-creature-layer { z-index: 4; overflow: hidden; }
+.ecosystem-actor { position: absolute; display: grid; place-items: center; width: 2.4rem; height: 2.4rem; translate: -50% -72%; font-size: clamp(1.15rem, 2.15vw, 2.2rem); filter: drop-shadow(0 .22rem .22rem rgba(39,57,36,.28)); transition-property: left, top, opacity, filter; transition-timing-function: cubic-bezier(.42,0,.34,1); transition-duration: 5s, 5s, .5s, .8s; will-change: left, top; }
+.ecosystem-actor .actor-glyph { display: block; transform-origin: 50% 85%; }
+.ecosystem-actor[data-species="cow"], .ecosystem-actor[data-species="deer"] { font-size: clamp(1.4rem, 2.55vw, 2.65rem); }
+.ecosystem-actor[data-flying="true"] { z-index: 5; translate: -50% -50%; }
+.ecosystem-actor.state-walking .actor-glyph { animation: landWalk .7s ease-in-out infinite alternate; }
+.ecosystem-actor.state-flying .actor-glyph { animation: wingBeat .58s ease-in-out infinite alternate; }
+.ecosystem-actor.state-idle .actor-glyph { animation: animalBreathe 3.8s ease-in-out infinite; }
+.ecosystem-actor.state-looking .actor-glyph { animation: petLook 2.8s ease-in-out infinite; }
+.ecosystem-actor.state-grazing .actor-glyph { animation: petGraze 2.4s ease-in-out infinite; }
+.ecosystem-actor.state-drinking .actor-glyph { animation: animalDrink 2.1s ease-in-out infinite; }
+.ecosystem-actor.state-resting .actor-glyph { animation: animalBreathe 4.8s ease-in-out infinite; filter: saturate(.72); }
+.ecosystem-actor.state-inside { opacity: 0; }
+.map-stage.focus-autism .ecosystem-actor[data-island="adhd"], .map-stage.focus-adhd .ecosystem-actor[data-island="autism"] { opacity: 0; }
+.map-stage.time-night .ecosystem-actor { filter: brightness(.72) drop-shadow(0 0 .35rem rgba(220,238,255,.42)); }
+.map-stage.time-night .ecosystem-actor[data-flying="true"] { opacity: 0; }
+.map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="rabbit"], .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="fox"] { opacity: .22; }
 .map-stage.season-winter .habitat-feature { filter: saturate(.45) brightness(1.22); }
-@keyframes petHop { 0%, 70%, 100% { transform: translateY(0) rotate(0); } 76% { transform: translateY(-18%) rotate(-5deg); } 82% { transform: translateY(0) rotate(4deg); } }
+@keyframes landWalk { from { transform: translateY(0) rotate(-2deg); } to { transform: translateY(-10%) rotate(2deg); } }
+@keyframes wingBeat { from { transform: translateY(0) rotate(-6deg) scaleY(.9); } to { transform: translateY(-12%) rotate(6deg) scaleY(1.06); } }
+@keyframes animalBreathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3%) scale(1.025); } }
 @keyframes petLook { 0%, 45%, 100% { transform: rotate(0); } 55%, 68% { transform: rotate(-8deg); } }
 @keyframes petGraze { 0%, 55%, 100% { transform: rotate(0); } 65%, 82% { transform: rotate(12deg) translateY(6%); } }
-@keyframes dragonGlide { 0%, 100% { transform: translate(-8%, 2%) rotate(-4deg); } 50% { transform: translate(28%, -38%) rotate(7deg); } }
-@keyframes birdFly { 0% { transform: translateX(-18vw) translateY(0) scale(.8); } 50% { transform: translateX(22vw) translateY(-2.5rem) scale(1); } 100% { transform: translateX(55vw) translateY(1rem) scale(.7); } }
-@keyframes bridgeWalk { 0%, 8% { transform: translateX(-3vw); } 48%, 58% { transform: translateX(5vw); } 100% { transform: translateX(-3vw); } }
+@keyframes animalDrink { 0%, 100% { transform: rotate(0) translateY(0); } 35%, 72% { transform: rotate(15deg) translateY(9%); } }
+.dawn-dragon { position: absolute; z-index: 8; left: -12%; top: 33%; font-size: clamp(2rem, 4.3vw, 4.6rem); opacity: 0; filter: hue-rotate(95deg) saturate(1.35) drop-shadow(0 .4rem .55rem rgba(16,76,103,.42)); }
+.dawn-dragon.in-flight { opacity: 1; animation: dawnDragonFlight 12s cubic-bezier(.25,.1,.3,1) both; }
+@keyframes dawnDragonFlight { 0% { left: -12%; top: 36%; transform: rotate(-9deg) scale(.72); } 18% { top: 16%; transform: rotate(8deg) scale(.88); } 38% { top: 31%; transform: rotate(-7deg) scale(1); } 61% { top: 10%; transform: rotate(9deg) scale(.9); } 82% { top: 24%; transform: rotate(-5deg) scale(.75); } 100% { left: 112%; top: 8%; transform: rotate(7deg) scale(.58); } }
+.sunset-flock { position: absolute; inset: 0; z-index: 7; overflow: hidden; }
+.sunset-gull { position: absolute; left: var(--flock-left, 20%); top: var(--flock-top, 45%); font-size: clamp(.75rem, 1.7vw, 1.55rem); opacity: 0; animation: gullToHorizon 10.5s cubic-bezier(.34,.05,.55,1) var(--flock-delay, 0s) both; }
+@keyframes gullToHorizon { 0% { opacity: 0; transform: translate(0,0) scale(1) rotate(-5deg); } 8% { opacity: 1; } 55% { transform: translate(37vw,-14vh) scale(.65) rotate(5deg); } 100% { opacity: 0; transform: translate(82vw,-29vh) scale(.18) rotate(-2deg); } }
 
 /* Live local environment */
 .environment-layer { position: absolute; z-index: 2; inset: 0; overflow: hidden; pointer-events: none; isolation: isolate; }
@@ -285,8 +301,8 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 body.low-stimulation *, body.low-stimulation *::before, body.low-stimulation *::after { animation: none !important; transition-duration: .01ms !important; }
 body.low-stimulation .map-stage { transform: none !important; }
 body.low-stimulation .map-stage.focus-autism .building[data-island="adhd"], body.low-stimulation .map-stage.focus-adhd .building[data-island="autism"] { display: none; }
-body.low-stimulation .weather-particles, body.low-stimulation .season-particles, body.low-stimulation .lightning-flash, body.low-stimulation .village-bird, body.low-stimulation .villager { display: none; }
-body.low-stimulation .creature { opacity: .62; }
+body.low-stimulation .weather-particles, body.low-stimulation .season-particles, body.low-stimulation .lightning-flash, body.low-stimulation .ecosystem-actor[data-flying="true"], body.low-stimulation .ecosystem-actor[data-species="villager"], body.low-stimulation .dawn-dragon, body.low-stimulation .sunset-flock { display: none; }
+body.low-stimulation .ecosystem-actor { opacity: .62; }
 body.low-stimulation .cloud { opacity: .16 !important; }
 body.theme-sage { --ink: #243a35; --muted: #6d7d78; --cream: #f9faf6; --paper: #ffffff; --line: #dfe7e1; --sage: #4e856d; --sage-dark: #2f634f; --sage-soft: #e3f0e8; --butter: #f4d887; }
 body.theme-blue { --ink: #213c4a; --muted: #607883; --cream: #f1f8fb; --paper: #fafdff; --line: #cbdde7; --sage: #517c97; --sage-dark: #315b73; --sage-soft: #dcecf4; --butter: #e9d9a9; }

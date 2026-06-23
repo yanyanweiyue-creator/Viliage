@@ -79,7 +79,9 @@ The village map uses an approximate IP location to choose the user's hemisphere 
 
 The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; moves the sun between the local sunrise and sunset; and shows the moon and stars at night. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
 
-Weather-aware ambience is synthesized locally with the browser Web Audio API, so no sound file or listening data is uploaded. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, and animal volumes are saved on the device; environment defaults louder than the gentler animal channel. Low-stimulation mode reduces both channels.
+Weather ambience and fallback music are synthesized locally with the browser Web Audio API, and four small licensed animal recordings are served with the site. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, background-music, and animal volumes are saved on the device; environment defaults louder than the gentler music and animal channels. Low-stimulation mode reduces every channel.
+
+The configurable ecosystem keeps land animals on island-specific waypoint routes. Cow and sheep graze every five minutes and visit a pond edge every ten minutes; villagers move among buildings and over the bridge by day and enter buildings at night. Ordinary birds fly only by day, a gull flock departs toward the horizon around sunset, and the azure dragon has one deterministic 12% chance per local date to cross the dawn sky. Routes, actors, event windows, audio files, and optional owned/licensed day/night music are all editable under `ecosystem` in `public/site-config.js`. See `AUDIO_CREDITS.md` before replacing or publishing sound files.
 
 Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation: [Really Free GeoIP](https://reallyfreegeoip.org/).
 
