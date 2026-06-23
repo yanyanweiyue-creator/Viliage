@@ -1,0 +1,4 @@
+# Copy to .dev.vars for `npm run cloudflare:dev`.
+# Never commit real secret values.
+OPENAI_API_KEY=
+USER_SHEET_WEBHOOK_URL=

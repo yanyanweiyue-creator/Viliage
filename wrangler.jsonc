@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "it-takes-a-village",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-06-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "it-takes-a-village-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "OPENAI_MODEL": "gpt-5.5",
+    "RESOURCE_SHEET_ID": "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
+    "RESOURCE_SHEET_GID": "1709372674"
+  }
+}

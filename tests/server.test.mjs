@@ -1,14 +1,18 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { createServer as createHttpServer, request } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
+const sessionsFile = join(tmpdir(), `capy-village-test-sessions-${process.pid}.json`);
 process.env.USERS_FILE = usersFile;
+process.env.SESSIONS_FILE = sessionsFile;
 const { createAppServer } = await import("../server.mjs");
-after(async () => { await unlink(usersFile).catch(() => {}); });
+after(async () => {
+  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {})]);
+});
 
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -60,6 +64,38 @@ test("registration never returns a password hash", async () => {
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("an existing session remains valid after the server module restarts", async () => {
+  const firstServer = createAppServer();
+  await new Promise((resolve) => firstServer.listen(0, "127.0.0.1", resolve));
+  const firstPort = firstServer.address().port;
+  const email = `restart-${Date.now()}@example.com`;
+  const registerBody = JSON.stringify({ name: "Restart Test", email, password: "safe-password" });
+  const register = await httpRequest(`http://127.0.0.1:${firstPort}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(registerBody) },
+    body: registerBody
+  });
+  const cookie = register.headers["set-cookie"][0].split(";")[0];
+  const rawToken = cookie.split("=")[1];
+  firstServer.closeAllConnections();
+  await new Promise((resolve) => firstServer.close(resolve));
+
+  const savedSessions = await readFile(sessionsFile, "utf8");
+  assert.doesNotMatch(savedSessions, new RegExp(rawToken));
+
+  const restartedModule = await import(`../server.mjs?restart=${Date.now()}`);
+  const secondServer = restartedModule.createAppServer();
+  await new Promise((resolve) => secondServer.listen(0, "127.0.0.1", resolve));
+  try {
+    const me = await httpRequest(`http://127.0.0.1:${secondServer.address().port}/api/auth/me`, { headers: { Cookie: cookie } });
+    assert.equal(me.status, 200);
+    assert.equal(JSON.parse(me.text).user.email, email);
+  } finally {
+    secondServer.closeAllConnections();
+    await new Promise((resolve) => secondServer.close(resolve));
   }
 });
 

@@ -98,9 +98,13 @@ Users have no activity-editing controls.
 
 ## Deployment notes
 
-This is a Node server, not a static-only site, because authentication, AI keys, and Google Sheet writes must remain server-side. Deploy it to a Node-capable host such as Render, Railway, Fly.io, or Cloud Run. Add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, and `USER_SHEET_WEBHOOK_URL` as server configuration.
+Cloudflare deployment is now supported with Workers, Static Assets, and a D1 database. D1 keeps accounts and sessions separate from code deployments, so users can still sign in after new versions are published. Follow `CLOUDFLARE.md` for first-time deployment, existing-account import, secrets, custom domains, GitHub auto-deployment, and safe future database changes.
 
-Before a real launch, replace the JSON user store and in-memory sessions with a managed database and durable session store, add email verification/password reset, configure HTTPS, and complete a privacy/security review for the data you collect.
+The local Node server also persists SHA-256-hashed session tokens in `data/sessions.json` and atomically updates user data. Both data files are ignored by Git, so pulling new source code does not replace local accounts.
+
+For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, and `USER_SHEET_WEBHOOK_URL` as server configuration and mount the `data/` directory on durable storage.
+
+Before a real public launch, add email verification/password reset, rate limiting, abuse monitoring, and a privacy/security review for the data you collect. Cloudflare provides HTTPS for the deployed Worker and D1 supplies the durable account store.
 
 ## Image-generation prompt
 

@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "cloudflare:dev": "npx wrangler@4 dev",
+    "cloudflare:deploy": "npx wrangler@4 deploy",
+    "cloudflare:migrate:local": "npx wrangler@4 d1 migrations apply it-takes-a-village-db --local",
+    "cloudflare:migrate:remote": "npx wrangler@4 d1 migrations apply it-takes-a-village-db --remote",
+    "cloudflare:export-users": "node scripts/export-users-to-d1-sql.mjs"
   },
   "engines": {
     "node": ">=20"

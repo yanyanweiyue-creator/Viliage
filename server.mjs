@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
@@ -11,6 +11,7 @@ const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const DATA_DIR = join(ROOT, "data");
 const USERS_FILE = process.env.USERS_FILE || join(DATA_DIR, "users.json");
+const SESSIONS_FILE = process.env.SESSIONS_FILE || join(DATA_DIR, "sessions.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -20,6 +21,7 @@ const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
 const environmentCache = new Map();
 const ENVIRONMENT_CACHE_MS = 10 * 60_000;
+const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -32,6 +34,36 @@ const mimeTypes = {
 };
 
 await mkdir(DATA_DIR, { recursive: true });
+
+function sessionKey(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+async function saveJsonAtomically(filePath, value) {
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
+  await rename(temporary, filePath);
+}
+
+async function loadSessions() {
+  try {
+    const saved = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
+    const now = Date.now();
+    for (const item of Array.isArray(saved) ? saved : []) {
+      if (item?.key && item?.userId && Number(item.expiresAt) > now) sessions.set(item.key, { userId: item.userId, expiresAt: Number(item.expiresAt) });
+    }
+  } catch {}
+}
+
+async function saveSessions() {
+  const now = Date.now();
+  const active = [...sessions.entries()]
+    .filter(([, session]) => session.expiresAt > now)
+    .map(([key, session]) => ({ key, userId: session.userId, expiresAt: session.expiresAt }));
+  await saveJsonAtomically(SESSIONS_FILE, active);
+}
+
+await loadSessions();
 
 async function loadScoringConfig() {
   try {
@@ -85,7 +117,7 @@ async function loadUsers() {
 }
 
 async function saveUsers(users) {
-  await writeFile(USERS_FILE, JSON.stringify(users, null, 2), { mode: 0o600 });
+  await saveJsonAtomically(USERS_FILE, users);
 }
 
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -123,16 +155,17 @@ function parseCookies(req) {
 
 async function getSessionUser(req) {
   const token = parseCookies(req).capy_session;
-  const userId = sessions.get(token);
-  if (!userId) return null;
+  const session = sessions.get(sessionKey(token));
+  if (!session || session.expiresAt <= Date.now()) return null;
   const users = await loadUsers();
-  return users.find((user) => user.id === userId) || null;
+  return users.find((user) => user.id === session.userId) || null;
 }
 
-function setSession(res, userId) {
+async function setSession(userId) {
   const token = randomBytes(32).toString("hex");
-  sessions.set(token, userId);
-  return `capy_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800`;
+  sessions.set(sessionKey(token), { userId, expiresAt: Date.now() + SESSION_MAX_AGE_SECONDS * 1000 });
+  await saveSessions();
+  return `capy_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}`;
 }
 
 function stripGviz(text) {
@@ -443,7 +476,7 @@ async function updateUser(userId, updater) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL) });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL) });
   }
 
   if (req.method === "GET" && url.pathname === "/api/scoring-config") {
@@ -472,7 +505,7 @@ async function handleApi(req, res, url) {
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
     try { sync = await syncUserRecord(user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return sendJson(res, 201, { user: safeUser(user), sync }, { "Set-Cookie": setSession(res, user.id) });
+    return sendJson(res, 201, { user: safeUser(user), sync }, { "Set-Cookie": await setSession(user.id) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
@@ -480,12 +513,13 @@ async function handleApi(req, res, url) {
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === String(email || "").toLowerCase());
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return sendError(res, 401, "Email or password is incorrect.");
-    return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": setSession(res, user.id) });
+    return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": await setSession(user.id) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/logout") {
     const token = parseCookies(req).capy_session;
-    sessions.delete(token);
+    sessions.delete(sessionKey(token));
+    await saveSessions();
     return sendJson(res, 200, { ok: true }, { "Set-Cookie": "capy_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0" });
   }
 
