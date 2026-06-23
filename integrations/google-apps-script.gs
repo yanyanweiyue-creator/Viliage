@@ -14,13 +14,13 @@ function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents || "{}");
     delete data.password;
-    data["Password"] = "";
+    data["Password"] = "Not stored — secure hash only";
 
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
     var lastColumn = Math.max(sheet.getLastColumn(), 1);
     var headers = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
 
-    // The current sheet has a blank first row, so find the first row containing headers.
+    // Support both a header in row 1 and the older sheet layout with a blank first row.
     if (!headers.some(String)) {
       headers = sheet.getRange(2, 1, 1, lastColumn).getDisplayValues()[0];
     }
@@ -44,7 +44,7 @@ function doPost(e) {
     }
 
     var row = headers.map(function(header) {
-      if (String(header).toLowerCase() === "password") return "";
+      if (String(header).toLowerCase() === "password") return "Not stored — secure hash only";
       return Object.prototype.hasOwnProperty.call(data, header) ? data[header] : "";
     });
 
@@ -54,7 +54,7 @@ function doPost(e) {
     sheet.setRowHeight(targetRow, 72);
     for (var column = 1; column <= row.length; column++) {
       var header = String(headers[column - 1]).toLowerCase();
-      var width = /history|survey|summary|feedback/.test(header) ? 280 : /user name|email/.test(header) ? 170 : 120;
+      var width = /history|survey|summary|personal record|feedback/.test(header) ? 280 : /user name|email/.test(header) ? 170 : 150;
       sheet.setColumnWidth(column, width);
     }
 

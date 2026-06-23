@@ -99,32 +99,32 @@
     <section id="app-screen" class="screen app-shell hidden">
       <header class="app-header">
         <a class="brand-lockup" href="#" data-action="home"><span class="brand-mark">C</span><span>Capy Village</span></a>
-        <nav aria-label="Main navigation"><button data-action="home" class="nav-button active">Village</button><button data-action="open-profile" class="nav-button">My record</button></nav>
+        <nav aria-label="Main navigation"><button data-action="home" class="nav-button active" data-i18n="village">Village</button><button data-action="open-profile" class="nav-button" data-i18n="myRecord">My record</button></nav>
         <div class="header-tools">
-          <button id="calm-toggle" class="pill-button" aria-pressed="false"><span aria-hidden="true">✧</span> Low-stimulation</button>
+          <button id="calm-toggle" class="pill-button" aria-pressed="false"><span aria-hidden="true">✧</span> <span data-i18n="lowStimulation">Low-stimulation</span></button>
           <button class="avatar-button" data-action="open-profile" aria-label="Open profile"><span id="avatar-initial">C</span></button>
         </div>
       </header>
 
       <main id="main" class="village-main">
         <div class="hero-copy">
-          <div><p class="eyebrow">Choose your own path</p><h1 data-i18n="begin">Where would you like to begin?</h1><p data-i18n="explore">Explore at your own pace. There is no wrong door—and JA can help make any topic feel more manageable.</p></div>
-          <button id="reset-map" class="secondary-button hidden" data-action="reset-map">← View both islands</button>
+          <div><p class="eyebrow" data-i18n="choosePath">Choose your own path</p><h1 data-i18n="begin">Where would you like to begin?</h1><p data-i18n="explore">Explore at your own pace. There is no wrong door—and JA can help make any topic feel more manageable.</p></div>
+          <button id="reset-map" class="secondary-button hidden" data-action="reset-map" data-i18n="viewBoth">← View both islands</button>
         </div>
 
         <section id="village-map" class="village-map" aria-label="Interactive map of Autism Island and ADHD Island">
           <div id="map-stage" class="map-stage">
             <img id="map-image" alt="Two illustrated green islands connected by a wooden bridge" />
-            <button class="island-label autism" data-island="autism"><span class="island-dot"></span><span><small>Quiet gardens</small><strong>Autism Island</strong></span><span aria-hidden="true">→</span></button>
-            <button class="island-label adhd" data-island="adhd"><span class="island-dot"></span><span><small>Momentum trails</small><strong>ADHD Island</strong></span><span aria-hidden="true">→</span></button>
+            <button class="island-label autism" data-island="autism"><span class="island-dot"></span><span><small data-i18n="quietGardens">Quiet gardens</small><strong data-i18n="autismIsland">Autism Island</strong></span><span aria-hidden="true">→</span></button>
+            <button class="island-label adhd" data-island="adhd"><span class="island-dot"></span><span><small data-i18n="momentumTrails">Momentum trails</small><strong data-i18n="adhdIsland">ADHD Island</strong></span><span aria-hidden="true">→</span></button>
             <div id="building-layer"></div>
           </div>
-          <div class="map-hint"><span aria-hidden="true">↖</span> Select an island, then choose a building</div>
+          <div class="map-hint"><span aria-hidden="true">↖</span> <span data-i18n="selectIsland">Select an island, then choose a building</span></div>
         </section>
 
         <section class="village-footer-cards" aria-label="Village status">
-          <article><span class="mini-icon">↻</span><div><strong id="resource-count">Loading resources…</strong><small id="resource-source">Checking the live database</small></div><button data-action="refresh-resources">Refresh</button></article>
-          <article><span class="mini-icon warm">✓</span><div><strong>Your personal record is ready</strong><small>JA uses it only to improve matching</small></div><button data-action="open-profile">View</button></article>
+          <article><span class="mini-icon">↻</span><div><strong id="resource-count" data-i18n="resourcesLoading">Loading resources…</strong><small id="resource-source" data-i18n="resourcesChecking">Checking the live database</small></div><button data-action="refresh-resources" data-i18n="refresh">Refresh</button></article>
+          <article><span class="mini-icon warm">✓</span><div><strong data-i18n="personalReady">Your personal record is ready</strong><small data-i18n="personalMatch">JA uses it only to improve matching</small></div><button data-action="open-profile" data-i18n="view">View</button></article>
         </section>
       </main>
 
@@ -136,7 +136,7 @@
 
       <button id="mori-dock" class="mori-dock" data-action="open-mori" aria-label="Open JA resource guide">
         <span class="capy-avatar"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></span>
-        <span><small>JA · AI guide</small><strong>I’m here when you’re ready.</strong></span><span class="dock-arrow">↑</span>
+        <span><small data-i18n="jaGuide">JA · AI guide</small><strong data-i18n="jaReady">I’m here when you’re ready.</strong></span><span class="dock-arrow">↑</span>
       </button>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>

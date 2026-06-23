@@ -252,9 +252,10 @@ async function syncUserRecord(user) {
   if (!webhook) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
   const payload = {
     "User name": user.name,
-    "Password": "",
+    "Password": "Not stored — secure hash only",
     "response of survey": JSON.stringify(user.profile?.responses || {}),
     "AI summary the response of surve": user.profile?.summary || "",
+    "AI personal record": user.profile?.summary || "",
     "history": JSON.stringify(user.history || []),
     "feedback": user.feedback || "",
     email: user.email,
@@ -267,7 +268,11 @@ async function syncUserRecord(user) {
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
-  return { synced: true };
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "User sheet rejected the update.");
+  return { synced: true, row: result.row || null };
 }
 
 async function updateUser(userId, updater) {
@@ -294,7 +299,9 @@ async function handleApi(req, res, url) {
     const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, profile: null, history: [], createdAt: new Date().toISOString() };
     users.push(user);
     await saveUsers(users);
-    return sendJson(res, 201, { user: safeUser(user) }, { "Set-Cookie": setSession(res, user.id) });
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUserRecord(user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return sendJson(res, 201, { user: safeUser(user), sync }, { "Set-Cookie": setSession(res, user.id) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
@@ -354,8 +361,9 @@ async function handleApi(req, res, url) {
     }
     if (!answer) answer = deterministicAnswer(topic, description, matches);
     const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
-    try { await syncUserRecord(saved); } catch {}
-    return sendJson(res, 200, { answer, resources: matches.slice(0, 4), source, ai });
+    let sync = { synced: false };
+    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return sendJson(res, 200, { answer, resources: matches.slice(0, 4), source, ai, sync });
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {
