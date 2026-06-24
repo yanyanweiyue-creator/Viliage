@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
-import { communitySimilarity, pairKey, safeDisplayName } from "./community-logic.mjs";
+import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
@@ -140,7 +140,8 @@ function defaultCommunity() {
     connections: [],
     blocks: [],
     roomPreferences: {},
-    posts: []
+    posts: [],
+    groupInvites: []
   };
 }
 
@@ -148,7 +149,7 @@ async function loadCommunity() {
   try {
     const saved = JSON.parse(await readFile(COMMUNITY_FILE, "utf8"));
     const base = defaultCommunity();
-    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [], blocks: saved.blocks || [], roomPreferences: saved.roomPreferences || {}, posts: saved.posts || [] };
+    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [], blocks: saved.blocks || [], roomPreferences: saved.roomPreferences || {}, posts: saved.posts || [], groupInvites: saved.groupInvites || [] };
   } catch { return defaultCommunity(); }
 }
 
@@ -165,7 +166,7 @@ function localBlocked(community, firstId, secondId) {
 }
 
 function cleanupLocalSystemHistory(community) {
-  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 10 * 60 * 1000;
   const systemIds = new Set(community.rooms.filter((room) => room.kind === "group" && !room.createdBy).map((room) => room.id));
   community.messages = community.messages.filter((message) => !systemIds.has(message.roomId) || new Date(message.createdAt).getTime() >= cutoff);
 }
@@ -184,7 +185,7 @@ function safeImageDataUrl(value) {
 async function localCommunityOverview(user, community) {
   const users = await loadUsers();
   const ownProfile = community.profiles[user.id];
-  const groups = community.rooms.filter((room) => room.kind === "group").map((room) => ({
+  const groups = community.rooms.filter((room) => room.kind === "group" && (!room.createdBy || community.members.some((member) => member.roomId === room.id && member.userId === user.id))).map((room) => ({
     id: room.id,
     name: room.name,
     description: room.description,
@@ -208,7 +209,11 @@ async function localCommunityOverview(user, community) {
     return { id: room.id, user_id: otherId, email: other?.email || "", name: community.profiles[otherId]?.displayName || "Private conversation", pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt) };
   }).sort((a, b) => Number(b.pinned) - Number(a.pinned));
   const blocks = community.blocks.filter((item) => item.blockerId === user.id).map((item) => ({ user_id: item.blockedId, display_name: community.profiles[item.blockedId]?.displayName || users.find((candidate) => candidate.id === item.blockedId)?.name || "Village member" }));
-  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms, blocks };
+  const groupInvites = community.groupInvites.filter((invite) => invite.recipientId === user.id && invite.status === "pending").map((invite) => {
+    const room = community.rooms.find((item) => item.id === invite.roomId);
+    return { id: invite.id, room_id: invite.roomId, room_name: room?.name || "Group", description: room?.description || "", inviter_name: community.profiles[invite.inviterId]?.displayName || "Village member", created_at: invite.createdAt };
+  });
+  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms, blocks, groupInvites };
 }
 
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -645,7 +650,9 @@ async function handleApi(req, res, url) {
     const input = await readJsonBody(req);
     const community = await loadCommunity();
     const existing = community.profiles[user.id] || {};
-    community.profiles[user.id] = { ...existing, enabled: Boolean(input.enabled), displayName: safeDisplayName(input.displayName, safeDisplayName(user.name)), updatedAt: new Date().toISOString() };
+    const displayName = safeDisplayName(input.displayName, safeDisplayName(user.name));
+    if (containsBlockedLanguage(displayName)) return sendError(res, 400, "Please choose a respectful community name.");
+    community.profiles[user.id] = { ...existing, enabled: Boolean(input.enabled), displayName, updatedAt: new Date().toISOString() };
     await saveCommunity(community);
     return sendJson(res, 200, await localCommunityOverview(user, community));
   }
@@ -654,8 +661,12 @@ async function handleApi(req, res, url) {
     const query = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
     if (query.length < 2) return sendJson(res, 200, { people: [] });
     const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
-    const people = users.filter((candidate) => candidate.id !== user.id && localFriends(community, user.id, candidate.id) && !localBlocked(community, user.id, candidate.id))
-      .map((candidate) => ({ user_id: candidate.id, email: candidate.email, display_name: community.profiles[candidate.id]?.displayName || candidate.name }))
+    const people = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !localBlocked(community, user.id, candidate.id))
+      .map((candidate) => {
+        const connection = community.connections.find((item) => item.pairKey === pairKey(user.id, candidate.id));
+        const relationship = connection?.status === "accepted" ? "friend" : connection?.status === "pending" ? (connection.requesterId === user.id ? "outgoing" : "incoming") : "none";
+        return { user_id: candidate.id, email: candidate.email, display_name: community.profiles[candidate.id]?.displayName || candidate.name, relationship, connection_id: connection?.id || null };
+      })
       .filter((candidate) => candidate.email.toLowerCase().includes(query) || candidate.display_name.toLowerCase().includes(query)).slice(0, 20);
     return sendJson(res, 200, { people });
   }
@@ -667,10 +678,24 @@ async function handleApi(req, res, url) {
     const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
     if (memberIds.some((memberId) => !localFriends(community, user.id, memberId) || localBlocked(community, user.id, memberId))) return sendError(res, 403, "Groups can include accepted, unblocked friends only.");
     const room = { id: `group-${randomBytes(12).toString("hex")}`, kind: "group", name: safeDisplayName(input.name, "New group"), description: String(input.description || "").trim().slice(0, 240), createdBy: user.id, createdAt: new Date().toISOString() };
+    if (containsBlockedLanguage(`${room.name} ${room.description}`)) return sendError(res, 400, "Please use respectful language for the group name and description.");
     community.rooms.push(room);
-    community.members.push({ roomId: room.id, userId: user.id, role: "moderator", joinedAt: room.createdAt }, ...memberIds.map((memberId) => ({ roomId: room.id, userId: memberId, role: "member", joinedAt: room.createdAt })));
+    community.members.push({ roomId: room.id, userId: user.id, role: "moderator", joinedAt: room.createdAt });
+    community.groupInvites.push(...memberIds.map((memberId) => ({ id: randomBytes(12).toString("hex"), roomId: room.id, inviterId: user.id, recipientId: memberId, status: "pending", createdAt: room.createdAt, updatedAt: room.createdAt })));
     await saveCommunity(community);
     return sendJson(res, 201, { room: { id: room.id, name: room.name, description: room.description, systemManaged: false } });
+  }
+
+  const groupInviteMatch = url.pathname.match(/^\/api\/community\/group-invitations\/([^/]+)\/(accept|decline)$/);
+  if (req.method === "POST" && groupInviteMatch) {
+    const community = await loadCommunity();
+    const invite = community.groupInvites.find((item) => item.id === decodeURIComponent(groupInviteMatch[1]) && item.recipientId === user.id && item.status === "pending");
+    if (!invite) return sendError(res, 404, "Group invitation not found.");
+    invite.status = groupInviteMatch[2] === "accept" ? "accepted" : "declined";
+    invite.updatedAt = new Date().toISOString();
+    if (groupInviteMatch[2] === "accept" && !community.members.some((member) => member.roomId === invite.roomId && member.userId === user.id)) community.members.push({ roomId: invite.roomId, userId: user.id, role: "member", joinedAt: invite.updatedAt });
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, roomId: groupInviteMatch[2] === "accept" ? invite.roomId : null });
   }
 
   if (url.pathname === "/api/community/posts") {
@@ -687,6 +712,7 @@ async function handleApi(req, res, url) {
     if (req.method === "POST") {
       const input = await readJsonBody(req);
       const postBody = String(input.text || "").trim().slice(0, 2000);
+      if (containsBlockedLanguage(postBody)) return sendError(res, 400, "Please remove harmful or abusive language before posting.");
       let imageDataUrl;
       try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return sendError(res, 400, error.message); }
       if (!postBody && !imageDataUrl) return sendError(res, 400, "Add text or an image first.");
@@ -738,7 +764,7 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
-  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history))?$/);
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history|invite))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
     const operation = roomMatch[2] || "";
@@ -749,11 +775,30 @@ async function handleApi(req, res, url) {
     if (!room) return sendError(res, 404, "Chat room not found.");
     if (req.method === "POST" && operation === "join") {
       if (room.kind !== "group") return sendError(res, 403, "Private conversations cannot be joined directly.");
+      if (room.createdBy) return sendError(res, 403, "Member-created groups require an invitation.");
       if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) community.members.push({ roomId, userId: user.id, joinedAt: new Date().toISOString() });
       await saveCommunity(community);
       return sendJson(res, 200, { ok: true });
     }
     if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Join this room before reading or sending messages.");
+    if (req.method === "POST" && operation === "invite") {
+      if (room.kind !== "group") return sendError(res, 400, "Invitations are available in group chats only.");
+      const input = await readJsonBody(req);
+      const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
+      if (!memberIds.length) return sendError(res, 400, "Choose at least one friend to invite.");
+      if (memberIds.some((memberId) => !localFriends(community, user.id, memberId) || localBlocked(community, user.id, memberId))) return sendError(res, 403, "You can invite accepted, unblocked friends only.");
+      const now = new Date().toISOString();
+      let invited = 0;
+      for (const memberId of memberIds) {
+        if (community.members.some((member) => member.roomId === roomId && member.userId === memberId)) continue;
+        const existingInvite = community.groupInvites.find((invite) => invite.roomId === roomId && invite.recipientId === memberId);
+        if (existingInvite) Object.assign(existingInvite, { inviterId: user.id, status: "pending", updatedAt: now });
+        else community.groupInvites.push({ id: randomBytes(12).toString("hex"), roomId, inviterId: user.id, recipientId: memberId, status: "pending", createdAt: now, updatedAt: now });
+        invited += 1;
+      }
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, invited });
+    }
     if (req.method === "POST" && operation === "leave") {
       if (room.kind !== "group") return sendError(res, 400, "Use Remove friend to close a private conversation.");
       community.members = community.members.filter((member) => !(member.roomId === roomId && member.userId === user.id));
@@ -778,11 +823,14 @@ async function handleApi(req, res, url) {
       const messages = community.messages.filter((message) => message.roomId === roomId && (!preference.clearedBefore || message.createdAt > preference.clearedBefore) && !community.blocks.some((block) => block.blockerId === user.id && block.blockedId === message.userId)).slice(-100).map((message) => ({ ...message, author: community.profiles[message.userId]?.displayName || "Village member", mine: message.userId === user.id }));
       await saveCommunity(community);
       const otherUserId = room.kind === "direct" ? community.members.find((member) => member.roomId === roomId && member.userId !== user.id)?.userId || null : null;
-      return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind, systemManaged: room.kind === "group" && !room.createdBy, createdBy: room.createdBy || null, pinned: Boolean(preference.pinnedAt), otherUserId }, messages });
+      const users = room.kind === "group" ? await loadUsers() : [];
+      const members = room.kind === "group" ? community.members.filter((member) => member.roomId === roomId).map((member) => ({ userId: member.userId, displayName: community.profiles[member.userId]?.displayName || users.find((candidate) => candidate.id === member.userId)?.name || "Village member", role: member.role || "member" })).sort((a, b) => Number(b.role === "moderator") - Number(a.role === "moderator") || a.displayName.localeCompare(b.displayName)) : [];
+      return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind, systemManaged: room.kind === "group" && !room.createdBy, createdBy: room.createdBy || null, pinned: Boolean(preference.pinnedAt), otherUserId }, members, messages });
     }
     if (req.method === "POST" && operation === "messages") {
       const messageBody = String((await readJsonBody(req)).message || "").trim().slice(0, 1000);
       if (!messageBody) return sendError(res, 400, "Write a message first.");
+      if (containsBlockedLanguage(messageBody)) return sendError(res, 400, "Please remove harmful or abusive language before sending.");
       const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
       community.messages.push(message);
       community.messages = community.messages.slice(-5000);
