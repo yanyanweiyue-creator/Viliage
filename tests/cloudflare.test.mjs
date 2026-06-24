@@ -117,3 +117,38 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
   assert.equal((await messages.json()).messages[0].body, "Hello from the village");
   database.close();
 });
+
+test("recommendation API applies diagnosis and category before scoring database rows", async () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  const env = cloudflareEnv(database);
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Filter User", email: "filter@example.com", password: "safe-password" })
+  }), env, ctx);
+  const cookie = register.headers.get("set-cookie").split(";")[0];
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1", "Tag2", "Tag3", "Tag4", "Tag5"];
+  const row = (url, description, diagnosis, category, tag) => ({ c: [url, description, diagnosis, category, "", "All ages", tag, "", "", "", ""].map((v) => ({ v })) });
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    row("https://example.com/allowed", "Medicaid legal assistance", "Autism", "Legal", "Medicaid"),
+    row("https://example.com/wrong-diagnosis", "Medicaid legal assistance", "ADHD", "Legal", "Medicaid"),
+    row("https://example.com/wrong-category", "Medicaid legal assistance", "Autism", "Education", "Medicaid")
+  ] } };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, clarificationHandled: true })
+    }), env, ctx);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
+    assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});

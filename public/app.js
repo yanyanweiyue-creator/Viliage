@@ -20,6 +20,8 @@ const state = {
   authMode: "register",
   selectedIsland: null,
   currentTopic: "Education",
+  currentDiagnosis: "",
+  pendingSearch: null,
   resources: [],
   sheetSync: { configured: false },
   settings: loadSavedSettings(),
@@ -957,8 +959,9 @@ function activitiesPanel() {
   });
 }
 
-function aiPanel(topic = "Education") {
+function aiPanel(topic = "Education", island = state.selectedIsland) {
   state.currentTopic = topic;
+  state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
   const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : topic === "Recreation" ? "For example: I’m looking for a calm, inclusive weekend activity nearby…" : "For example: I’m looking for executive-function support for a middle-school student…";
   openPanel({
     title: `${t(String(topic || "Education").toLowerCase())} · Waffles`,
@@ -987,7 +990,14 @@ async function submitAi(event) {
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
-    const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify({ topic: state.currentTopic, description, count }) });
+    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count };
+    state.pendingSearch = payload;
+    const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
+    if (data.needsClarification) {
+      const options = data.questions.flatMap((question) => question.options || []);
+      $("#ai-results").innerHTML = `<form id="clarification-form" class="ai-form"><h3>A quick detail will improve these matches</h3>${data.questions.map((question) => `<fieldset><legend>${escapeHtml(question.question)}</legend>${(question.options || []).map((option) => `<label><input type="checkbox" name="confirmedKeyword" value="${escapeHtml(option)}"> ${escapeHtml(option)}</label>`).join("")}</fieldset>`).join("")}<label><input type="checkbox" name="rejectAll" value="1"> None of these</label><input type="hidden" name="allOptions" value="${escapeHtml(JSON.stringify(options))}"><button class="primary-button" type="submit">Continue search →</button><p class="form-error" role="alert"></p></form>`;
+      return;
+    }
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
     character?.classList.add("celebrate");
@@ -1001,6 +1011,30 @@ async function submitAi(event) {
   } finally {
     button.disabled = false;
     button.innerHTML = `${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span>`;
+  }
+}
+
+async function submitClarification(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const confirmedSecondaryKeywords = data.getAll("confirmedKeyword");
+  const rejectAll = data.get("rejectAll") === "1";
+  if (!confirmedSecondaryKeywords.length && !rejectAll) {
+    form.querySelector(".form-error").textContent = "Choose any relevant option, or select “None of these.”";
+    return;
+  }
+  const allOptions = JSON.parse(data.get("allOptions") || "[]");
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  try {
+    const payload = { ...state.pendingSearch, clarificationHandled: true, confirmedSecondaryKeywords, rejectedKeywords: rejectAll ? allOptions : [] };
+    const response = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
+    const expanded = response.keywordExpansion?.suggested || [];
+    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(response.source)} · scoring v${escapeHtml(response.scoring?.version || "2.0")}</p>`;
+  } catch (error) {
+    form.querySelector(".form-error").textContent = error.message;
+    button.disabled = false;
   }
 }
 
@@ -1034,7 +1068,7 @@ function handleBuilding(id) {
   if (building.type === "support") supportPanel();
   if (building.type === "settings") settingsPanel();
   if (building.type === "activity") activitiesPanel();
-  if (building.type === "ai") aiPanel(building.topic);
+  if (building.type === "ai") aiPanel(building.topic, building.island);
 }
 
 function applySettings() {
@@ -1473,6 +1507,7 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "auth-form") submitAuth(event);
   if (event.target.id === "survey-form") submitSurvey(event);
   if (event.target.id === "ai-form") submitAi(event);
+  if (event.target.id === "clarification-form") submitClarification(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);

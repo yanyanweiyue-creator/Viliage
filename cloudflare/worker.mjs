@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -220,8 +220,7 @@ function responseText(data) {
 }
 
 async function expandKeywords(env, { topic, description, profile, directKeywords, limit }) {
-  const fallback = heuristicKeywordExpansion(directKeywords, limit);
-  if (!env.OPENAI_API_KEY) return { keywords: fallback, ai: false };
+  if (!env.OPENAI_API_KEY) return { keywords: [], ai: false };
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -238,8 +237,8 @@ async function expandKeywords(env, { topic, description, profile, directKeywords
     if (!response.ok) throw new Error(`Keyword expansion returned ${response.status}.`);
     const parsed = JSON.parse(responseText(await response.json()) || "{}");
     const keywords = extractKeywords(parsed.keywords || [], limit).filter((keyword) => !directKeywords.includes(keyword));
-    return { keywords: [...new Set([...keywords, ...fallback])].slice(0, limit), ai: true };
-  } catch { return { keywords: fallback, ai: false }; }
+    return { keywords: [...new Set(keywords)].slice(0, limit), ai: true };
+  } catch { return { keywords: [], ai: false }; }
 }
 
 async function aiAnswer(env, { topic, description, profile, matches }) {
@@ -468,21 +467,25 @@ async function api(request, env, ctx) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", description = "", count } = await body(request);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await body(request);
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
+    if (!diagnosis) return fail("Choose an island before searching for resources.");
+    const questions = clarificationQuestions({ topic, description, maxQuestions: scoreConfig.limits.maximumFollowUpQuestions });
+    if (!clarificationHandled && questions.length) return json({ needsClarification: true, questions });
     const data = await resources(env);
-    const profileInputs = [user.profile?.responses?.age, ...(user.profile?.responses?.interests || []), ...(user.profile?.responses?.situation || []), user.profile?.responses?.note];
-    const directKeywords = extractKeywords([topic, description, ...profileInputs], scoreConfig.limits.maximumDirectKeywords);
-    const expanded = await expandKeywords(env, { topic, description, profile: user.profile, directKeywords, limit: scoreConfig.limits.maximumSuggestedKeywords });
+    const primaryKeywords = extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords);
+    const gateKeywords = extractGateKeywords([description, ...confirmedSecondaryKeywords], scoreConfig);
+    const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
+    const expanded = await expandKeywords(env, { topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: scoreConfig.limits.maximumPredictedKeywords });
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
-    const matches = rankResources(data.rows, { directKeywords, suggestedKeywords: expanded.keywords, issuePreferences, count, config: scoreConfig });
+    const matches = rankResources(data.rows, { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, predictedKeywords: expanded.keywords, issuePreferences, count, config: scoreConfig });
     let answer = null;
     try { answer = await aiAnswer(env, { topic, description, profile: user.profile, matches }); } catch {}
     if (!answer) answer = deterministicAnswer(topic, description, matches);
     user.history = [...(user.history || []), { topic, description, at: new Date().toISOString() }].slice(-50);
     await env.DB.prepare("UPDATE users SET history_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.history), new Date().toISOString(), user.id).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
-    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, suggested: expanded.keywords }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/feedback") {

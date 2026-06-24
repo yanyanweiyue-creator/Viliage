@@ -1,58 +1,96 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources, scoreResource } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources, scoreResource } from "../scoring-engine.mjs";
 
-test("tag matches outrank description matches and are not double counted", () => {
-  const exactTag = scoreResource({ name: "Tag resource", tags: ["autism"], description: "Autism family support", categories: [], issues: [] }, {
-    directKeywords: ["autism"], config: DEFAULT_SCORE_CONFIG
-  });
-  const descriptionOnly = scoreResource({ name: "Description resource", tags: [], description: "Autism family support", categories: [], issues: [] }, {
-    directKeywords: ["autism"], config: DEFAULT_SCORE_CONFIG
-  });
-  assert.equal(exactTag.score, 10);
-  assert.equal(exactTag.explanation.length, 1);
-  assert.equal(descriptionOnly.score, 3);
-  assert.ok(exactTag.score > descriptionOnly.score);
+const resource = (overrides = {}) => ({
+  name: "Resource",
+  url: `https://example.com/${Math.random()}`,
+  diagnosis: "Autism",
+  categories: ["Legal"],
+  tags: ["Medicaid"],
+  description: "Legal Medicaid assistance",
+  issues: [],
+  ...overrides
 });
 
-test("AI-style synonyms use reduced weights and issue penalties stack", () => {
-  const scored = scoreResource({
-    name: "Community group",
-    tags: ["peer interaction"],
-    description: "Friendship practice for families",
-    categories: ["Education"],
-    issues: ["Expensive", "Long waitlist"]
-  }, {
-    directKeywords: ["education"],
-    suggestedKeywords: ["peer interaction", "friendship"],
-    issuePreferences: ["expensive", "long waitlist"],
-    config: DEFAULT_SCORE_CONFIG
+test("diagnosis and category are permanent hard filters", () => {
+  const ranked = rankResources([
+    resource({ name: "Allowed" }),
+    resource({ name: "Wrong diagnosis", diagnosis: "ADHD", tags: ["Medicaid", "lawyer"] }),
+    resource({ name: "Wrong category", categories: ["Education"], tags: ["Medicaid", "lawyer"] }),
+    resource({ name: "Both is allowed", diagnosis: "Both" })
+  ], {
+    diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["Medicaid"], count: 10
   });
-  assert.equal(scored.score, -10);
+  assert.deepEqual(ranked.map((item) => item.name), ["Allowed", "Both is allowed"]);
+  assert.ok(ranked.every((item) => item.passedFilters.length === 3));
+});
+
+test("description gate excludes irrelevant resources before scoring", () => {
+  const ranked = rankResources([
+    resource({ name: "Gate pass" }),
+    resource({ name: "Gate fail", tags: ["lawyer"], description: "General legal help" })
+  ], { diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["lawyer"], count: 5 });
+  assert.equal(ranked[0].name, "Gate pass");
+  assert.equal(ranked[0].tier, 3);
+  assert.equal(ranked.find((item) => item.name === "Gate fail")?.tier, 4);
+});
+
+test("primary tags outrank confirmed secondary and predicted matches", () => {
+  const primary = scoreResource(resource({ tags: ["Medicaid"], description: "" }), { primaryKeywords: ["Medicaid"] });
+  const secondary = scoreResource(resource({ tags: ["Medicaid"], description: "" }), { confirmedSecondaryKeywords: ["Medicaid"] });
+  const predicted = scoreResource(resource({ tags: ["Medicaid"], description: "" }), { predictedKeywords: ["Medicaid"] });
+  assert.equal(primary.score, 25);
+  assert.equal(secondary.score, 12);
+  assert.equal(predicted.score, 3);
+  assert.ok(primary.score > secondary.score && secondary.score > predicted.score);
+});
+
+test("base candidates are assigned to direct, confirmed-secondary, and description-only tiers", () => {
+  const ranked = rankResources([
+    resource({ name: "Primary", tags: ["Medicaid"] }),
+    resource({ name: "Secondary", tags: ["IEP"], description: "Medicaid and IEP support" }),
+    resource({ name: "Description only", tags: [], description: "Medicaid assistance" })
+  ], {
+    diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["Medicaid"], confirmedSecondaryKeywords: ["IEP"], count: 5
+  });
+  assert.deepEqual(ranked.map((item) => item.tier), [1, 2, 3]);
+});
+
+test("tag matches are not double counted in descriptions and issue penalties stack", () => {
+  const scored = scoreResource(resource({ description: "Medicaid help", issues: ["Minor: long waitlist", "Major: service closed"] }), {
+    primaryKeywords: ["Medicaid"]
+  });
+  assert.equal(scored.score, 18);
+  assert.equal(scored.explanation.filter((reason) => reason.keyword === "medicaid").length, 1);
   assert.equal(scored.explanation.filter((reason) => reason.points < 0).length, 2);
 });
 
-test("ranking enforces configurable threshold and requested result count", () => {
-  const resources = Array.from({ length: 12 }, (_, index) => ({
-    name: `Resource ${index}`,
-    tags: [index < 8 ? "autism" : "unrelated"],
-    description: "Community support",
-    categories: [],
-    issues: [],
-    url: `https://example.com/${index}`
-  }));
-  const ranked = rankResources(resources, { directKeywords: ["autism"], count: 7, config: DEFAULT_SCORE_CONFIG });
-  assert.equal(ranked.length, 7);
-  assert.ok(ranked.every((resource) => resource.score === 10));
+test("expansion runs only to fill missing slots and never outranks tier 1", () => {
+  const ranked = rankResources([
+    resource({ name: "Direct", tags: ["sports"], description: "Sports program", categories: ["Activities"] }),
+    resource({ name: "Expanded", tags: ["recreation"], description: "Recreation program", categories: ["Activities"] })
+  ], {
+    diagnosis: "Autism", category: "Activities", gateKeywords: ["sports"], primaryKeywords: ["sports"], expansionKeywords: ["recreation"], count: 5
+  });
+  assert.equal(ranked[0].name, "Direct");
+  assert.equal(ranked[0].tier, 1);
+  assert.equal(ranked[1].tier, 4);
 });
 
-test("keyword helpers normalize plural forms, expand synonyms, and infer conflicts", () => {
-  const direct = extractKeywords(["Social skills, parents"], 10);
-  const expanded = heuristicKeywordExpansion(direct, 10);
-  const issues = inferIssuePreferences(["I need an affordable option soon that takes insurance"]);
-  assert.ok(direct.includes("parent"));
-  assert.ok(expanded.includes("peer interaction"));
-  assert.ok(issues.includes("expensive"));
-  assert.ok(issues.includes("long waitlist"));
-  assert.ok(issues.includes("not insurance accepted"));
+test("rejected keywords never enter filtering or scoring", () => {
+  const ranked = rankResources([resource()], {
+    diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["Medicaid"], rejectedKeywords: ["Medicaid"], count: 5
+  });
+  assert.equal(ranked.length, 0);
+});
+
+test("keyword helpers enforce a small gate set and clarification never exceeds two questions", () => {
+  const primary = extractKeywords(["local quiet sports activities for a child with autism and small group attention"], 20);
+  const gate = extractGateKeywords(primary, DEFAULT_SCORE_CONFIG);
+  assert.ok(gate.length <= Math.max(1, Math.floor(primary.length * 0.2)));
+  assert.ok(heuristicKeywordExpansion(["sports"], 10).includes("recreation"));
+  assert.ok(inferIssuePreferences(["affordable and soon"]).includes("long waitlist"));
+  assert.ok(clarificationQuestions({ topic: "Legal", description: "Find a lawyer" }).length <= 2);
+  assert.deepEqual(extractKeywords(["Find me a lawyer"], 10), ["lawyer"]);
 });

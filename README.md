@@ -56,9 +56,11 @@ Add rows beneath the existing headers and the app will pick them up automaticall
 
 ## Personalized scoring engine
 
-The ranking pipeline is `query + personal record → normalized direct keywords → AI/heuristic related terms → per-resource scoring → threshold → descending rank → selected result count`. Tags are evaluated before descriptions for each keyword, so a tag match is not double-counted again in the description. Exact phrases, partial phrases, common synonyms, punctuation, casing, and basic singular/plural forms are normalized. Preferences such as “affordable,” “soon,” or “takes insurance” can trigger stacked penalties against matching `Issues` values.
+The ranking pipeline is `island diagnosis hard filter → building category hard filter → optional clarification → Description Gate → scoring → conditional expansion → tier/score sort`. A diagnosis or category mismatch is permanently excluded and can never return through scoring. The Description Gate uses no more than 20% of the strongest user-confirmed concepts; the full original intent becomes available only after a resource passes the gate.
 
-Administrators can change every weight, minimum score, default count, and maximum count in `config/scoring-config.json` without editing application code. The default direct weights are +10 exact tag, +5 partial tag, +3 exact description phrase, +1 partial description, -10 exact issue conflict, and -5 partial issue conflict. AI-suggested matches use lower weights. `GET /api/scoring-config` exposes the active non-secret configuration for debugging; every returned resource includes `score`, `explanation`, and `matchedKeywords`.
+Administrators can change every weight, threshold, result count, gate ratio, and clarification limit in `config/scoring-config.json` without editing application code. Primary tag matches use +25/+15/+4, confirmed-secondary tag matches use +12/+7/+2, and AI-predicted matches are capped at +3/+1/+1. `GET /api/scoring-config` exposes the active non-secret configuration for debugging; every returned resource includes its tier, passed filters, score, explanation, and matched keywords.
+
+See `docs/RECOMMENDATION-ARCHITECTURE.md` for the database model, search architecture, API contract, worked scoring example, and test coverage.
 
 For production-scale storage, use normalized `resources`, `resource_tags`, `resource_categories`, and `resource_issues` tables with indexes on normalized terms and resource IDs. The current in-memory pass is linear and suitable for thousands of cached rows. Tens of thousands of rows should add a database full-text index or precomputed inverted tag index while keeping this same scoring contract.
 

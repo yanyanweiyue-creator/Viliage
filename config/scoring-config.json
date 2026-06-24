@@ -1,24 +1,33 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "weights": {
-    "directExactTag": 10,
-    "directPartialTag": 5,
-    "directExactDescription": 3,
-    "directPartialDescription": 1,
-    "directCategory": 4,
-    "suggestedExactTag": 5,
-    "suggestedPartialTag": 2,
-    "suggestedExactDescription": 1,
-    "suggestedPartialDescription": 0.5,
-    "suggestedCategory": 2,
-    "issueExactPenalty": -10,
-    "issuePartialPenalty": -5
+    "primaryExactTag": 25,
+    "primarySimilarTag": 15,
+    "primaryRelatedTag": 4,
+    "secondaryExactTag": 12,
+    "secondarySimilarTag": 7,
+    "secondaryRelatedTag": 2,
+    "primaryExactDescription": 5,
+    "primaryPartialDescription": 3,
+    "primaryKeywordDescription": 1,
+    "secondaryExactDescription": 3,
+    "secondaryPartialDescription": 2,
+    "secondaryKeywordDescription": 1,
+    "predictedExactTag": 3,
+    "predictedSimilarTag": 1,
+    "predictedDescription": 1,
+    "majorIssuePenalty": -5,
+    "minorIssuePenalty": -2
   },
   "limits": {
-    "minimumScore": 0.5,
+    "minimumScore": 0,
     "defaultResults": 5,
+    "minimumResults": 3,
     "maximumResults": 10,
-    "maximumDirectKeywords": 24,
-    "maximumSuggestedKeywords": 16
+    "maximumGateRatio": 0.2,
+    "maximumPrimaryKeywords": 20,
+    "maximumSecondaryKeywords": 12,
+    "maximumPredictedKeywords": 12,
+    "maximumFollowUpQuestions": 2
   }
 }

@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -431,8 +431,7 @@ function responseText(data) {
 
 async function expandKeywordsWithAI({ topic, description, profile, directKeywords, limit }) {
   const key = process.env.OPENAI_API_KEY;
-  const fallback = heuristicKeywordExpansion(directKeywords, limit);
-  if (!key) return { keywords: fallback, ai: false };
+  if (!key) return { keywords: [], ai: false };
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -462,10 +461,10 @@ async function expandKeywordsWithAI({ topic, description, profile, directKeyword
     if (!response.ok) throw new Error(`keyword expansion returned ${response.status}`);
     const parsed = JSON.parse(responseText(await response.json()) || "{}");
     const keywords = extractKeywords(parsed.keywords || [], limit).filter((keyword) => !directKeywords.includes(keyword));
-    return { keywords: [...new Set([...keywords, ...fallback])].slice(0, limit), ai: true };
+    return { keywords: [...new Set(keywords)].slice(0, limit), ai: true };
   } catch (error) {
     console.warn(`AI keyword expansion fallback: ${error.message}`);
-    return { keywords: fallback, ai: false };
+    return { keywords: [], ai: false };
   }
 }
 
@@ -692,15 +691,19 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", description = "", count } = await readJsonBody(req);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await readJsonBody(req);
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
-    const { rows, source } = await getResources();
+    if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
-    const profileInputs = [user.profile?.responses?.age, ...(user.profile?.responses?.interests || []), ...(user.profile?.responses?.situation || []), user.profile?.responses?.note];
-    const directKeywords = extractKeywords([topic, description, ...profileInputs], config.limits.maximumDirectKeywords);
-    const expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords, limit: config.limits.maximumSuggestedKeywords });
+    const questions = clarificationQuestions({ topic, description, maxQuestions: config?.limits?.maximumFollowUpQuestions || 2 });
+    if (!clarificationHandled && questions.length) return sendJson(res, 200, { needsClarification: true, questions });
+    const { rows, source } = await getResources();
+    const primaryKeywords = extractKeywords([description], config.limits.maximumPrimaryKeywords);
+    const gateKeywords = extractGateKeywords([description, ...confirmedSecondaryKeywords], config);
+    const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], config.limits.maximumSecondaryKeywords);
+    const expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: config.limits.maximumPredictedKeywords });
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
-    const matches = rankResources(rows, { directKeywords, suggestedKeywords: expanded.keywords, issuePreferences, count, config });
+    const matches = rankResources(rows, { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, predictedKeywords: expanded.keywords, issuePreferences, count, config });
     let answer;
     let ai = false;
     try {
@@ -719,7 +722,7 @@ async function handleApi(req, res, url) {
       resources: matches,
       source,
       ai,
-      keywordExpansion: { ai: expanded.ai, suggested: expanded.keywords },
+      keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       sync
     });
