@@ -59,6 +59,19 @@ test("Cloudflare Worker exposes D1-backed health status", async () => {
   assert.equal(health.storage, "cloudflare-d1");
 });
 
+test("guest sessions can explore but cannot open Village Community", async () => {
+  const guest = await worker.fetch(new Request("https://village.example/api/auth/guest", { method: "POST" }), {}, ctx);
+  assert.equal(guest.status, 200);
+  assert.equal((await guest.json()).user.guest, true);
+  assert.equal(guest.headers.get("set-cookie"), null);
+
+  const community = await worker.fetch(new Request("https://village.example/api/community", {
+    headers: { "X-Village-Guest": "1" }
+  }), {}, ctx);
+  assert.equal(community.status, 403);
+  assert.match((await community.json()).error, /registered members only/i);
+});
+
 test("Cloudflare account and hashed session remain usable independently of code deployment", async () => {
   const database = new DatabaseSync(":memory:");
   database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
@@ -195,11 +208,15 @@ test("community controls isolate history, restrict moments to friends, and enfor
   await worker.fetch(new Request(`https://village.example/api/community/blocks/${sam.user.id}`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: "{}" }), env, ctx);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_connections WHERE pair_key = ?").get(pairKey(alex.user.id, sam.user.id)).count, 0);
 
-  database.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES ('old-system', 'group-general', ?, 'old', '2000-01-01T00:00:00.000Z')").run(alex.user.id);
+  const thirteenHoursAgo = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString();
+  const elevenHoursAgo = new Date(Date.now() - 11 * 60 * 60 * 1000).toISOString();
+  database.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES ('old-system', 'group-general', ?, 'old', ?)").run(alex.user.id, thirteenHoursAgo);
+  database.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES ('recent-system', 'group-general', ?, 'recent', ?)").run(alex.user.id, elevenHoursAgo);
   let cleanupPromise;
   await worker.scheduled({}, env, { waitUntil(promise) { cleanupPromise = promise; } });
   await cleanupPromise;
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'old-system'").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'recent-system'").get().count, 1);
   database.close();
 });
 

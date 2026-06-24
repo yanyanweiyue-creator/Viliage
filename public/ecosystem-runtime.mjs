@@ -1,4 +1,4 @@
-import { nextLivestockAction, shouldLaunchSunsetFlock, shouldShowDragon } from "./ecosystem-logic.mjs";
+import { nextLivestockAction, shouldAnimalRest, shouldLaunchSunsetFlock, shouldShowDragon } from "./ecosystem-logic.mjs";
 import { createCreatureArt } from "./creature-art.mjs?v=grounded-audio-20260623";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
@@ -128,13 +128,7 @@ export class EcosystemController {
         }
       }
 
-      if (actor.definition.flying && !this.clock.isDay) {
-        this.setActorState(actor, "resting");
-        actor.nextMoveAt = now + 30_000;
-        continue;
-      }
-
-      if (!actor.definition.flying && !actor.definition.villager && ["rain", "storm"].includes(this.weather)) {
+      if (shouldAnimalRest({ definition: actor.definition, isDay: this.clock.isDay, weather: this.weather })) {
         this.setActorState(actor, "resting");
         actor.nextMoveAt = now + randomBetween(12_000, 24_000);
         continue;

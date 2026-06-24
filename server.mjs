@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -166,7 +166,7 @@ function localBlocked(community, firstId, secondId) {
 }
 
 function cleanupLocalSystemHistory(community) {
-  const cutoff = Date.now() - 10 * 60 * 1000;
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
   const systemIds = new Set(community.rooms.filter((room) => room.kind === "group" && !room.createdBy).map((room) => room.id));
   community.messages = community.messages.filter((message) => !systemIds.has(message.roomId) || new Date(message.createdAt).getTime() >= cutoff);
 }
@@ -237,6 +237,10 @@ function safeUser(user) {
     profile: user.profile || null,
     history: user.history || []
   };
+}
+
+function guestUser() {
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "" };
 }
 
 function parseCookies(req) {
@@ -454,6 +458,7 @@ function profileSummary(responses = {}) {
 }
 
 function deterministicAnswer(topic, description, matches) {
+  if (!matches.length) return `Waffles did not find a ${topic.toLowerCase()} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
   const names = matches.slice(0, 3).map((item) => item.name).join(", ");
   return `Waffles found ${matches.length} promising ${topic.toLowerCase()} resources for “${description}”. Start with ${names}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
 }
@@ -621,6 +626,8 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": await setSession(user.id) });
   }
 
+  if (req.method === "POST" && url.pathname === "/api/auth/guest") return sendJson(res, 200, { user: guestUser() });
+
   if (req.method === "POST" && url.pathname === "/api/auth/logout") {
     const token = parseCookies(req).capy_session;
     sessions.delete(sessionKey(token));
@@ -638,8 +645,9 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { resources: data.rows, source: data.source, warning: data.warning || null, updatedAt: new Date().toISOString() });
   }
 
-  const user = await getSessionUser(req);
+  const user = await getSessionUser(req) || (req.headers["x-village-guest"] === "1" ? guestUser() : null);
   if (!user) return sendError(res, 401, "Please sign in first.");
+  if (user.guest && url.pathname.startsWith("/api/community")) return sendError(res, 403, "Village Community is available to registered members only.");
 
   if (req.method === "GET" && url.pathname === "/api/community") {
     const community = await loadCommunity();
@@ -875,6 +883,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/profile") {
+    if (user.guest) return sendError(res, 403, "Create an account to save a personal record.");
     const { responses } = await readJsonBody(req);
     if (!responses || !Array.isArray(responses.interests) || !responses.interests.length) return sendError(res, 400, "Please choose at least one area of interest.");
     const summary = profileSummary(responses);
@@ -893,11 +902,17 @@ async function handleApi(req, res, url) {
     if (!clarificationHandled && questions.length) return sendJson(res, 200, { needsClarification: true, questions });
     const { rows, source } = await getResources();
     const primaryKeywords = extractKeywords([description], config.limits.maximumPrimaryKeywords);
-    const gateKeywords = extractGateKeywords([description, ...confirmedSecondaryKeywords], config);
+    const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], config);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], config.limits.maximumSecondaryKeywords);
-    const expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: config.limits.maximumPredictedKeywords });
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
-    const matches = rankResources(rows, { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, predictedKeywords: expanded.keywords, issuePreferences, count, config });
+    const requestedCount = normalizeResultCount(count, config);
+    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, count: requestedCount, config };
+    let expanded = { ai: false, keywords: [] };
+    let matches = rankResources(rows, { ...rankingInput, predictedKeywords: [] });
+    if (matches.length < requestedCount) {
+      expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: config.limits.maximumPredictedKeywords });
+      matches = rankResources(rows, { ...rankingInput, predictedKeywords: expanded.keywords });
+    }
     let answer;
     let ai = false;
     try {
@@ -908,9 +923,11 @@ async function handleApi(req, res, url) {
       answer += ` (AI service note: ${error.message})`;
     }
     if (!answer) answer = deterministicAnswer(topic, description, matches);
-    const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
     let sync = { synced: false };
-    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    if (!user.guest) {
+      const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
+      try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    }
     return sendJson(res, 200, {
       answer,
       resources: matches,
@@ -923,6 +940,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {
+    if (user.guest) return sendError(res, 403, "Create an account to save feedback.");
     const { feedback = "" } = await readJsonBody(req);
     const saved = await updateUser(user.id, (item) => ({ ...item, feedback: String(feedback).slice(0, 2000) }));
     let sync = { synced: false };

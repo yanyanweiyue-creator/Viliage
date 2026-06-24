@@ -12,8 +12,9 @@ window.CAPY_CONFIG = {
     sourceLabel: "Open the original Google Form"
   },
   map: {
-    image: "/assets/islands-placeholder.png",
-    replacementNote: "Replace the image above with your own exported island art. Keep the same aspect ratio, then update building x/y percentages below."
+    image: "/assets/village-map-approved.png",
+    source: "Approved map.pdf by Eva Liu",
+    replacementNote: "This raster is rendered directly from the approved map PDF. Preserve its 24:13 composition when updating hotspots."
   },
   support: {
     intro: "You do not have to figure everything out alone. Choose the kind of support that feels manageable today.",
@@ -38,37 +39,36 @@ window.CAPY_CONFIG = {
     // changes, adjust only these percentages; the movement engine stays intact.
     routes: {
       autismMeadow: [
-        { x: 11, y: 55 }, { x: 15, y: 66 }, { x: 22, y: 72 }, { x: 30, y: 66 },
-        { x: 37, y: 55 }, { x: 35, y: 43 }, { x: 28, y: 34 }, { x: 19, y: 39 }
+        { x: 10, y: 43 }, { x: 13, y: 58 }, { x: 20, y: 69 }, { x: 29, y: 63 },
+        { x: 39, y: 55 }, { x: 36, y: 39 }, { x: 27, y: 25 }, { x: 18, y: 23 }
       ],
       adhdMeadow: [
-        { x: 60, y: 43 }, { x: 66, y: 34 }, { x: 75, y: 34 }, { x: 84, y: 42 },
-        { x: 89, y: 56 }, { x: 83, y: 68 }, { x: 73, y: 69 }, { x: 64, y: 59 }
+        { x: 61, y: 48 }, { x: 66, y: 31 }, { x: 76, y: 25 }, { x: 88, y: 35 },
+        { x: 92, y: 53 }, { x: 86, y: 72 }, { x: 75, y: 75 }, { x: 65, y: 63 }
       ],
-      villagePath: [
-        { x: 17, y: 44, building: "autism-support" }, { x: 29, y: 27 },
-        { x: 39, y: 45, building: "autism-education" }, { x: 29, y: 50, building: "autism-recreation" }, { x: 34, y: 64, building: "autism-activity" },
-        { x: 20, y: 65, building: "autism-legal" }, { x: 39, y: 55 }, { x: 45, y: 53 },
-        { x: 50, y: 54, bridge: true }, { x: 55, y: 53 }, { x: 61, y: 55 },
-        { x: 66, y: 54, building: "adhd-education" }, { x: 72, y: 43, building: "adhd-recreation" }, { x: 72, y: 70, building: "adhd-activity" },
-        { x: 81, y: 62, building: "adhd-legal" }, { x: 81, y: 41 },
-        { x: 66, y: 29, building: "adhd-support" }
+      autismVillagePath: [
+        { x: 15, y: 39, building: "autism-education" }, { x: 27, y: 27 },
+        { x: 34, y: 36, building: "autism-support" }, { x: 32, y: 48, building: "autism-recreation" },
+        { x: 39, y: 59, building: "autism-activity" }, { x: 24, y: 68, building: "autism-legal" }, { x: 15, y: 39, building: "autism-education" }
+      ],
+      adhdVillagePath: [
+        { x: 75, y: 45, building: "adhd-education" }, { x: 70, y: 70, building: "adhd-legal" },
+        { x: 87, y: 67, building: "adhd-support" }, { x: 90, y: 48, building: "adhd-recreation" },
+        { x: 84, y: 26, building: "adhd-activity" }, { x: 75, y: 45, building: "adhd-education" }
       ],
       skyLoop: [
         { x: 6, y: 24 }, { x: 25, y: 15 }, { x: 47, y: 22 }, { x: 70, y: 12 }, { x: 94, y: 25 }
       ]
     },
     animals: [
-      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", island: "autism", route: "autismMeadow", start: 0 },
-      { id: "quiet-deer", species: "deer", label: "Quiet deer", island: "autism", route: "autismMeadow", start: 5 },
-      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", island: "autism", route: "autismMeadow", start: 2, livestock: true, grazePoint: 3, waterPoint: 4 },
-      { id: "trail-fox", species: "fox", label: "Trail fox", island: "adhd", route: "adhdMeadow", start: 2 },
-      { id: "meadow-cow", species: "cow", label: "Meadow cow", island: "adhd", route: "adhdMeadow", start: 6, livestock: true, grazePoint: 7, waterPoint: 5 },
-      { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, flying: true },
-      { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, flying: true },
-      { id: "walker-one", species: "villager", label: "Village visitor", artVariant: 0, island: "village", route: "villagePath", start: 0, villager: true, home: 0 },
-      { id: "walker-two", species: "villager", label: "Village visitor", artVariant: 1, island: "village", route: "villagePath", start: 8, villager: true, home: 11 },
-      { id: "walker-three", species: "villager", label: "Village visitor", artVariant: 2, island: "village", route: "villagePath", start: 15, villager: true, home: 16 }
+      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", island: "autism", route: "autismMeadow", start: 0, activePeriod: "night" },
+      { id: "quiet-deer", species: "deer", label: "Quiet deer", island: "autism", route: "autismMeadow", start: 5, activePeriod: "day" },
+      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", island: "autism", route: "autismMeadow", start: 2, activePeriod: "day", livestock: true, grazePoint: 3, waterPoint: 4 },
+      { id: "trail-fox", species: "fox", label: "Trail fox", island: "adhd", route: "adhdMeadow", start: 2, activePeriod: "night" },
+      { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, activePeriod: "day", flying: true },
+      { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, activePeriod: "day", flying: true },
+      { id: "walker-one", species: "villager", label: "Autism Island visitor", artVariant: 0, island: "autism", route: "autismVillagePath", start: 0, villager: true, home: 0 },
+      { id: "walker-two", species: "villager", label: "ADHD Island visitor", artVariant: 1, island: "adhd", route: "adhdVillagePath", start: 0, villager: true, home: 0 }
     ],
     events: {
       dragon: { label: "Azure dawn dragon", probability: 0.12, dawnBeforeMinutes: 20, dawnAfterMinutes: 40 },
@@ -97,15 +97,15 @@ window.CAPY_CONFIG = {
     }
   },
   buildings: [
-    { id: "autism-support", island: "autism", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 17, y: 42, x3d: 18, y3d: 46 },
-    { id: "autism-education", island: "autism", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 39, y: 43, x3d: 39, y3d: 48 },
-    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 29, y: 50, x3d: 30, y3d: 55 },
-    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 18, y: 64, x3d: 18, y3d: 66 },
-    { id: "autism-activity", island: "autism", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 33, y: 63, x3d: 34, y3d: 68 },
-    { id: "adhd-support", island: "adhd", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 65, y: 27, x3d: 66, y3d: 42 },
-    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 65, y: 53, x3d: 66, y3d: 57 },
-    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 72, y: 43, x3d: 74, y3d: 48 },
-    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 80, y: 61, x3d: 82, y3d: 64 },
-    { id: "adhd-activity", island: "adhd", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 71, y: 71, x3d: 74, y3d: 72 }
+    { id: "autism-support", island: "autism", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 34, y: 36, x3d: 18, y3d: 46 },
+    { id: "autism-education", island: "autism", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 15, y: 39, x3d: 39, y3d: 48 },
+    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", mapLabel: "Woods", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 32, y: 48, x3d: 30, y3d: 55 },
+    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 13, y: 67, x3d: 18, y3d: 66 },
+    { id: "autism-activity", island: "autism", type: "activity", mapLabel: "Park", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 39, y: 59, x3d: 34, y3d: 68 },
+    { id: "adhd-support", island: "adhd", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 87, y: 67, x3d: 66, y3d: 42 },
+    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 75, y: 45, x3d: 66, y3d: 57 },
+    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", mapLabel: "Woods", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 90, y: 48, x3d: 74, y3d: 48 },
+    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 70, y: 70, x3d: 82, y3d: 64 },
+    { id: "adhd-activity", island: "adhd", type: "activity", mapLabel: "Park", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 84, y: 26, x3d: 74, y3d: 72 }
   ]
 };

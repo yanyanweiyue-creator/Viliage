@@ -49,9 +49,9 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const i18n = {
   en: {
     begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and Waffles can help make any topic feel more manageable.", choosePath: "Choose your own path",
-    village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Select an island, then choose a building",
+    village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Select an island, then choose a building", chooseBuilding: "Choose a building",
     quietGardens: "Quiet gardens", momentumTrails: "Momentum trails", autismIsland: "Autism Island", adhdIsland: "ADHD Island",
-    resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", view: "View", refresh: "Refresh",
+    resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", guestReady: "Temporary guest visit", guestMatch: "Searches and records are not saved", account: "Account", view: "View", refresh: "Refresh",
     jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
@@ -69,9 +69,9 @@ const i18n = {
   },
   zh: {
     begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——Waffles 会帮你把每个主题都变得更容易理解。", choosePath: "选择你自己的路径",
-    village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "先选择一座岛，再选择一栋建筑",
+    village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "先选择一座岛，再选择一栋建筑", chooseBuilding: "选择一栋建筑",
     quietGardens: "安静花园", momentumTrails: "活力小径", autismIsland: "自闭症岛", adhdIsland: "ADHD 岛",
-    resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", view: "查看", refresh: "刷新",
+    resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", guestReady: "临时访客模式", guestMatch: "搜索与个人记录不会被保存", account: "账户", view: "查看", refresh: "刷新",
     jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
@@ -89,9 +89,9 @@ const i18n = {
   },
   es: {
     begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; Waffles puede hacer que cada tema sea más manejable.", choosePath: "Elige tu propio camino",
-    village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Elige una isla y luego un edificio",
+    village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Elige una isla y luego un edificio", chooseBuilding: "Elige un edificio",
     quietGardens: "Jardines tranquilos", momentumTrails: "Senderos activos", autismIsland: "Isla Autismo", adhdIsland: "Isla TDAH",
-    resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", view: "Ver", refresh: "Actualizar",
+    resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", guestReady: "Visita temporal", guestMatch: "Las búsquedas y registros no se guardan", account: "Cuenta", view: "Ver", refresh: "Actualizar",
     jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
@@ -667,7 +667,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    headers: { "Content-Type": "application/json", ...(state.user?.guest ? { "X-Village-Guest": "1" } : {}), ...(options.headers || {}) }
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
@@ -725,6 +725,15 @@ async function submitAuth(event) {
   }
 }
 
+async function continueAsGuest() {
+  try {
+    const { user } = await api("/api/auth/guest", { method: "POST", body: "{}" });
+    state.user = user;
+    routeForUser();
+    toast("Guest visit started. Community chat stays locked until you create an account.");
+  } catch (error) { $("#auth-error").textContent = error.message; }
+}
+
 async function submitSurvey(event) {
   event.preventDefault();
   const formElement = event.target;
@@ -765,30 +774,53 @@ function routeForUser() {
   hydrateApp();
 }
 
+function renderAccountStatus() {
+  const guest = Boolean(state.user?.guest);
+  $("#record-status-title").textContent = t(guest ? "guestReady" : "personalReady");
+  $("#record-status-detail").textContent = t(guest ? "guestMatch" : "personalMatch");
+  $("#record-status-action").textContent = t(guest ? "account" : "view");
+}
+
 function renderBuildings() {
   const layer = $("#building-layer");
   const buildingLabel = (building) => building.type === "ai" ? t(String(building.topic || "Education").toLowerCase()) : t(building.type === "activity" ? "activities" : building.type);
   layer.innerHTML = config.buildings.map((building) => `
-    <button class="building" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(buildingLabel(building))}" aria-label="${escapeHtml(buildingLabel(building))} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+    <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
       <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");
 }
 
-function selectIsland(island) {
+function applyIslandFocus(island) {
   state.selectedIsland = island;
   const stage = $("#map-stage");
   stage.classList.remove("focus-autism", "focus-adhd");
   stage.classList.add(`focus-${island}`);
   $("#reset-map").classList.remove("hidden");
-  $(".map-hint").textContent = `${t("selectIsland")} · ${island === "autism" ? t("autismIsland") : t("adhdIsland")}`;
+  $(".map-hint").textContent = `${t("chooseBuilding")} · ${island === "autism" ? t("autismIsland") : t("adhdIsland")}`;
+  $("#map-image").alt = `${island === "autism" ? t("autismIsland") : t("adhdIsland")} illustrated village map`;
   state.audio?.scheduleAnimal();
+}
+
+function selectIsland(island) {
+  if (!['autism', 'adhd'].includes(island)) return;
+  const overlay = $("#island-transition");
+  const islandName = island === "autism" ? t("autismIsland") : t("adhdIsland");
+  if (!overlay || state.settings.calm) return applyIslandFocus(island);
+  $("#transition-island-name").textContent = `Entering ${islandName}`;
+  overlay.classList.remove("hidden", "disperse");
+  overlay.classList.add("active");
+  overlay.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => applyIslandFocus(island), 620);
+  window.setTimeout(() => overlay.classList.add("disperse"), 820);
+  window.setTimeout(() => { overlay.classList.add("hidden"); overlay.classList.remove("active", "disperse"); overlay.setAttribute("aria-hidden", "true"); }, 1550);
 }
 
 function resetMap() {
   state.selectedIsland = null;
   $("#map-stage").classList.remove("focus-autism", "focus-adhd");
   $("#reset-map").classList.add("hidden");
+  $("#map-image").alt = "Two illustrated green islands connected by a wooden bridge";
   $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
 }
 
@@ -858,7 +890,7 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   state.communityPosts = posts;
   state.communityTab = activeTab;
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
-  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${group.pinned ? "📌 " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "system group · cleans every 10 minutes" : "friend group"}</small></div><div class="community-actions"><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button>${group.joined ? `<button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button>` : ""}</div></article>`).join("") || `<p class="community-empty">No groups yet.</p>`;
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${group.pinned ? "📌 " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "system group · cleans every 12 hours" : "friend group"}</small></div><div class="community-actions"><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button>${group.joined ? `<button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button>` : ""}</div></article>`).join("") || `<p class="community-empty">No groups yet.</p>`;
   const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.displayName)}</strong><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet.</p>`;
   const incoming = (data.incoming || []).map((request) => `<article class="community-person-card"><strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
   const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room"><span class="community-avatar">${escapeHtml(String(room.name || "V").charAt(0).toUpperCase())}</span><button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "📌 " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><div class="community-actions"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></div></article>`).join("");
@@ -874,6 +906,7 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
 }
 
 async function communityPanel() {
+  if (state.user?.guest) return toast("Village Community is for registered members. Create an account to join conversations.");
   clearInterval(state.communityTimer); state.communityRoom = null; state.communityPostImage = null;
   openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
   try { const [data, feed] = await Promise.all([api("/api/community"), api("/api/community/posts")]); state.communityPosts = feed.posts || []; $("#panel-content").innerHTML = communityOverviewHtml(data, state.communityPosts); }
@@ -917,7 +950,7 @@ async function openCommunityRoom(roomId, roomName) {
   state.communityRoom = { ...data.room, id: roomId, name: roomName || data.room.name };
   const roomActions = `<div class="community-room-toolbar"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(roomId)}" data-pinned="${String(!data.room.pinned)}">${data.room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="clear-community-history" data-room-id="${escapeHtml(roomId)}">Clear my history</button>${data.room.kind === "group" ? `<button type="button" class="text-button danger" data-action="leave-community-room" data-room-id="${escapeHtml(roomId)}">Leave group</button>` : `<button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Remove friend</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Block</button>`}</div>`;
   const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
-  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>${roomActions}${data.room.systemManaged ? `<p class="privacy-note">Testing mode: this system group automatically deletes shared messages older than 10 minutes.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}${groupMemberControls(data)}<div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><div class="sticker-picker" aria-label="Stickers">${stickerButtons}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
+  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>${roomActions}${data.room.systemManaged ? `<p class="privacy-note">This system group automatically deletes shared messages older than 12 hours.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}${groupMemberControls(data)}<div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><div class="sticker-picker" aria-label="Stickers">${stickerButtons}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
   state.communityTimer = setInterval(refreshCommunityRoom, 5000);
 }
 
@@ -1174,7 +1207,7 @@ async function submitClarification(event) {
     const payload = { ...state.pendingSearch, clarificationHandled: true, confirmedSecondaryKeywords, rejectedKeywords: rejectAll ? allOptions : [] };
     const response = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
     const expanded = response.keywordExpansion?.suggested || [];
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(response.source)} · scoring v${escapeHtml(response.scoring?.version || "2.0")}</p>`;
+    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(response.source)} · scoring v${escapeHtml(response.scoring?.version || "2.1")}</p>`;
   } catch (error) {
     form.querySelector(".form-error").textContent = error.message;
     button.disabled = false;
@@ -1184,10 +1217,14 @@ async function submitClarification(event) {
 function resourceCard(resource) {
   const categories = [...(resource.categories || []), ...(resource.tags || [])].slice(0, 5);
   const reasons = resource.explanation || [];
-  return `<article class="resource-card"><div class="resource-heading"><h3>${escapeHtml(resource.name)}</h3><span class="score-badge">${escapeHtml(String(resource.score ?? 0))} pts</span></div><p>${escapeHtml(resource.description)}</p><div class="resource-meta"><span>${escapeHtml(resource.age || "All ages")}</span><span>${escapeHtml(resource.location || "See website")}</span><span>${escapeHtml(resource.price || "See website")}</span>${categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>${reasons.length ? `<details class="score-details"><summary>${escapeHtml(t("scoreWhy"))}</summary><ul>${reasons.map((reason) => `<li><b class="${reason.points < 0 ? "negative" : "positive"}">${reason.points > 0 ? "+" : ""}${escapeHtml(String(reason.points))}</b> ${escapeHtml(reason.label)} · “${escapeHtml(reason.keyword)}”</li>`).join("")}</ul></details>` : ""}<a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer">Visit resource ↗</a></article>`;
+  const passedFilters = resource.passedFilters || [];
+  const gate = resource.gateEvidence;
+  const gateLabel = gate?.authority && gate.authority !== "none" ? `${gate.authority.replace("-", " ")} evidence · confidence ${gate.confidence}` : "description evidence";
+  return `<article class="resource-card"><div class="resource-heading"><h3>${escapeHtml(resource.name)}</h3><span class="score-badge">${escapeHtml(String(resource.score ?? 0))} pts</span></div><p>${escapeHtml(resource.description)}</p><div class="resource-meta"><span>${escapeHtml(resource.age || "All ages")}</span><span>${escapeHtml(resource.location || "See website")}</span><span>${escapeHtml(resource.price || "See website")}</span>${categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>${passedFilters.length ? `<div class="filter-badges" aria-label="Passed recommendation filters">${passedFilters.map((item) => `<span>✓ ${escapeHtml(item)}</span>`).join("")}${gate ? `<span class="gate-evidence">${escapeHtml(gateLabel)}</span>` : ""}</div>` : ""}${reasons.length ? `<details class="score-details"><summary>${escapeHtml(t("scoreWhy"))}</summary><ul>${reasons.map((reason) => `<li><b class="${reason.points < 0 ? "negative" : "positive"}">${reason.points > 0 ? "+" : ""}${escapeHtml(String(reason.points))}</b> ${escapeHtml(reason.label)} · “${escapeHtml(reason.keyword)}”</li>`).join("")}</ul></details>` : ""}<a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer">Visit resource ↗</a></article>`;
 }
 
 function profilePanel() {
+  if (state.user?.guest) return openPanel({ title: "Guest visit", eyebrow: "Temporary access", html: `<p class="panel-intro">You can explore both islands and use resource search during this visit.</p><article class="record-card"><strong>Community is locked for guests</strong><p>Create an account to save a personal record, post Moments, join group chats, or message friends.</p></article><button type="button" class="primary-button" data-action="logout">Create or log in to an account</button>` });
   const profile = state.user?.profile;
   const history = state.user?.history || [];
   openPanel({
@@ -1236,6 +1273,7 @@ function applySettings() {
   state.immersive?.setEnabled(sceneMode === "3d");
   state.audio?.setSceneMode?.(sceneMode);
   state.audio?.applySettings();
+  if (state.user) renderAccountStatus();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
 
@@ -1627,6 +1665,7 @@ document.addEventListener("click", (event) => {
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
   if (action === "open-mori") aiPanel("Education");
+  if (action === "continue-guest") continueAsGuest();
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
