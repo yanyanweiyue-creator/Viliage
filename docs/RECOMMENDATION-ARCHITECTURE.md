@@ -10,9 +10,9 @@ The engine is filter-first and score-second:
 4. Build the Description Gate from at most 20% of the strongest primary and confirmed-secondary concepts. At least one concept must occur in tags or the description.
 5. Score the gate survivors. Primary tag matches receive 25/15/4 points; confirmed-secondary tag matches receive 12/7/2. Description evidence is deliberately weaker. Major and minor issues subtract 5 and 2 points.
 6. Sort by tier and score. Direct results always precede synonym expansion, and synonym expansion always precedes AI-predicted results.
-7. Run expansion only when the requested count has not been filled. Pass 1 uses deterministic synonyms. Pass 2 uses AI predictions with maximum weights of 3/1/1.
+7. Run expansion only when the requested count has not been filled. Pass 1 uses deterministic synonyms. Pass 2 calls AI lazily, only after the direct and synonym passes remain short, with maximum weights of 3/1/1.
 
-Every result includes `tier`, `score`, `passedFilters`, `matchedKeywords`, and an additive `explanation` array.
+Every result includes `tier`, `score`, `passedFilters`, `gateEvidence`, `matchedKeywords`, and an additive `explanation` array. Gate evidence records whether primary, confirmed-secondary, or fallback concepts allowed the result to proceed and exposes a confidence value for administrative review.
 
 ## API contract
 
@@ -51,7 +51,7 @@ For tens of thousands of records, use PostgreSQL full-text search or OpenSearch 
 
 ## Configuration and examples
 
-All weights and limits live in `config/scoring-config.json` and are exposed read-only at `GET /api/scoring-config`.
+All v2.1 weights and limits live in `config/scoring-config.json` and are exposed read-only at `GET /api/scoring-config`.
 
 Example: an Autism + Legal resource that passes the Description Gate, has an exact primary `Medicaid` tag, a confirmed-secondary exact `IEP` tag, an exact primary phrase in the description, and one minor issue scores `25 + 12 + 5 - 2 = 40`.
 

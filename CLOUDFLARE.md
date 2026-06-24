@@ -90,6 +90,6 @@ After those are configured, every push to `main` runs `.github/workflows/deploy-
 - Session tokens are stored only as SHA-256 hashes.
 - Login sessions live in D1 for seven days and survive Worker deployments/restarts.
 - Community memberships, accepted connections, per-user history cutoffs, blocks, messages, and Moments survive Worker deployments/restarts.
-- In the current test configuration, the scheduled trigger runs every 10 minutes and deletes messages older than 10 minutes only from system-managed groups. Restore both values to 12 hours for the final retention policy.
+- The scheduled trigger runs every 12 hours and deletes messages older than 12 hours only from system-managed groups.
 - The local Node server writes users and hashed sessions atomically to ignored data files, so ordinary code updates do not overwrite them.
 - Do not delete the D1 database, reuse its name for testing, or run destructive SQL in a migration.

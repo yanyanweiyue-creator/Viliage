@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -71,6 +71,10 @@ function safeUser(user) {
   return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), profile: user.profile || null, history: user.history || [] };
 }
 
+function guestUser() {
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "" };
+}
+
 async function allRows(statement) {
   const result = await statement.all();
   return Array.isArray(result) ? result : result?.results || [];
@@ -93,7 +97,7 @@ async function usersBlocked(env, firstId, secondId) {
 }
 
 async function cleanupSystemGroupHistory(env) {
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
   return env.DB.prepare("DELETE FROM chat_messages WHERE created_at < ? AND room_id IN (SELECT id FROM chat_rooms WHERE kind = 'group' AND system_managed = 1)").bind(cutoff).run();
 }
 
@@ -251,6 +255,7 @@ function profileSummary(responses = {}) {
 }
 
 function deterministicAnswer(topic, description, matches) {
+  if (!matches.length) return `Waffles did not find a ${String(topic).toLowerCase()} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
   return `Waffles found ${matches.length} promising ${String(topic).toLowerCase()} resources for “${description}”. Start with ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
 }
 
@@ -389,6 +394,8 @@ async function api(request, env, ctx) {
     return json({ user: safeUser(user) }, 200, { "Set-Cookie": await createSession(env, user.id) });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/guest") return json({ user: guestUser() });
+
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
     const token = cookies(request).capy_session;
     if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash(token)).run();
@@ -400,8 +407,9 @@ async function api(request, env, ctx) {
     return user ? json({ user: safeUser(user) }) : fail("Not signed in.", 401);
   }
 
-  const user = await sessionUser(request, env);
+  const user = await sessionUser(request, env) || (request.headers.get("X-Village-Guest") === "1" ? guestUser() : null);
   if (!user) return fail("Please sign in first.", 401);
+  if (user.guest && url.pathname.startsWith("/api/community")) return fail("Village Community is available to registered members only.", 403);
 
   if (request.method === "GET" && url.pathname === "/api/community") {
     return json(await communityOverview(env, user));
@@ -664,6 +672,7 @@ async function api(request, env, ctx) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/profile") {
+    if (user.guest) return fail("Create an account to save a personal record.", 403);
     const { responses } = await body(request);
     if (!responses || !Array.isArray(responses.interests) || !responses.interests.length) return fail("Please choose at least one area of interest.");
     user.profile = { responses, summary: profileSummary(responses), updatedAt: new Date().toISOString() };
@@ -682,21 +691,30 @@ async function api(request, env, ctx) {
     if (!clarificationHandled && questions.length) return json({ needsClarification: true, questions });
     const data = await resources(env);
     const primaryKeywords = extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords);
-    const gateKeywords = extractGateKeywords([description, ...confirmedSecondaryKeywords], scoreConfig);
+    const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
-    const expanded = await expandKeywords(env, { topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: scoreConfig.limits.maximumPredictedKeywords });
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
-    const matches = rankResources(data.rows, { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, predictedKeywords: expanded.keywords, issuePreferences, count, config: scoreConfig });
+    const requestedCount = normalizeResultCount(count, scoreConfig);
+    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, count: requestedCount, config: scoreConfig };
+    let expanded = { ai: false, keywords: [] };
+    let matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: [] });
+    if (matches.length < requestedCount) {
+      expanded = await expandKeywords(env, { topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: scoreConfig.limits.maximumPredictedKeywords });
+      matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: expanded.keywords });
+    }
     let answer = null;
     try { answer = await aiAnswer(env, { topic, description, profile: user.profile, matches }); } catch {}
     if (!answer) answer = deterministicAnswer(topic, description, matches);
-    user.history = [...(user.history || []), { topic, description, at: new Date().toISOString() }].slice(-50);
-    await env.DB.prepare("UPDATE users SET history_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.history), new Date().toISOString(), user.id).run();
-    ctx.waitUntil(syncUser(env, user).catch(() => {}));
-    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    if (!user.guest) {
+      user.history = [...(user.history || []), { topic, description, at: new Date().toISOString() }].slice(-50);
+      await env.DB.prepare("UPDATE users SET history_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.history), new Date().toISOString(), user.id).run();
+      ctx.waitUntil(syncUser(env, user).catch(() => {}));
+    }
+    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/feedback") {
+    if (user.guest) return fail("Create an account to save feedback.", 403);
     user.feedback = String((await body(request)).feedback || "").slice(0, 2000);
     await env.DB.prepare("UPDATE users SET feedback = ?, updated_at = ? WHERE id = ?").bind(user.feedback, new Date().toISOString(), user.id).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));

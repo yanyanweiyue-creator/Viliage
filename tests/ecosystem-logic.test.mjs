@@ -9,6 +9,7 @@ import {
   shouldLaunchSunsetFlock,
   nextLivestockAction,
   routeIsConfined,
+  shouldAnimalRest,
   villagerRouteIsWalkable
 } from "../public/ecosystem-logic.mjs";
 
@@ -59,6 +60,15 @@ test("livestock drink every ten minutes, graze every five, with drink priority",
   assert.equal(nextLivestockAction({ now: 12 * minute, lastGrazeAt: 7 * minute, lastDrinkAt: 3 * minute }), "graze");
   assert.equal(nextLivestockAction({ now: 20 * minute, lastGrazeAt: null, lastDrinkAt: null }), null);
   assert.equal(nextLivestockAction({ now: 10 * minute, nextGrazeAt: 5 * minute, nextDrinkAt: 10 * minute }), "drink");
+});
+
+test("animal activity follows weather and configured day-night behavior", () => {
+  assert.equal(shouldAnimalRest({ definition: { activePeriod: "day" }, isDay: false }), true);
+  assert.equal(shouldAnimalRest({ definition: { activePeriod: "night" }, isDay: true }), true);
+  assert.equal(shouldAnimalRest({ definition: { activePeriod: "night" }, isDay: false }), false);
+  assert.equal(shouldAnimalRest({ definition: { flying: true }, isDay: false }), true);
+  assert.equal(shouldAnimalRest({ definition: { activePeriod: "day" }, isDay: true, weather: "storm" }), true);
+  assert.equal(shouldAnimalRest({ definition: { villager: true }, isDay: false, weather: "storm" }), false);
 });
 
 test("event helpers accept the runtime controller field names", () => {

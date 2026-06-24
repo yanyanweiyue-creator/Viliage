@@ -19,7 +19,7 @@ const SYNONYMS = {
 };
 
 export const DEFAULT_SCORE_CONFIG = {
-  version: "2.0",
+  version: "2.1",
   weights: {
     primaryExactTag: 25,
     primarySimilarTag: 15,
@@ -179,6 +179,20 @@ export function passesDescriptionGate(resource, gateKeywords = []) {
   });
 }
 
+export function descriptionGateEvidence(resource, { primaryGateKeywords = [], secondaryGateKeywords = [], fallbackGateKeywords = [] } = {}) {
+  const matches = (keywords) => uniqueNormalized(keywords, 30).filter((keyword) => passesDescriptionGate(resource, [keyword]));
+  const primaryMatches = matches(primaryGateKeywords);
+  const secondaryMatches = matches(secondaryGateKeywords).filter((keyword) => !primaryMatches.includes(keyword));
+  const fallbackMatches = primaryMatches.length || secondaryMatches.length ? [] : matches(fallbackGateKeywords);
+  return {
+    confidence: primaryMatches.length * 2 + secondaryMatches.length + fallbackMatches.length * .5,
+    authority: primaryMatches.length ? "primary" : secondaryMatches.length ? "confirmed-secondary" : fallbackMatches.length ? "fallback" : "none",
+    primaryMatches,
+    secondaryMatches,
+    fallbackMatches
+  };
+}
+
 export function scoreResource(resource, { primaryKeywords = [], confirmedSecondaryKeywords = [], predictedKeywords = [], rejectedKeywords = [], issuePreferences = [], config = DEFAULT_SCORE_CONFIG, tier = 1 } = {}) {
   const weights = { ...DEFAULT_SCORE_CONFIG.weights, ...(config.weights || {}) };
   const tags = normalizedList(resource.tags);
@@ -225,8 +239,9 @@ export function scoreResource(resource, { primaryKeywords = [], confirmedSeconda
   return result;
 }
 
-function requestedCount(options, limits) {
-  const requested = Number(options.count || limits.defaultResults);
+export function normalizeResultCount(value, config = DEFAULT_SCORE_CONFIG) {
+  const limits = { ...DEFAULT_SCORE_CONFIG.limits, ...(config.limits || {}) };
+  const requested = Number(value || limits.defaultResults);
   return Math.max(limits.minimumResults, Math.min(limits.maximumResults, Number.isFinite(requested) ? Math.round(requested) : limits.defaultResults));
 }
 
@@ -250,31 +265,33 @@ function scorePool(resources, options, tier, keywordOptions) {
 export function rankResources(resources, options = {}) {
   const config = options.config || DEFAULT_SCORE_CONFIG;
   const limits = { ...DEFAULT_SCORE_CONFIG.limits, ...(config.limits || {}) };
-  const count = requestedCount(options, limits);
+  const count = normalizeResultCount(options.count, config);
   const rejected = new Set(uniqueNormalized(options.rejectedKeywords || [], 50));
   const primary = uniqueNormalized(options.primaryKeywords || options.directKeywords || [], limits.maximumPrimaryKeywords).filter((item) => !rejected.has(item));
   const secondary = uniqueNormalized(options.confirmedSecondaryKeywords || [], limits.maximumSecondaryKeywords).filter((item) => !rejected.has(item));
-  const gateKeywords = uniqueNormalized(options.gateKeywords?.length ? options.gateKeywords : extractGateKeywords([...primary, ...secondary], config), 30).filter((item) => !rejected.has(item));
+  const primaryGateKeywords = extractGateKeywords(primary, config).filter((item) => !rejected.has(item));
+  const secondaryGateKeywords = extractGateKeywords(secondary, config).filter((item) => !rejected.has(item));
+  const gateKeywords = uniqueNormalized(options.gateKeywords?.length ? options.gateKeywords : [...primaryGateKeywords, ...secondaryGateKeywords], 30).filter((item) => !rejected.has(item));
   const hardFiltered = filterResources(resources, options);
   const basePool = hardFiltered.filter((resource) => passesDescriptionGate(resource, gateKeywords));
-  const collected = scorePool(basePool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 1, { predictedKeywords: [] });
+  const collected = scorePool(basePool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 1, { predictedKeywords: [] }).map((resource) => ({ ...resource, gateEvidence: descriptionGateEvidence(resource, { primaryGateKeywords, secondaryGateKeywords, fallbackGateKeywords: gateKeywords }) }));
   const seen = new Set(collected.map((resource) => resource.url || resource.name));
 
   if (collected.length < count) {
     const expansion = uniqueNormalized(options.expansionKeywords || heuristicKeywordExpansion([...primary, ...secondary], limits.maximumSecondaryKeywords), limits.maximumSecondaryKeywords).filter((item) => !rejected.has(item));
     const expansionPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, expansion));
     for (const resource of scorePool(expansionPool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 4, { predictedKeywords: expansion })) {
-      collected.push(resource); seen.add(resource.url || resource.name);
+      collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: expansion }) }); seen.add(resource.url || resource.name);
     }
   }
 
   if (collected.length < count) {
     const predicted = uniqueNormalized(options.predictedKeywords || [], limits.maximumPredictedKeywords).filter((item) => !rejected.has(item));
     const predictedPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, predicted));
-    for (const resource of scorePool(predictedPool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 5, { predictedKeywords: predicted })) collected.push(resource);
+    for (const resource of scorePool(predictedPool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 5, { predictedKeywords: predicted })) collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: predicted }) });
   }
 
-  return collected.filter((resource) => resource.score >= limits.minimumScore).sort((a, b) => a.tier - b.tier || b.score - a.score || String(a.name).localeCompare(String(b.name))).slice(0, count);
+  return collected.filter((resource) => resource.score >= limits.minimumScore).sort((a, b) => a.tier - b.tier || b.score - a.score || Number(b.gateEvidence?.confidence || 0) - Number(a.gateEvidence?.confidence || 0) || String(a.name).localeCompare(String(b.name))).slice(0, count);
 }
 
 export function clarificationQuestions({ topic = "", description = "", maxQuestions = 2 } = {}) {

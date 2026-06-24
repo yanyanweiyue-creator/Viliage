@@ -47,6 +47,24 @@ test("health endpoint and homepage are available", async () => {
   }
 });
 
+test("local guest entry is temporary and Community stays registered-only", async () => {
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const guest = await httpRequest(`http://127.0.0.1:${port}/api/auth/guest`, { method: "POST" });
+    assert.equal(guest.status, 200);
+    assert.equal(JSON.parse(guest.text).user.guest, true);
+    assert.equal(guest.headers["set-cookie"], undefined);
+    const community = await httpRequest(`http://127.0.0.1:${port}/api/community`, { headers: { "X-Village-Guest": "1" } });
+    assert.equal(community.status, 403);
+    assert.match(JSON.parse(community.text).error, /registered members only/i);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("registration never returns a password hash", async () => {
   const server = createAppServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

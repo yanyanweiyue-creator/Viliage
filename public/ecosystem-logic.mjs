@@ -135,6 +135,17 @@ export function nextLivestockAction({
   return null;
 }
 
+/** Keep configured animals in plausible activity windows and shelter weather. */
+export function shouldAnimalRest({ definition = {}, isDay = true, weather = "clear" } = {}) {
+  if (definition.villager) return false;
+  if (!definition.flying && ["rain", "storm", "snow"].includes(String(weather))) return true;
+  if (definition.flying && !isDay) return true;
+  const activePeriod = String(definition.activePeriod || "always");
+  if (activePeriod === "day" && !isDay) return true;
+  if (activePeriod === "night" && isDay) return true;
+  return false;
+}
+
 /**
  * Validate that a route is safe for one island.
  * A route is `{ island, points: [{ x, y, island? }, ...] }`; an array of points
