@@ -1,4 +1,5 @@
 import { nextLivestockAction, shouldLaunchSunsetFlock, shouldShowDragon } from "./ecosystem-logic.mjs";
+import { createCreatureArt } from "./creature-art.mjs?v=vector-creatures-20260623";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
@@ -44,11 +45,13 @@ export class EcosystemController {
       element.dataset.island = definition.island;
       element.dataset.flying = String(Boolean(definition.flying));
       element.title = definition.label;
+      element.setAttribute("role", "img");
+      element.setAttribute("aria-label", definition.label);
       element.style.left = `${point.x}%`;
       element.style.top = `${point.y}%`;
       const glyph = document.createElement("span");
       glyph.className = "actor-glyph";
-      glyph.textContent = definition.emoji;
+      glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
       element.append(glyph);
       (definition.flying ? this.skyLayer : this.creatureLayer).append(element);
       this.actors.set(definition.id, {
@@ -64,7 +67,9 @@ export class EcosystemController {
     dragon.className = "dawn-dragon";
     dragon.id = "dawn-dragon";
     dragon.title = this.config.events?.dragon?.label || "Azure dawn dragon";
-    dragon.textContent = this.config.events?.dragon?.emoji || "🐉";
+    dragon.setAttribute("role", "img");
+    dragon.setAttribute("aria-label", dragon.title);
+    dragon.append(createCreatureArt(document, "dragon"));
     this.skyLayer.append(dragon);
   }
 
@@ -205,7 +210,7 @@ export class EcosystemController {
     for (let index = 0; index < count; index += 1) {
       const bird = document.createElement("span");
       bird.className = "sunset-gull";
-      bird.textContent = "⌁";
+      bird.append(createCreatureArt(document, "gull", index % 3));
       bird.style.setProperty("--flock-left", `${8 + (index % 4) * 7}%`);
       bird.style.setProperty("--flock-top", `${46 + (index % 3) * 5}%`);
       bird.style.setProperty("--flock-delay", `${index * .24}s`);

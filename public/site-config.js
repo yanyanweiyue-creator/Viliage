@@ -59,19 +59,19 @@ window.CAPY_CONFIG = {
       ]
     },
     animals: [
-      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", emoji: "🐇", island: "autism", route: "autismMeadow", start: 0 },
-      { id: "quiet-deer", species: "deer", label: "Quiet deer", emoji: "🦌", island: "autism", route: "autismMeadow", start: 5 },
-      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", emoji: "🐑", island: "autism", route: "autismMeadow", start: 2, livestock: true, grazePoint: 3, waterPoint: 4 },
-      { id: "trail-fox", species: "fox", label: "Trail fox", emoji: "🦊", island: "adhd", route: "adhdMeadow", start: 2 },
-      { id: "meadow-cow", species: "cow", label: "Meadow cow", emoji: "🐄", island: "adhd", route: "adhdMeadow", start: 6, livestock: true, grazePoint: 7, waterPoint: 5 },
-      { id: "village-gull", species: "gull", label: "Village gull", emoji: "🕊️", island: "sky", route: "skyLoop", start: 1, flying: true },
-      { id: "songbird", species: "bird", label: "Songbird", emoji: "🐦", island: "sky", route: "skyLoop", start: 3, flying: true },
-      { id: "walker-one", species: "villager", label: "Village visitor", emoji: "🚶", island: "village", route: "villagePath", start: 0, villager: true, home: 1 },
-      { id: "walker-two", species: "villager", label: "Village visitor", emoji: "🚶‍♀️", island: "village", route: "villagePath", start: 7, villager: true, home: 10 },
-      { id: "walker-three", species: "villager", label: "Village visitor", emoji: "🚶‍♂️", island: "village", route: "villagePath", start: 13, villager: true, home: 13 }
+      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", island: "autism", route: "autismMeadow", start: 0 },
+      { id: "quiet-deer", species: "deer", label: "Quiet deer", island: "autism", route: "autismMeadow", start: 5 },
+      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", island: "autism", route: "autismMeadow", start: 2, livestock: true, grazePoint: 3, waterPoint: 4 },
+      { id: "trail-fox", species: "fox", label: "Trail fox", island: "adhd", route: "adhdMeadow", start: 2 },
+      { id: "meadow-cow", species: "cow", label: "Meadow cow", island: "adhd", route: "adhdMeadow", start: 6, livestock: true, grazePoint: 7, waterPoint: 5 },
+      { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, flying: true },
+      { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, flying: true },
+      { id: "walker-one", species: "villager", label: "Village visitor", artVariant: 0, island: "village", route: "villagePath", start: 0, villager: true, home: 1 },
+      { id: "walker-two", species: "villager", label: "Village visitor", artVariant: 1, island: "village", route: "villagePath", start: 7, villager: true, home: 10 },
+      { id: "walker-three", species: "villager", label: "Village visitor", artVariant: 2, island: "village", route: "villagePath", start: 13, villager: true, home: 13 }
     ],
     events: {
-      dragon: { emoji: "🐉", label: "Azure dawn dragon", probability: 0.12, dawnBeforeMinutes: 20, dawnAfterMinutes: 40 },
+      dragon: { label: "Azure dawn dragon", probability: 0.12, dawnBeforeMinutes: 20, dawnAfterMinutes: 40 },
       sunsetFlock: { count: 9, beforeMinutes: 8, afterMinutes: 6 }
     },
     timings: { grazeEveryMinutes: 5, drinkEveryMinutes: 10 },
@@ -86,7 +86,6 @@ window.CAPY_CONFIG = {
       samples: {
         cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
         sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
-        gull: { src: "/audio/sfx/gull.ogg", volume: 0.34 },
         deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
       },
       replacementNote: "Replace files or URLs in this manifest without changing the audio engine. See AUDIO_CREDITS.md."

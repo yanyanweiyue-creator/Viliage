@@ -13,7 +13,7 @@ decoded, the app uses a species-specific Web Audio fallback.
 - `public/audio/sfx/sheep.ogg` — “Sheep bleat” by Eviatar Bach,
   [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Sheep_bleat.ogg),
   released under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
-- `public/audio/sfx/gull.ogg` — “Gull 2” by avphillips,
+- `public/audio/sfx/gull.ogg` — optional, currently unused “Gull 2” recording by avphillips,
   [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Gull_2.ogg),
   released into the public domain through PDSounds.
 - `public/audio/sfx/deer.ogg` — “American Elk Bugling” by Jim Pisarowicz / U.S.
@@ -21,8 +21,9 @@ decoded, the app uses a species-specific Web Audio fallback.
   [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:American_Elk_Bugling.ogg),
   public domain as a work created in official U.S. federal duties.
 
-The fox, rabbit, songbird, footsteps, dawn-dragon whoosh, and Waffles answer
-chirp currently use distinct procedural Web Audio voices. These can be replaced
+The fox, rabbit, songbird, gull, footsteps, dawn-dragon whoosh, and Waffles answer
+chirp currently use distinct procedural Web Audio voices. Bird and gull calls
+use a deliberately quiet, slow-fading tone with a short spatial echo. These can be replaced
 with licensed recordings by adding entries to the same sample manifest.
 
 ## Background music

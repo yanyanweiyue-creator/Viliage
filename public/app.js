@@ -1,4 +1,4 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=vector-creatures-20260623";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 
 const config = window.CAPY_CONFIG;
@@ -239,10 +239,18 @@ class VillageAudio {
     if (!buffer) return false;
     const source = this.context.createBufferSource();
     const gain = this.context.createGain();
+    const now = this.context.currentTime;
+    const playDuration = Math.min(maximumDuration || buffer.duration, buffer.duration);
+    const attack = Math.min(.18, playDuration * .2);
+    const release = Math.min(.28, playDuration * .3);
+    const releaseStart = Math.max(now + attack + .01, now + playDuration - release);
     source.buffer = buffer;
-    gain.gain.value = volume;
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(Math.max(.0002, volume), now + attack);
+    gain.gain.setValueAtTime(Math.max(.0002, volume), releaseStart);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + playDuration);
     source.connect(gain).connect(destination);
-    source.start(0, 0, maximumDuration || buffer.duration);
+    source.start(now, 0, playDuration);
     return true;
   }
 
@@ -262,6 +270,56 @@ class VillageAudio {
       oscillator.start(start);
       oscillator.stop(start + duration + .02);
     });
+  }
+
+  airyBird(species = "bird") {
+    const now = this.context.currentTime;
+    const isGull = species === "gull";
+    const frequencies = isGull ? [690, 610] : [1040, 1280, 980];
+    const filter = this.context.createBiquadFilter();
+    const dry = this.context.createGain();
+    const delay = this.context.createDelay(1);
+    const echo = this.context.createGain();
+    const pan = this.context.createStereoPanner?.();
+    filter.type = "lowpass";
+    filter.frequency.value = isGull ? 1750 : 2350;
+    filter.Q.value = .7;
+    dry.gain.value = .54;
+    delay.delayTime.value = isGull ? .31 : .24;
+    echo.gain.value = .14;
+    filter.connect(dry);
+    filter.connect(delay);
+    delay.connect(echo).connect(delay);
+    if (pan) {
+      pan.pan.value = (Math.random() - .5) * .9;
+      dry.connect(pan);
+      delay.connect(pan);
+      pan.connect(this.animalGain);
+    } else {
+      dry.connect(this.animalGain);
+      delay.connect(this.animalGain);
+    }
+
+    frequencies.forEach((frequency, index) => {
+      const oscillator = this.context.createOscillator();
+      const breath = this.context.createGain();
+      const start = now + index * (isGull ? .34 : .27);
+      const duration = isGull ? 1.05 : .82;
+      const peak = isGull ? .0042 : .0034;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency * .96, start);
+      oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.04, start + duration * .42);
+      oscillator.frequency.exponentialRampToValueAtTime(frequency * .88, start + duration);
+      breath.gain.setValueAtTime(.0001, start);
+      breath.gain.exponentialRampToValueAtTime(peak, start + .16);
+      breath.gain.exponentialRampToValueAtTime(.0001, start + duration);
+      oscillator.connect(breath).connect(filter);
+      oscillator.start(start);
+      oscillator.stop(start + duration + .03);
+    });
+
+    const cleanupAfter = (frequencies.length * (isGull ? .34 : .27) + 2.2) * 1000;
+    setTimeout(() => [filter, dry, delay, echo, pan].filter(Boolean).forEach((node) => { try { node.disconnect(); } catch {} }), cleanupAfter);
   }
 
   noiseGesture({ frequency = 700, level = .04, duration = .55, type = "bandpass" } = {}) {
@@ -285,20 +343,24 @@ class VillageAudio {
     const profiles = {
       rabbit: () => this.chirp([890, 1120], { level: .012, duration: .16, gap: .1 }),
       fox: () => { this.noiseGesture({ frequency: 1050, level: .022, duration: .22 }); this.chirp([310], { type: "triangle", level: .02, duration: .24 }); },
-      bird: () => this.chirp([1320, 1680, 1510], { level: .014, duration: .16, gap: .11 }),
+      bird: () => this.airyBird("bird"),
       villager: () => this.chirp([92, 82], { type: "sine", level: .012, duration: .12, gap: .24 }),
       dragon: () => this.noiseGesture({ frequency: 1800, level: .11, duration: 1.8, type: "highpass" }),
       capybara: () => this.chirp([420, 560, 470], { type: "triangle", level: .026, duration: .2, gap: .14 }),
       cow: () => this.chirp([105, 92], { type: "sawtooth", level: .012, duration: .6, gap: .22 }),
       sheep: () => this.chirp([390, 330], { type: "triangle", level: .018, duration: .34, gap: .17 }),
       deer: () => this.chirp([220, 180], { type: "sine", level: .016, duration: .42, gap: .18 }),
-      gull: () => this.chirp([720, 610, 760], { type: "triangle", level: .016, duration: .2, gap: .14 })
+      gull: () => this.airyBird("gull")
     };
     (profiles[species] || profiles.bird)();
   }
 
   playAnimal(species) {
     if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
+    if (species === "bird" || species === "gull") {
+      this.airyBird(species);
+      return;
+    }
     const sample = config.ecosystem?.audio?.samples?.[species];
     if (sample && this.playBuffer(this.buffers.get(species), this.animalGain, Number(sample.volume || .3), species === "gull" ? 5.8 : null)) return;
     this.synthesizeSpecies(species);
@@ -316,7 +378,7 @@ class VillageAudio {
     this.animalTimer = setTimeout(() => {
       this.animalCall();
       this.scheduleAnimal();
-    }, 9000 + Math.random() * 9000);
+    }, 14_000 + Math.random() * 12_000);
   }
 
   setWeather(kind) {

@@ -126,34 +126,60 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .adhd-stream { right: 25%; bottom: 19%; width: 18%; height: 10%; border-radius: 50% 10% 50% 20%; background: linear-gradient(145deg, transparent 20%, rgba(114,211,218,.68) 22% 64%, transparent 66%); transform: rotate(15deg); }
 .creature-layer, .sky-creature-layer { position: absolute; inset: 0; pointer-events: none; }
 .creature-layer { z-index: 3; }.sky-creature-layer { z-index: 4; overflow: hidden; }
-.ecosystem-actor { position: absolute; display: grid; place-items: center; width: 2.4rem; height: 2.4rem; translate: -50% -72%; font-size: clamp(1.15rem, 2.15vw, 2.2rem); filter: drop-shadow(0 .22rem .22rem rgba(39,57,36,.28)); transition-property: left, top, opacity, filter; transition-timing-function: cubic-bezier(.42,0,.34,1); transition-duration: 5s, 5s, .5s, .8s; will-change: left, top; }
-.ecosystem-actor .actor-glyph { display: block; transform-origin: 50% 85%; }
-.ecosystem-actor[data-species="cow"], .ecosystem-actor[data-species="deer"] { font-size: clamp(1.4rem, 2.55vw, 2.65rem); }
-.ecosystem-actor[data-flying="true"] { z-index: 5; translate: -50% -50%; }
-.ecosystem-actor.state-walking .actor-glyph { animation: landWalk .7s ease-in-out infinite alternate; }
-.ecosystem-actor.state-flying .actor-glyph { animation: wingBeat .58s ease-in-out infinite alternate; }
-.ecosystem-actor.state-idle .actor-glyph { animation: animalBreathe 3.8s ease-in-out infinite; }
-.ecosystem-actor.state-looking .actor-glyph { animation: petLook 2.8s ease-in-out infinite; }
-.ecosystem-actor.state-grazing .actor-glyph { animation: petGraze 2.4s ease-in-out infinite; }
-.ecosystem-actor.state-drinking .actor-glyph { animation: animalDrink 2.1s ease-in-out infinite; }
-.ecosystem-actor.state-resting .actor-glyph { animation: animalBreathe 4.8s ease-in-out infinite; filter: saturate(.72); }
+.ecosystem-actor { position: absolute; display: grid; place-items: center; width: clamp(2.5rem, 4.2vw, 4.4rem); aspect-ratio: 4 / 3; translate: -50% -72%; filter: drop-shadow(0 .22rem .22rem rgba(39,57,36,.25)); transition-property: left, top, opacity, filter; transition-timing-function: cubic-bezier(.42,0,.34,1); transition-duration: 5s, 5s, .5s, .8s; will-change: left, top; }
+.ecosystem-actor .actor-glyph, .ecosystem-actor .actor-art { display: block; width: 100%; height: 100%; overflow: visible; }
+.ecosystem-actor .actor-glyph { transform-origin: 50% 85%; will-change: transform; }
+.ecosystem-actor .actor-art * { vector-effect: non-scaling-stroke; transform-box: fill-box; }
+.ecosystem-actor[data-species="cow"], .ecosystem-actor[data-species="deer"] { width: clamp(3rem, 5.2vw, 5.5rem); }
+.ecosystem-actor[data-species="villager"] { width: clamp(1.9rem, 3.2vw, 3.2rem); }
+.ecosystem-actor[data-species="villager"] .actor-art[data-variant="1"] { --skin: #8e573c; --coat: #6a8fa2; --hair: #302b2a; }
+.ecosystem-actor[data-species="villager"] .actor-art[data-variant="2"] { --skin: #d9a17d; --coat: #8b79aa; --hair: #6d4937; }
+.ecosystem-actor[data-flying="true"] { z-index: 5; width: clamp(2.8rem, 4.7vw, 4.8rem); translate: -50% -50%; }
+.ecosystem-actor.state-walking .actor-glyph { animation: landBodyBob .68s ease-in-out infinite; }
+.ecosystem-actor.state-walking .leg-front, .ecosystem-actor.state-walking .arm-back { animation: limbStride .68s ease-in-out infinite alternate; }
+.ecosystem-actor.state-walking .leg-back, .ecosystem-actor.state-walking .arm-front { animation: limbStrideReverse .68s ease-in-out infinite alternate; }
+.ecosystem-actor.state-walking .creature-tail { animation: tailSway 1.15s ease-in-out infinite alternate; }
+.ecosystem-actor.state-flying .actor-glyph { animation: flightGlide 2.6s ease-in-out infinite; }
+.ecosystem-actor.state-flying .wing-front, .sunset-gull .wing-front { animation: wingDown .54s cubic-bezier(.42,0,.58,1) infinite alternate; transform-origin: 10% 80%; }
+.ecosystem-actor.state-flying .wing-back, .sunset-gull .wing-back { animation: wingUp .54s cubic-bezier(.42,0,.58,1) infinite alternate; transform-origin: 90% 80%; }
+.ecosystem-actor.state-flying .creature-tail { animation: tailSway 1.4s ease-in-out infinite alternate; }
+.ecosystem-actor.state-idle .creature-body, .ecosystem-actor.state-resting .creature-body { animation: animalBreathe 3.8s ease-in-out infinite; transform-origin: 50% 70%; }
+.ecosystem-actor.state-idle .creature-ear { animation: earListen 4.4s ease-in-out infinite; transform-origin: 50% 100%; }
+.ecosystem-actor.state-looking .creature-head { animation: headLook 2.8s ease-in-out infinite; transform-origin: 30% 80%; }
+.ecosystem-actor.state-grazing .creature-head { animation: headGraze 2.4s ease-in-out infinite; transform-origin: 22% 85%; }
+.ecosystem-actor.state-drinking .creature-head { animation: headDrink 2.1s ease-in-out infinite; transform-origin: 20% 85%; }
+.ecosystem-actor.state-resting .actor-glyph { filter: saturate(.72); }
 .ecosystem-actor.state-inside { opacity: 0; }
 .map-stage.focus-autism .ecosystem-actor[data-island="adhd"], .map-stage.focus-adhd .ecosystem-actor[data-island="autism"] { opacity: 0; }
 .map-stage.time-night .ecosystem-actor { filter: brightness(.72) drop-shadow(0 0 .35rem rgba(220,238,255,.42)); }
 .map-stage.time-night .ecosystem-actor[data-flying="true"] { opacity: 0; }
 .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="rabbit"], .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="fox"] { opacity: .22; }
 .map-stage.season-winter .habitat-feature { filter: saturate(.45) brightness(1.22); }
-@keyframes landWalk { from { transform: translateY(0) rotate(-2deg); } to { transform: translateY(-10%) rotate(2deg); } }
-@keyframes wingBeat { from { transform: translateY(0) rotate(-6deg) scaleY(.9); } to { transform: translateY(-12%) rotate(6deg) scaleY(1.06); } }
-@keyframes animalBreathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3%) scale(1.025); } }
-@keyframes petLook { 0%, 45%, 100% { transform: rotate(0); } 55%, 68% { transform: rotate(-8deg); } }
-@keyframes petGraze { 0%, 55%, 100% { transform: rotate(0); } 65%, 82% { transform: rotate(12deg) translateY(6%); } }
-@keyframes animalDrink { 0%, 100% { transform: rotate(0) translateY(0); } 35%, 72% { transform: rotate(15deg) translateY(9%); } }
-.dawn-dragon { position: absolute; z-index: 8; left: -12%; top: 33%; font-size: clamp(2rem, 4.3vw, 4.6rem); opacity: 0; filter: hue-rotate(95deg) saturate(1.35) drop-shadow(0 .4rem .55rem rgba(16,76,103,.42)); }
+@keyframes landBodyBob { 0%, 100% { transform: translateY(0) rotate(-.5deg); } 50% { transform: translateY(-6%) rotate(.7deg); } }
+@keyframes limbStride { from { transform: rotate(11deg); } to { transform: rotate(-11deg); } }
+@keyframes limbStrideReverse { from { transform: rotate(-11deg); } to { transform: rotate(11deg); } }
+@keyframes tailSway { from { transform: rotate(-5deg); } to { transform: rotate(7deg); } }
+@keyframes flightGlide { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-8%) rotate(1.5deg); } }
+@keyframes wingDown { from { transform: rotate(-13deg) scaleY(.82); } to { transform: rotate(15deg) scaleY(1.08); } }
+@keyframes wingUp { from { transform: rotate(13deg) scaleY(.82); } to { transform: rotate(-15deg) scaleY(1.08); } }
+@keyframes animalBreathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2%) scale(1.018); } }
+@keyframes earListen { 0%, 78%, 100% { transform: rotate(0); } 83% { transform: rotate(-6deg); } 89% { transform: rotate(4deg); } }
+@keyframes headLook { 0%, 42%, 100% { transform: rotate(0); } 55%, 72% { transform: rotate(-7deg) translateY(-1%); } }
+@keyframes headGraze { 0%, 48%, 100% { transform: rotate(0) translateY(0); } 62%, 84% { transform: rotate(25deg) translateY(11%); } }
+@keyframes headDrink { 0%, 28%, 100% { transform: rotate(0) translateY(0); } 40%, 78% { transform: rotate(31deg) translateY(14%); } }
+.dawn-dragon { position: absolute; z-index: 8; left: -12%; top: 33%; width: clamp(6.5rem, 12vw, 12rem); aspect-ratio: 4 / 3; opacity: 0; filter: drop-shadow(0 .4rem .55rem rgba(16,76,103,.42)); }
+.dawn-dragon .actor-art { display: block; width: 100%; height: 100%; overflow: visible; }
+.dawn-dragon .dragon-body { animation: dragonCoil 1.8s ease-in-out infinite alternate; transform-origin: 50% 50%; }
+.dawn-dragon .creature-head { animation: dragonHead 1.3s ease-in-out infinite alternate; transform-origin: 20% 70%; }
+.dawn-dragon .dragon-whiskers { animation: whiskerFloat .9s ease-in-out infinite alternate; transform-origin: 0 50%; }
 .dawn-dragon.in-flight { opacity: 1; animation: dawnDragonFlight 12s cubic-bezier(.25,.1,.3,1) both; }
 @keyframes dawnDragonFlight { 0% { left: -12%; top: 36%; transform: rotate(-9deg) scale(.72); } 18% { top: 16%; transform: rotate(8deg) scale(.88); } 38% { top: 31%; transform: rotate(-7deg) scale(1); } 61% { top: 10%; transform: rotate(9deg) scale(.9); } 82% { top: 24%; transform: rotate(-5deg) scale(.75); } 100% { left: 112%; top: 8%; transform: rotate(7deg) scale(.58); } }
+@keyframes dragonCoil { from { transform: skewY(-2deg) scaleY(.96); } to { transform: skewY(2deg) scaleY(1.04); } }
+@keyframes dragonHead { from { transform: rotate(-3deg); } to { transform: rotate(4deg); } }
+@keyframes whiskerFloat { to { transform: rotate(5deg) translateY(-3%); } }
 .sunset-flock { position: absolute; inset: 0; z-index: 7; overflow: hidden; }
-.sunset-gull { position: absolute; left: var(--flock-left, 20%); top: var(--flock-top, 45%); font-size: clamp(.75rem, 1.7vw, 1.55rem); opacity: 0; animation: gullToHorizon 10.5s cubic-bezier(.34,.05,.55,1) var(--flock-delay, 0s) both; }
+.sunset-gull { position: absolute; left: var(--flock-left, 20%); top: var(--flock-top, 45%); width: clamp(1.5rem, 2.5vw, 2.6rem); aspect-ratio: 4 / 3; opacity: 0; animation: gullToHorizon 10.5s cubic-bezier(.34,.05,.55,1) var(--flock-delay, 0s) both; }
+.sunset-gull .actor-art { display: block; width: 100%; height: 100%; overflow: visible; }
 @keyframes gullToHorizon { 0% { opacity: 0; transform: translate(0,0) scale(1) rotate(-5deg); } 8% { opacity: 1; } 55% { transform: translate(37vw,-14vh) scale(.65) rotate(5deg); } 100% { opacity: 0; transform: translate(82vw,-29vh) scale(.18) rotate(-2deg); } }
 
 /* Live local environment */
