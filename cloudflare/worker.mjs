@@ -80,14 +80,39 @@ async function communityProfile(env, userId) {
   return env.DB.prepare("SELECT * FROM community_profiles WHERE user_id = ? LIMIT 1").bind(userId).first();
 }
 
+async function areFriends(env, firstId, secondId) {
+  return Boolean(await env.DB.prepare(`
+    SELECT id FROM chat_connections
+    WHERE status = 'accepted' AND ((requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?))
+    LIMIT 1
+  `).bind(firstId, secondId, secondId, firstId).first());
+}
+
+async function usersBlocked(env, firstId, secondId) {
+  return Boolean(await env.DB.prepare("SELECT 1 AS blocked FROM chat_blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?) LIMIT 1").bind(firstId, secondId, secondId, firstId).first());
+}
+
+async function cleanupSystemGroupHistory(env) {
+  const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  return env.DB.prepare("DELETE FROM chat_messages WHERE created_at < ? AND room_id IN (SELECT id FROM chat_rooms WHERE kind = 'group' AND system_managed = 1)").bind(cutoff).run();
+}
+
+function safeImageDataUrl(value) {
+  const image = String(value || "");
+  if (!image) return null;
+  if (image.length > 750000 || !/^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i.test(image)) throw new Error("Use a PNG, JPEG, WebP, or GIF image smaller than about 550 KB.");
+  return image;
+}
+
 async function communityOverview(env, user) {
   const profile = await communityProfile(env, user.id);
   const groups = await allRows(env.DB.prepare(`
-    SELECT r.id, r.name, r.description,
+    SELECT r.id, r.name, r.description, r.created_by, r.system_managed,
       (SELECT COUNT(*) FROM chat_members members WHERE members.room_id = r.id) AS member_count,
-      EXISTS(SELECT 1 FROM chat_members mine WHERE mine.room_id = r.id AND mine.user_id = ?) AS joined
-    FROM chat_rooms r WHERE r.kind = 'group' ORDER BY r.created_at, r.name
-  `).bind(user.id));
+      EXISTS(SELECT 1 FROM chat_members mine WHERE mine.room_id = r.id AND mine.user_id = ?) AS joined,
+      EXISTS(SELECT 1 FROM chat_room_preferences pref WHERE pref.room_id = r.id AND pref.user_id = ? AND pref.pinned_at IS NOT NULL) AS pinned
+    FROM chat_rooms r WHERE r.kind = 'group' ORDER BY pinned DESC, r.created_at, r.name
+  `).bind(user.id, user.id));
   if (!profile?.enabled) return { enabled: false, displayName: profile?.display_name || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
 
   const candidates = await allRows(env.DB.prepare(`
@@ -114,15 +139,21 @@ async function communityOverview(env, user) {
     WHERE c.requester_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC
   `).bind(user.id));
   const directRooms = await allRows(env.DB.prepare(`
-    SELECT r.id, COALESCE(cp.display_name, other_user.name) AS name
+    SELECT r.id, other.user_id AS user_id, other_user.email, COALESCE(cp.display_name, other_user.name) AS name,
+      EXISTS(SELECT 1 FROM chat_room_preferences pref WHERE pref.room_id = r.id AND pref.user_id = ? AND pref.pinned_at IS NOT NULL) AS pinned
     FROM chat_rooms r
     JOIN chat_members mine ON mine.room_id = r.id AND mine.user_id = ?
     JOIN chat_members other ON other.room_id = r.id AND other.user_id != ?
     JOIN users other_user ON other_user.id = other.user_id
     LEFT JOIN community_profiles cp ON cp.user_id = other.user_id
-    WHERE r.kind = 'direct' ORDER BY r.created_at DESC
-  `).bind(user.id, user.id));
-  return { enabled: true, displayName: profile.display_name, groups, recommendations, incoming, outgoing, directRooms };
+    WHERE r.kind = 'direct' ORDER BY pinned DESC, r.created_at DESC
+  `).bind(user.id, user.id, user.id));
+  const blocks = await allRows(env.DB.prepare(`
+    SELECT b.blocked_id AS user_id, COALESCE(cp.display_name, u.name) AS display_name
+    FROM chat_blocks b JOIN users u ON u.id = b.blocked_id LEFT JOIN community_profiles cp ON cp.user_id = b.blocked_id
+    WHERE b.blocker_id = ? ORDER BY display_name
+  `).bind(user.id));
+  return { enabled: true, displayName: profile.display_name, groups, recommendations, incoming, outgoing, directRooms, blocks };
 }
 
 async function sessionUser(request, env) {
@@ -381,7 +412,107 @@ async function api(request, env, ctx) {
     return json(await communityOverview(env, user));
   }
 
-  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages))?$/);
+  if (request.method === "GET" && url.pathname === "/api/community/search") {
+    const query = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
+    if (query.length < 2) return json({ people: [] });
+    const people = await allRows(env.DB.prepare(`
+      SELECT u.id AS user_id, u.email, COALESCE(cp.display_name, u.name) AS display_name
+      FROM users u LEFT JOIN community_profiles cp ON cp.user_id = u.id
+      WHERE u.id != ? AND (LOWER(u.email) LIKE ? OR LOWER(COALESCE(cp.display_name, u.name)) LIKE ?)
+        AND EXISTS (SELECT 1 FROM chat_connections c WHERE c.status = 'accepted' AND ((c.requester_id = ? AND c.recipient_id = u.id) OR (c.recipient_id = ? AND c.requester_id = u.id)))
+        AND NOT EXISTS (SELECT 1 FROM chat_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))
+      ORDER BY display_name LIMIT 20
+    `).bind(user.id, `%${query}%`, `%${query}%`, user.id, user.id, user.id, user.id));
+    return json({ people });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/community/groups") {
+    const input = await body(request);
+    const profile = await communityProfile(env, user.id);
+    if (!profile?.enabled) return fail("Join the community before creating a group.", 403);
+    const name = safeDisplayName(input.name, "New group");
+    const description = String(input.description || "").trim().slice(0, 240);
+    const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
+    for (const memberId of memberIds) if (!await areFriends(env, user.id, memberId) || await usersBlocked(env, user.id, memberId)) return fail("Groups can include accepted, unblocked friends only.", 403);
+    const roomId = `group-${randomBytes(12).toString("hex")}`;
+    const now = new Date().toISOString();
+    const statements = [
+      env.DB.prepare("INSERT INTO chat_rooms (id, kind, name, description, created_by, created_at, system_managed) VALUES (?, 'group', ?, ?, ?, ?, 0)").bind(roomId, name, description, user.id, now),
+      env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'moderator', ?)").bind(roomId, user.id, now),
+      ...memberIds.map((memberId) => env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, memberId, now))
+    ];
+    await env.DB.batch(statements);
+    return json({ room: { id: roomId, name, description, systemManaged: false } }, 201);
+  }
+
+  if (url.pathname === "/api/community/posts") {
+    if (request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT p.*, COALESCE(cp.display_name, u.name) AS author
+        FROM community_posts p JOIN users u ON u.id = p.user_id LEFT JOIN community_profiles cp ON cp.user_id = p.user_id
+        WHERE p.user_id = ? OR (
+          EXISTS (SELECT 1 FROM chat_connections c WHERE c.status = 'accepted' AND ((c.requester_id = ? AND c.recipient_id = p.user_id) OR (c.recipient_id = ? AND c.requester_id = p.user_id)))
+          AND NOT EXISTS (SELECT 1 FROM chat_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = ?))
+        ) ORDER BY p.created_at DESC LIMIT 100
+      `).bind(user.id, user.id, user.id, user.id, user.id));
+      const posts = rows.filter((row) => {
+        if (row.user_id === user.id) return true;
+        const allowed = parseJson(row.allowed_user_ids_json, []);
+        const denied = parseJson(row.denied_user_ids_json, []);
+        return (!allowed.length || allowed.includes(user.id)) && !denied.includes(user.id);
+      }).map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, imageDataUrl: row.image_data_url, allowedUserIds: row.user_id === user.id ? parseJson(row.allowed_user_ids_json, []) : undefined, deniedUserIds: row.user_id === user.id ? parseJson(row.denied_user_ids_json, []) : undefined, createdAt: row.created_at, mine: row.user_id === user.id }));
+      return json({ posts });
+    }
+    if (request.method === "POST") {
+      const input = await body(request);
+      const postBody = String(input.text || "").trim().slice(0, 2000);
+      let imageDataUrl;
+      try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return fail(error.message); }
+      if (!postBody && !imageDataUrl) return fail("Add text or an image first.");
+      const allowed = [...new Set((Array.isArray(input.allowedUserIds) ? input.allowedUserIds : []).map(String))].filter((id) => id !== user.id).slice(0, 100);
+      const denied = [...new Set((Array.isArray(input.deniedUserIds) ? input.deniedUserIds : []).map(String))].filter((id) => id !== user.id).slice(0, 100);
+      for (const targetId of [...allowed, ...denied]) if (!await areFriends(env, user.id, targetId) || await usersBlocked(env, user.id, targetId)) return fail("Post visibility can include accepted, unblocked friends only.", 403);
+      const post = { id: randomBytes(12).toString("hex"), userId: user.id, body: postBody, imageDataUrl, createdAt: new Date().toISOString() };
+      await env.DB.prepare("INSERT INTO community_posts (id, user_id, body, image_data_url, allowed_user_ids_json, denied_user_ids_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(post.id, user.id, post.body, post.imageDataUrl, JSON.stringify(allowed), JSON.stringify(denied), post.createdAt).run();
+      return json({ post }, 201);
+    }
+  }
+
+  const postDeleteMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)$/);
+  if (request.method === "DELETE" && postDeleteMatch) {
+    const result = await env.DB.prepare("DELETE FROM community_posts WHERE id = ? AND user_id = ?").bind(decodeURIComponent(postDeleteMatch[1]), user.id).run();
+    if (!Number(result.meta?.changes || 0)) return fail("Post not found.", 404);
+    return json({ ok: true });
+  }
+
+  const friendMatch = url.pathname.match(/^\/api\/community\/friends\/([^/]+)$/);
+  if (request.method === "DELETE" && friendMatch) {
+    const targetId = decodeURIComponent(friendMatch[1]);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM chat_connections WHERE status = 'accepted' AND ((requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?))").bind(user.id, targetId, targetId, user.id),
+      env.DB.prepare("DELETE FROM chat_members WHERE user_id = ? AND room_id IN (SELECT mine.room_id FROM chat_members mine JOIN chat_members other ON other.room_id = mine.room_id AND other.user_id = ? JOIN chat_rooms r ON r.id = mine.room_id WHERE mine.user_id = ? AND r.kind = 'direct')").bind(user.id, targetId, user.id)
+    ]);
+    return json({ ok: true });
+  }
+
+  const blockMatch = url.pathname.match(/^\/api\/community\/blocks\/([^/]+)$/);
+  if (blockMatch && ["POST", "DELETE"].includes(request.method)) {
+    const targetId = decodeURIComponent(blockMatch[1]);
+    if (!targetId || targetId === user.id) return fail("Choose another member.");
+    if (request.method === "DELETE") {
+      await env.DB.prepare("DELETE FROM chat_blocks WHERE blocker_id = ? AND blocked_id = ?").bind(user.id, targetId).run();
+      return json({ ok: true });
+    }
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("INSERT OR IGNORE INTO chat_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)").bind(user.id, targetId, now),
+      env.DB.prepare("DELETE FROM chat_connections WHERE (requester_id = ? AND recipient_id = ?) OR (requester_id = ? AND recipient_id = ?)").bind(user.id, targetId, targetId, user.id),
+      env.DB.prepare("DELETE FROM chat_members WHERE user_id = ? AND room_id IN (SELECT mine.room_id FROM chat_members mine JOIN chat_members other ON other.room_id = mine.room_id AND other.user_id = ? JOIN chat_rooms r ON r.id = mine.room_id WHERE mine.user_id = ? AND r.kind = 'direct')").bind(user.id, targetId, user.id)
+    ]);
+    return json({ ok: true });
+  }
+
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
     const operation = roomMatch[2] || "";
@@ -399,14 +530,45 @@ async function api(request, env, ctx) {
     const membership = await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
     if (!membership) return fail("Join this room before reading or sending messages.", 403);
 
+    if (request.method === "POST" && operation === "leave") {
+      if (room.kind !== "group") return fail("Use Remove friend to close a private conversation.");
+      await env.DB.prepare("DELETE FROM chat_members WHERE room_id = ? AND user_id = ?").bind(roomId, user.id).run();
+      return json({ ok: true });
+    }
+
+    if (request.method === "POST" && operation === "pin") {
+      const pinned = Boolean((await body(request)).pinned);
+      const now = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO chat_room_preferences (room_id, user_id, pinned_at) VALUES (?, ?, ?)
+        ON CONFLICT(room_id, user_id) DO UPDATE SET pinned_at = excluded.pinned_at
+      `).bind(roomId, user.id, pinned ? now : null).run();
+      return json({ ok: true, pinned });
+    }
+
+    if (request.method === "DELETE" && operation === "history") {
+      const now = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO chat_room_preferences (room_id, user_id, cleared_before) VALUES (?, ?, ?)
+        ON CONFLICT(room_id, user_id) DO UPDATE SET cleared_before = excluded.cleared_before
+      `).bind(roomId, user.id, now).run();
+      return json({ ok: true, clearedBefore: now });
+    }
+
     if (request.method === "GET" && operation === "messages") {
+      if (room.system_managed) await cleanupSystemGroupHistory(env);
       const rows = await allRows(env.DB.prepare(`
         SELECT m.id, m.user_id, m.body, m.created_at, COALESCE(cp.display_name, u.name) AS author
         FROM chat_messages m JOIN users u ON u.id = m.user_id
         LEFT JOIN community_profiles cp ON cp.user_id = m.user_id
-        WHERE m.room_id = ? ORDER BY m.created_at DESC LIMIT 100
-      `).bind(roomId));
-      return json({ room: { id: room.id, name: room.name, kind: room.kind }, messages: rows.reverse().map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, createdAt: row.created_at, mine: row.user_id === user.id })) });
+        WHERE m.room_id = ?
+          AND m.created_at > COALESCE((SELECT cleared_before FROM chat_room_preferences WHERE room_id = ? AND user_id = ?), '')
+          AND NOT EXISTS (SELECT 1 FROM chat_blocks b WHERE b.blocker_id = ? AND b.blocked_id = m.user_id)
+        ORDER BY m.created_at DESC LIMIT 100
+      `).bind(roomId, roomId, user.id, user.id));
+      const pref = await env.DB.prepare("SELECT pinned_at FROM chat_room_preferences WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+      const other = room.kind === "direct" ? await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id != ? LIMIT 1").bind(roomId, user.id).first() : null;
+      return json({ room: { id: room.id, name: room.name, kind: room.kind, systemManaged: Boolean(room.system_managed), createdBy: room.created_by, pinned: Boolean(pref?.pinned_at), otherUserId: other?.user_id || null }, messages: rows.reverse().map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, createdAt: row.created_at, mine: row.user_id === user.id })) });
     }
 
     if (request.method === "POST" && operation === "messages") {
@@ -425,6 +587,7 @@ async function api(request, env, ctx) {
     const ownProfile = await communityProfile(env, user.id);
     const targetProfile = await communityProfile(env, targetUserId);
     if (!ownProfile?.enabled || !targetProfile?.enabled) return fail("Both members must opt in to community matching.", 403);
+    if (await usersBlocked(env, user.id, targetUserId)) return fail("This connection is unavailable.", 403);
     const key = pairKey(user.id, targetUserId);
     const existing = await env.DB.prepare("SELECT id, status FROM chat_connections WHERE pair_key = ? LIMIT 1").bind(key).first();
     if (existing) return fail(existing.status === "accepted" ? "You already have a private chat." : "A connection request already exists.", 409);
@@ -440,6 +603,7 @@ async function api(request, env, ctx) {
     const action = connectionMatch[2];
     const connection = await env.DB.prepare("SELECT * FROM chat_connections WHERE id = ? AND recipient_id = ? AND status = 'pending' LIMIT 1").bind(connectionId, user.id).first();
     if (!connection) return fail("Connection request not found.", 404);
+    if (await usersBlocked(env, connection.requester_id, connection.recipient_id)) return fail("This connection is unavailable.", 403);
     const now = new Date().toISOString();
     if (action === "decline") {
       await env.DB.prepare("UPDATE chat_connections SET status = 'declined', updated_at = ? WHERE id = ?").bind(now, connection.id).run();
@@ -508,5 +672,8 @@ export default {
       console.error(error);
       return fail(error.message || "Something went wrong.", 500);
     }
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(cleanupSystemGroupHistory(env));
   }
 };

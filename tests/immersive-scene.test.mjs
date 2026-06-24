@@ -37,3 +37,12 @@ test("every 3D building center is grounded inside its own island", async () => {
     assert.ok(normalized <= .78, `${building.id} must sit within the visible ${building.island} land area`);
   }
 });
+
+test("settings are avatar-only and no settings building remains", async () => {
+  const source = await readFile(new URL("../public/site-config.js", import.meta.url), "utf8");
+  const context = { window: {} };
+  vm.runInNewContext(source, context);
+  assert.equal(context.window.CAPY_CONFIG.buildings.some((building) => building.type === "settings"), false);
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /avatar-button" data-action="open-settings"/);
+});

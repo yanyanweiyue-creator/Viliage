@@ -30,6 +30,8 @@ const state = {
   environmentRefreshTimer: null,
   communityTimer: null,
   communityRoom: null,
+  communityOverview: null,
+  communityPostImage: null,
   audio: null,
   ecosystem: null,
   immersive: null,
@@ -816,33 +818,31 @@ function supportPanel() {
   });
 }
 
-function communityOverviewHtml(data) {
-  if (!data.enabled) return `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p>
-    <form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
+function communityFriendChoices(data, field) {
+  return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("") || `<small>Add a friend before choosing specific people.</small>`;
+}
 
+function communityPostsHtml(posts = []) {
+  return posts.map((post) => `<article class="community-post"><header><strong>${escapeHtml(post.author)}</strong><time>${escapeHtml(new Date(post.createdAt).toLocaleString())}</time></header>${post.body ? `<p>${escapeHtml(post.body)}</p>` : ""}${post.imageDataUrl ? `<img src="${escapeHtml(post.imageDataUrl)}" alt="Image shared by ${escapeHtml(post.author)}">` : ""}${post.mine ? `<button type="button" class="text-button" data-action="delete-community-post" data-post-id="${escapeHtml(post.id)}">Delete post</button>` : ""}</article>`).join("") || `<p class="community-empty">No friend posts yet.</p>`;
+}
+
+function communityOverviewHtml(data, posts = []) {
+  if (!data.enabled) return `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p><form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
+  state.communityOverview = data;
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
-  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members</small></div><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button></article>`).join("");
-  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.displayName)}</strong><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet. More appear as opted-in members join.</p>`;
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${group.pinned ? "📌 " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "system group · resets every 12 hours" : "member-created group"}</small></div><div class="community-actions"><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button>${group.joined ? `<button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button>` : ""}</div></article>`).join("");
+  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.displayName)}</strong><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet.</p>`;
   const incoming = (data.incoming || []).map((request) => `<article class="community-person-card"><strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
-  const directRooms = (data.directRooms || []).map((room) => `<button type="button" class="community-direct-room" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><span class="community-avatar">${escapeHtml(String(room.name || "V").charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(room.name)}</strong><small>${escapeHtml(t("communityOpenRoom"))}</small></span><span>→</span></button>`).join("");
-  return `<div class="community-shell"><div class="community-account"><div><small>${escapeHtml(t("communityDisplayName"))}</small><strong>${escapeHtml(data.displayName)}</strong></div><button type="button" class="text-button" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button></div>
-    ${incoming ? `<section><h3>${escapeHtml(t("communityIncoming"))}</h3><div class="community-grid">${incoming}</div></section>` : ""}
-    <section><h3>${escapeHtml(t("communityGroups"))}</h3><div class="community-grid">${groupCards}</div></section>
-    ${directRooms ? `<section><h3>${escapeHtml(t("communityDirect"))}</h3><div class="community-direct-list">${directRooms}</div></section>` : ""}
-    <section><h3>${escapeHtml(t("communitySuggestions"))}</h3><div class="community-grid">${suggestions}</div></section>
-    <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>`;
+  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room"><span class="community-avatar">${escapeHtml(String(room.name || "V").charAt(0).toUpperCase())}</span><button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "📌 " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><div class="community-actions"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></div></article>`).join("");
+  const blocks = (data.blocks || []).map((person) => `<article class="community-person-card"><strong>${escapeHtml(person.display_name)}</strong><button type="button" class="text-button" data-action="unblock-community-user" data-user-id="${escapeHtml(person.user_id)}">Unblock</button></article>`).join("");
+  return `<div class="community-shell"><div class="community-account"><div><small>${escapeHtml(t("communityDisplayName"))}</small><strong>${escapeHtml(data.displayName)}</strong></div><button type="button" class="text-button" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button></div><section><h3>Friend moments</h3><form id="community-post-form" class="stack-form"><label>Share text<textarea name="text" maxlength="2000" rows="3" placeholder="Share something with friends…"></textarea></label><label>Optional image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-image></label><details><summary>Who can see this? Friends only</summary><strong>Only these friends (leave empty for all)</strong><div class="friend-choices">${communityFriendChoices(data, "allowedUserIds")}</div><strong>Hide from these friends</strong><div class="friend-choices">${communityFriendChoices(data, "deniedUserIds")}</div></details><button class="primary-button" type="submit">Post to friends</button><p class="form-error" role="alert"></p></form><div class="community-post-list">${communityPostsHtml(posts)}</div></section><section><h3>Search existing friends</h3><form id="community-search-form" class="inline-form"><input name="query" minlength="2" placeholder="Username or email" required><button class="secondary-button">Search</button></form><div id="community-search-results"></div></section>${incoming ? `<section><h3>${escapeHtml(t("communityIncoming"))}</h3><div class="community-grid">${incoming}</div></section>` : ""}<section><h3>${escapeHtml(t("communityGroups"))}</h3><div class="community-grid">${groupCards}</div><details><summary>Create your own group</summary><form id="community-group-form" class="stack-form"><label>Group name<input name="name" maxlength="40" required></label><label>Description<textarea name="description" maxlength="240"></textarea></label><strong>Invite friends</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds")}</div><button class="secondary-button">Create group</button><p class="form-error" role="alert"></p></form></details></section>${directRooms ? `<section><h3>${escapeHtml(t("communityDirect"))}</h3><div class="community-direct-list">${directRooms}</div></section>` : ""}<section><h3>${escapeHtml(t("communitySuggestions"))}</h3><div class="community-grid">${suggestions}</div></section>${blocks ? `<section><h3>Blocked users</h3><div class="community-grid">${blocks}</div></section>` : ""}<p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>`;
 }
 
 async function communityPanel() {
-  clearInterval(state.communityTimer);
-  state.communityRoom = null;
+  clearInterval(state.communityTimer); state.communityRoom = null; state.communityPostImage = null;
   openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
-  try {
-    const data = await api("/api/community");
-    $("#panel-content").innerHTML = communityOverviewHtml(data);
-  } catch (error) {
-    $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`;
-  }
+  try { const [data, feed] = await Promise.all([api("/api/community"), api("/api/community/posts")]); $("#panel-content").innerHTML = communityOverviewHtml(data, feed.posts || []); }
+  catch (error) { $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`; }
 }
 
 function communityMessagesHtml(messages = []) {
@@ -862,8 +862,9 @@ async function refreshCommunityRoom() {
 async function openCommunityRoom(roomId, roomName) {
   clearInterval(state.communityTimer);
   const data = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`);
-  state.communityRoom = { id: roomId, name: roomName || data.room.name };
-  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button><div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
+  state.communityRoom = { ...data.room, id: roomId, name: roomName || data.room.name };
+  const roomActions = `<div class="community-room-toolbar"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(roomId)}" data-pinned="${String(!data.room.pinned)}">${data.room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="clear-community-history" data-room-id="${escapeHtml(roomId)}">Clear my history</button>${data.room.kind === "group" ? `<button type="button" class="text-button danger" data-action="leave-community-room" data-room-id="${escapeHtml(roomId)}">Leave group</button>` : `<button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Remove friend</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Block</button>`}</div>`;
+  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>${roomActions}${data.room.systemManaged ? `<p class="privacy-note">This system group automatically deletes shared messages older than 12 hours.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}<div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
   state.communityTimer = setInterval(refreshCommunityRoom, 5000);
 }
 
@@ -888,9 +889,43 @@ async function submitCommunityMessage(event) {
   } catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
 
+async function submitCommunitySearch(event) {
+  event.preventDefault();
+  const query = new FormData(event.target).get("query");
+  try {
+    const data = await api(`/api/community/search?q=${encodeURIComponent(query)}`);
+    $("#community-search-results").innerHTML = (data.people || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.display_name)}</strong><small>${escapeHtml(person.email)}</small></div><button type="button" class="secondary-button" data-action="open-friend-chat" data-user-id="${escapeHtml(person.user_id)}">Open chat</button></article>`).join("") || `<p class="community-empty">No existing friend matched.</p>`;
+  } catch (error) { $("#community-search-results").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function submitCommunityGroup(event) {
+  event.preventDefault();
+  const form = event.target; const data = new FormData(form);
+  try { await api("/api/community/groups", { method: "POST", body: JSON.stringify({ name: data.get("name"), description: data.get("description"), memberIds: data.getAll("memberIds") }) }); await communityPanel(); }
+  catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function submitCommunityPost(event) {
+  event.preventDefault();
+  const form = event.target; const data = new FormData(form);
+  try { await api("/api/community/posts", { method: "POST", body: JSON.stringify({ text: data.get("text"), imageDataUrl: state.communityPostImage, allowedUserIds: data.getAll("allowedUserIds"), deniedUserIds: data.getAll("deniedUserIds") }) }); state.communityPostImage = null; await communityPanel(); }
+  catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+function handleCommunityImage(input) {
+  const file = input.files?.[0]; state.communityPostImage = null;
+  if (!file) return;
+  if (file.size > 550000 || !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) { input.value = ""; return toast("Choose a PNG, JPEG, WebP, or GIF under 550 KB."); }
+  const reader = new FileReader(); reader.onload = () => { state.communityPostImage = String(reader.result || ""); toast("Image ready to post."); }; reader.readAsDataURL(file);
+}
+
 async function communityAction(element, action) {
   try {
     if (action === "open-community") return communityPanel();
+    if (action === "open-friend-chat") {
+      const room = state.communityOverview?.directRooms?.find((item) => item.user_id === element.dataset.userId);
+      if (room) return openCommunityRoom(room.id, room.name);
+    }
     if (action === "join-community-room") {
       await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
       return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
@@ -911,6 +946,32 @@ async function communityAction(element, action) {
       await api("/api/community/settings", { method: "POST", body: JSON.stringify({ enabled: false, displayName: state.user?.name || "Village member" }) });
       return communityPanel();
     }
+    if (action === "pin-community-room") {
+      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/pin`, { method: "POST", body: JSON.stringify({ pinned: element.dataset.pinned === "true" }) });
+      return state.communityRoom?.id === element.dataset.roomId ? openCommunityRoom(element.dataset.roomId, state.communityRoom.name) : communityPanel();
+    }
+    if (action === "clear-community-history") {
+      if (!confirm("Clear this chat history only from your own view?")) return;
+      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/history`, { method: "DELETE" });
+      return openCommunityRoom(element.dataset.roomId, state.communityRoom?.name);
+    }
+    if (action === "leave-community-room") {
+      if (!confirm("Leave this group?")) return;
+      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/leave`, { method: "POST", body: "{}" });
+      return communityPanel();
+    }
+    if (action === "remove-community-friend") {
+      if (!confirm("Remove this friend and close the chat from your side?")) return;
+      await api(`/api/community/friends/${encodeURIComponent(element.dataset.userId)}`, { method: "DELETE" });
+      return communityPanel();
+    }
+    if (action === "block-community-user") {
+      if (!confirm("Block this user? This also removes the friendship.")) return;
+      await api(`/api/community/blocks/${encodeURIComponent(element.dataset.userId)}`, { method: "POST", body: "{}" });
+      return communityPanel();
+    }
+    if (action === "unblock-community-user") { await api(`/api/community/blocks/${encodeURIComponent(element.dataset.userId)}`, { method: "DELETE" }); return communityPanel(); }
+    if (action === "delete-community-post") { if (confirm("Delete this post?")) { await api(`/api/community/posts/${encodeURIComponent(element.dataset.postId)}`, { method: "DELETE" }); return communityPanel(); } }
   } catch (error) { toast(error.message); }
 }
 
@@ -1066,7 +1127,6 @@ function handleBuilding(id) {
   const building = config.buildings.find((item) => item.id === id);
   if (!building) return;
   if (building.type === "support") supportPanel();
-  if (building.type === "settings") settingsPanel();
   if (building.type === "activity") activitiesPanel();
   if (building.type === "ai") aiPanel(building.topic, building.island);
 }
@@ -1483,6 +1543,7 @@ document.addEventListener("click", (event) => {
   if (action === "close-panel") closePanel();
   if (action === "reset-map" || action === "home") { closePanel(); resetMap(); }
   if (action === "open-profile") profilePanel();
+  if (action === "open-settings") settingsPanel();
   if (action === "open-mori") aiPanel("Education");
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
@@ -1490,7 +1551,7 @@ document.addEventListener("click", (event) => {
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
-  if (["open-community", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "disable-community"].includes(action)) communityAction(actionElement, action);
+  if (["open-community", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "disable-community", "pin-community-room", "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user", "delete-community-post"].includes(action)) communityAction(actionElement, action);
 });
 
 document.addEventListener("input", (event) => {
@@ -1501,6 +1562,8 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   const localMusic = event.target.closest("[data-local-music]");
   if (localMusic) handleLocalMusicUpload(localMusic);
+  const communityImage = event.target.closest("[data-community-image]");
+  if (communityImage) handleCommunityImage(communityImage);
 });
 
 document.addEventListener("submit", (event) => {
@@ -1511,6 +1574,9 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "feedback-form") submitFeedback(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);
+  if (event.target.id === "community-search-form") submitCommunitySearch(event);
+  if (event.target.id === "community-group-form") submitCommunityGroup(event);
+  if (event.target.id === "community-post-form") submitCommunityPost(event);
 });
 
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
