@@ -39,5 +39,11 @@ To add music that the project owns or is licensed to publish:
 3. Set `ecosystem.audio.music.day` and/or `night` in `public/site-config.js`.
 4. Keep the credit and license in this file.
 
-Empty music paths intentionally fall back to the built-in gentle daytime and
-nighttime procedural scores.
+Empty music paths intentionally fall back to two original built-in scores:
+`Garden Footsteps` by day and `Starlit Current` by night. Their tempo metadata
+lives under `ecosystem.audio.proceduralMusic` in `public/site-config.js`.
+
+Users may also choose their own day/night files in Settings. Those files remain
+inside that browser's IndexedDB and are never uploaded or committed to this
+repository. A local user file takes priority over configured site music and the
+procedural score; removing it restores the normal fallback order.

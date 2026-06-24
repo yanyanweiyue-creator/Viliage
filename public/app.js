@@ -1,4 +1,5 @@
 import { EcosystemController } from "./ecosystem-runtime.mjs";
+import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 
 const config = window.CAPY_CONFIG;
 
@@ -23,7 +24,8 @@ const state = {
   environmentTimer: null,
   environmentRefreshTimer: null,
   audio: null,
-  ecosystem: null
+  ecosystem: null,
+  localMusic: { day: null, night: null }
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -38,7 +40,7 @@ const i18n = {
     jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
-    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.",
+    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
     support: "Support", settings: "Settings", education: "Education", legal: "Legal", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
@@ -57,7 +59,7 @@ const i18n = {
     jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
-    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。",
+    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
     support: "支持", settings: "设置", education: "教育", legal: "法律", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
@@ -76,7 +78,7 @@ const i18n = {
     jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
-    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.",
+    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
     support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
@@ -104,6 +106,8 @@ class VillageAudio {
     this.isDay = true;
     this.buffers = new Map();
     this.bufferPromise = null;
+    this.customTrackRecords = new Map();
+    this.customTrackGeneration = { day: 0, night: 0 };
   }
 
   createNoiseBuffer() {
@@ -119,21 +123,27 @@ class VillageAudio {
     return buffer;
   }
 
-  async enable() {
+  ensureContext() {
     if (!this.context) {
       this.context = new (window.AudioContext || window.webkitAudioContext)();
       this.master = this.context.createGain();
       this.environmentGain = this.context.createGain();
       this.musicGain = this.context.createGain();
       this.animalGain = this.context.createGain();
+      this.master.gain.value = 0;
       this.environmentGain.connect(this.master);
       this.musicGain.connect(this.master);
       this.animalGain.connect(this.master);
       this.master.connect(this.context.destination);
       this.noiseBuffer = this.createNoiseBuffer();
     }
+  }
+
+  async enable() {
+    this.ensureContext();
     await this.context.resume();
     await this.loadBuffers();
+    await this.decodeCustomTracks();
     this.restartEnvironment();
     this.restartMusic();
     this.scheduleAnimal();
@@ -150,6 +160,43 @@ class VillageAudio {
       this.buffers.set(key, await this.context.decodeAudioData(await response.arrayBuffer()));
     }));
     return this.bufferPromise;
+  }
+
+  async decodeCustomTracks() {
+    await Promise.allSettled(["day", "night"].map((slot) => this.decodeCustomTrack(slot, this.customTrackRecords.get(slot) || null)));
+  }
+
+  async decodeCustomTrack(slot, record) {
+    const generation = ++this.customTrackGeneration[slot];
+    const key = `custom-music-${slot}`;
+    this.buffers.delete(key);
+    if (!record || !this.context) return;
+    const blob = record.blob instanceof Blob ? record.blob : new Blob([record.bytes], { type: record.type || "audio/mpeg" });
+    const decoded = await this.context.decodeAudioData(await blob.arrayBuffer());
+    if (generation === this.customTrackGeneration[slot]) this.buffers.set(key, decoded);
+  }
+
+  async decodeCandidate(file) {
+    this.ensureContext();
+    return this.context.decodeAudioData(await file.arrayBuffer());
+  }
+
+  async setCustomTrack(slot, record, decodedBuffer = null) {
+    if (record) this.customTrackRecords.set(slot, record);
+    else this.customTrackRecords.delete(slot);
+    if (decodedBuffer) {
+      this.customTrackGeneration[slot] += 1;
+      this.buffers.set(`custom-music-${slot}`, decodedBuffer);
+    } else {
+      if (record) this.ensureContext();
+      if (this.context) await this.decodeCustomTrack(slot, record);
+    }
+    if (state.settings.soundEnabled && (slot === "day") === this.isDay) this.restartMusic();
+  }
+
+  rememberCustomTrack(slot, record) {
+    if (record) this.customTrackRecords.set(slot, record);
+    else this.customTrackRecords.delete(slot);
   }
 
   stopEnvironment() {
@@ -285,32 +332,92 @@ class VillageAudio {
     this.musicNodes = [];
   }
 
+  rememberMusicNodes(nodes, source) {
+    this.musicNodes.push(...nodes);
+    source.addEventListener("ended", () => {
+      nodes.forEach((node) => {
+        const index = this.musicNodes.indexOf(node);
+        if (index >= 0) this.musicNodes.splice(index, 1);
+        try { node.disconnect?.(); } catch {}
+      });
+    }, { once: true });
+  }
+
+  musicTone(frequency, start, duration, { type = "sine", level = .018, attack = .08, release = .7, cutoff = 1800, detune = 0 } = {}) {
+    const oscillator = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.value = frequency;
+    oscillator.detune.value = detune;
+    filter.type = "lowpass";
+    filter.frequency.value = cutoff;
+    gain.gain.setValueAtTime(.0001, start);
+    gain.gain.exponentialRampToValueAtTime(level, start + attack);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + Math.max(attack + .03, duration - release));
+    oscillator.connect(filter).connect(gain).connect(this.musicGain);
+    oscillator.start(start);
+    oscillator.stop(start + duration);
+    this.rememberMusicNodes([oscillator, filter, gain], oscillator);
+  }
+
+  woodenPulse(start, level = .006) {
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    source.buffer = this.noiseBuffer;
+    filter.type = "bandpass";
+    filter.frequency.value = 820;
+    filter.Q.value = 5.5;
+    gain.gain.setValueAtTime(level, start);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + .11);
+    source.connect(filter).connect(gain).connect(this.musicGain);
+    source.start(start, 0, .13);
+    source.stop(start + .14);
+    this.rememberMusicNodes([source, filter, gain], source);
+  }
+
   proceduralMusicPhrase() {
     if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
     const now = this.context.currentTime;
-    const scale = this.isDay ? [261.63, 329.63, 392, 523.25] : [196, 246.94, 293.66, 392];
-    scale.forEach((frequency, index) => {
-      const oscillator = this.context.createOscillator();
-      const gain = this.context.createGain();
-      const start = now + index * 1.18;
-      oscillator.type = this.isDay ? "sine" : "triangle";
-      oscillator.frequency.value = frequency * (index === 3 ? .5 : 1);
-      gain.gain.setValueAtTime(.0001, start);
-      gain.gain.exponentialRampToValueAtTime(this.isDay ? .022 : .014, start + .18);
-      gain.gain.exponentialRampToValueAtTime(.0001, start + 1.8);
-      oscillator.connect(gain).connect(this.musicGain);
-      oscillator.start(start);
-      oscillator.stop(start + 1.85);
-      this.musicNodes.push(oscillator, gain);
+    if (this.isDay) {
+      // "Garden Footsteps": an original bright pentatonic melody with soft
+      // wooden pulses. It shares only a broad gentle daytime mood with the
+      // user's references and does not copy their melody or arrangement.
+      const scale = [261.63, 293.66, 329.63, 392, 440, 523.25];
+      const melody = [0, 2, null, 4, 3, 2, 1, null, 0, 3, 4, 5, 4, 2, 1, null];
+      const step = 60 / Number(config.ecosystem?.audio?.proceduralMusic?.day?.tempo || 82) / 2;
+      melody.forEach((degree, index) => {
+        const start = now + .08 + index * step;
+        if (degree != null) this.musicTone(scale[degree], start, step * 1.7, { type: "triangle", level: .015, attack: .018, release: .32, cutoff: 1500 });
+        if (index % 2 === 0) this.woodenPulse(start, .0045);
+      });
+      [[130.81, 0], [196, 4], [220, 8], [196, 12]].forEach(([frequency, index]) => this.musicTone(frequency, now + index * step, step * 4.1, { level: .006, attack: .35, release: 1.1, cutoff: 720 }));
+      this.musicTimer = setTimeout(() => this.proceduralMusicPhrase(), melody.length * step * 1000);
+      return;
+    }
+
+    // "Starlit Current": an original slow night score built from airy pads,
+    // low drones, and sparse bell-like notes.
+    const nightScale = [220, 261.63, 293.66, 329.63, 392, 440];
+    const nightMelody = [0, null, 2, 1, null, 4, 3, null, 2, 5, null, 1];
+    const nightStep = 60 / Number(config.ecosystem?.audio?.proceduralMusic?.night?.tempo || 56);
+    nightMelody.forEach((degree, index) => {
+      if (degree == null) return;
+      const start = now + .12 + index * nightStep;
+      this.musicTone(nightScale[degree], start, nightStep * 2.2, { type: "sine", level: .011, attack: .28, release: 1.25, cutoff: 2100 });
+      this.musicTone(nightScale[degree] * 2, start + .06, nightStep * 1.4, { type: "sine", level: .0035, attack: .08, release: .9, cutoff: 3100, detune: 4 });
     });
-    this.musicTimer = setTimeout(() => this.proceduralMusicPhrase(), this.isDay ? 7200 : 8800);
+    this.musicTone(110, now, nightMelody.length * nightStep, { type: "sine", level: .0045, attack: 1.5, release: 2.6, cutoff: 420 });
+    this.musicTone(164.81, now, nightMelody.length * nightStep, { type: "sine", level: .003, attack: 2.1, release: 2.6, cutoff: 520, detune: -3 });
+    this.musicTimer = setTimeout(() => this.proceduralMusicPhrase(), nightMelody.length * nightStep * 1000);
   }
 
   restartMusic() {
     if (!this.context || this.context.state !== "running") return;
     this.stopMusic();
-    const key = `music-${this.isDay ? "day" : "night"}`;
-    const buffer = this.buffers.get(key);
+    const slot = this.isDay ? "day" : "night";
+    const buffer = this.buffers.get(`custom-music-${slot}`) || this.buffers.get(`music-${slot}`);
     if (buffer) {
       const source = this.context.createBufferSource();
       source.buffer = buffer;
@@ -515,6 +622,12 @@ function supportPanel() {
 
 function settingsPanel() {
   const current = state.settings;
+  const musicRows = [["day", t("dayTrack"), t("dayScoreName")], ["night", t("nightTrack"), t("nightScoreName")]].map(([slot, label, originalName]) => {
+    const record = state.localMusic[slot];
+    return `<div class="local-music-row"><div class="local-music-copy"><strong>${escapeHtml(label)}</strong><small title="${escapeHtml(record?.name || originalName)}">${escapeHtml(record?.name || originalName)}</small></div>
+      <label class="secondary-button local-music-picker">${escapeHtml(t("chooseAudio"))}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm" data-local-music="${slot}" /></label>
+      ${record ? `<button type="button" class="text-button local-music-reset" data-action="clear-local-music" data-music-slot="${slot}">${escapeHtml(t("removeTrack"))}</button>` : ""}</div>`;
+  }).join("");
   openPanel({
     title: t("settingsTitle"),
     eyebrow: t("settingsEyebrow"),
@@ -534,6 +647,7 @@ function settingsPanel() {
         <button type="button" class="secondary-button sound-toggle" data-action="toggle-sound">${escapeHtml(current.soundEnabled ? t("muteSound") : t("enableSound"))}</button>
         ${[["masterVolume",t("masterVolume"),current.masterVolume ?? .35],["environmentVolume",t("environmentVolume"),current.environmentVolume ?? .65],["musicVolume",t("musicVolume"),current.musicVolume ?? .26],["animalVolume",t("animalVolume"),current.animalVolume ?? .22]].map(([key,label,value]) => `<label class="volume-control"><span>${escapeHtml(label)}</span><output>${Math.round(Number(value) * 100)}%</output><input type="range" min="0" max="1" step="0.01" value="${Number(value)}" data-volume="${key}" aria-label="${escapeHtml(label)}" /></label>`).join("")}
         <small>${escapeHtml(t("soundHint"))}</small>
+        <div class="local-music-settings"><strong>${escapeHtml(t("customMusic"))}</strong>${musicRows}<small>${escapeHtml(t("musicLocalOnly"))}</small></div>
       </div>`
   });
 }
@@ -676,6 +790,62 @@ function updateVolume(input) {
   input.closest("label")?.querySelector("output")?.replaceChildren(`${Math.round(value * 100)}%`);
   state.audio?.applySettings();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
+}
+
+async function hydrateLocalMusic() {
+  await Promise.all(["day", "night"].map(async (slot) => {
+    try {
+      const record = await loadLocalTrack(slot);
+      state.localMusic[slot] = record;
+      state.audio?.rememberCustomTrack(slot, record);
+    } catch {
+      state.localMusic[slot] = null;
+    }
+  }));
+}
+
+async function handleLocalMusicUpload(input) {
+  const slot = input.dataset.localMusic;
+  const file = input.files?.[0];
+  if (!file || !["day", "night"].includes(slot)) return;
+  const validation = validateAudioFileMeta(file);
+  if (!validation.ok) {
+    toast(`${t("trackInvalid")} (${validation.code})`);
+    input.value = "";
+    return;
+  }
+  let decodedBuffer;
+  try {
+    decodedBuffer = await state.audio.decodeCandidate(file);
+  } catch (error) {
+    toast(`${t("trackInvalid")} (${error.code || "DECODE_FAILED"})`);
+    input.value = "";
+    return;
+  }
+  try {
+    const record = await saveLocalTrack(slot, file);
+    await state.audio.setCustomTrack(slot, record, decodedBuffer);
+    state.localMusic[slot] = record;
+    settingsPanel();
+    toast(t("trackSaved"));
+  } catch (error) {
+    toast(`${t("trackInvalid")} (${error.code || "STORAGE_ERROR"})`);
+  } finally {
+    input.value = "";
+  }
+}
+
+async function clearLocalMusic(slot) {
+  if (!["day", "night"].includes(slot)) return;
+  try {
+    await removeLocalTrack(slot);
+    state.localMusic[slot] = null;
+    await state.audio?.setCustomTrack(slot, null);
+    settingsPanel();
+    toast(t("trackRemoved"));
+  } catch (error) {
+    toast(`${t("trackInvalid")} (${error.code || "STORAGE_ERROR"})`);
+  }
 }
 
 async function loadIntegrationStatus() {
@@ -905,7 +1075,8 @@ document.addEventListener("click", (event) => {
   if (building) return handleBuilding(building.dataset.building);
   const setting = event.target.closest("[data-setting]");
   if (setting) return updateSetting(setting.dataset.setting, setting.dataset.value);
-  const action = event.target.closest("[data-action]")?.dataset.action;
+  const actionElement = event.target.closest("[data-action]");
+  const action = actionElement?.dataset.action;
   if (!action) return;
   if (action === "close-panel") closePanel();
   if (action === "reset-map" || action === "home") { closePanel(); resetMap(); }
@@ -916,11 +1087,17 @@ document.addEventListener("click", (event) => {
   if (action === "toggle-sound") toggleSound();
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
+  if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
 });
 
 document.addEventListener("input", (event) => {
   const volume = event.target.closest("[data-volume]");
   if (volume) updateVolume(volume);
+});
+
+document.addEventListener("change", (event) => {
+  const localMusic = event.target.closest("[data-local-music]");
+  if (localMusic) handleLocalMusicUpload(localMusic);
 });
 
 document.addEventListener("submit", (event) => {
@@ -936,6 +1113,7 @@ $("#original-survey-link").href = config.survey.url.replace("?embedded=true", ""
 
 (async function boot() {
   setAuthMode("register");
+  await hydrateLocalMusic();
   applySettings();
   try {
     const { user } = await api("/api/auth/me");

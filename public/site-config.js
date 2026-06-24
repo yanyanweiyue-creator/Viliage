@@ -79,6 +79,10 @@ window.CAPY_CONFIG = {
       // Add owned/licensed day and night OGG/MP3 files here later. Empty values
       // use the built-in gentle procedural score instead of failing silently.
       music: { day: "", night: "" },
+      proceduralMusic: {
+        day: { title: "Garden Footsteps", tempo: 82, mood: "bright pentatonic, soft wooden pulse" },
+        night: { title: "Starlit Current", tempo: 56, mood: "slow airy bells, water-like ambient pad" }
+      },
       samples: {
         cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
         sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },

@@ -256,6 +256,12 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .sound-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }.sound-status { color: var(--sage-dark); font-size: .75rem; font-weight: 700; }
 .sound-toggle { justify-self: start; min-height: 2.7rem; }
 .volume-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .15rem .8rem; font-size: .82rem; font-weight: 700; }.volume-control output { color: var(--muted); font-variant-numeric: tabular-nums; }.volume-control input { grid-column: 1 / -1; padding: 0; accent-color: var(--sage-dark); }
+.local-music-settings { display: grid; gap: .7rem; margin-top: .25rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.local-music-settings > strong { font-size: .9rem; }
+.local-music-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .55rem .7rem; padding: .72rem; border: 1px solid color-mix(in srgb, var(--line) 80%, var(--sage)); border-radius: .85rem; background: rgba(255,255,255,.78); }
+.local-music-copy { min-width: 0; }.local-music-copy strong, .local-music-copy small { display: block; }.local-music-copy strong { font-size: .82rem; }.local-music-copy small { margin-top: .16rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-music-picker { position: relative; min-height: 2.35rem; padding: .5rem .7rem; cursor: pointer; font-size: .75rem; }.local-music-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.local-music-reset { grid-column: 1 / -1; justify-self: start; padding: 0; font-size: .75rem; }
 .sync-badge { display: inline-flex; align-items: center; gap: .45rem; margin: 0 0 1rem; padding: .5rem .75rem; border-radius: 999px; font-size: .78rem; font-weight: 700; }
 .sync-badge::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; }
 .sync-badge.connected { color: #246246; background: #dcf3e4; }
