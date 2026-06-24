@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*"]
   },
   "triggers": {
-    "crons": ["0 */12 * * *"]
+    "crons": ["*/10 * * * *"]
   },
   "d1_databases": [
     {

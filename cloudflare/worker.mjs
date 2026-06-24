@@ -2,7 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
 import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "../scoring-engine.mjs";
-import { communitySimilarity, pairKey, safeDisplayName } from "../community-logic.mjs";
+import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -93,7 +93,7 @@ async function usersBlocked(env, firstId, secondId) {
 }
 
 async function cleanupSystemGroupHistory(env) {
-  const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   return env.DB.prepare("DELETE FROM chat_messages WHERE created_at < ? AND room_id IN (SELECT id FROM chat_rooms WHERE kind = 'group' AND system_managed = 1)").bind(cutoff).run();
 }
 
@@ -111,8 +111,9 @@ async function communityOverview(env, user) {
       (SELECT COUNT(*) FROM chat_members members WHERE members.room_id = r.id) AS member_count,
       EXISTS(SELECT 1 FROM chat_members mine WHERE mine.room_id = r.id AND mine.user_id = ?) AS joined,
       EXISTS(SELECT 1 FROM chat_room_preferences pref WHERE pref.room_id = r.id AND pref.user_id = ? AND pref.pinned_at IS NOT NULL) AS pinned
-    FROM chat_rooms r WHERE r.kind = 'group' ORDER BY pinned DESC, r.created_at, r.name
-  `).bind(user.id, user.id));
+    FROM chat_rooms r WHERE r.kind = 'group' AND (r.system_managed = 1 OR EXISTS(SELECT 1 FROM chat_members visible WHERE visible.room_id = r.id AND visible.user_id = ?))
+    ORDER BY pinned DESC, r.created_at, r.name
+  `).bind(user.id, user.id, user.id));
   if (!profile?.enabled) return { enabled: false, displayName: profile?.display_name || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
 
   const candidates = await allRows(env.DB.prepare(`
@@ -153,7 +154,14 @@ async function communityOverview(env, user) {
     FROM chat_blocks b JOIN users u ON u.id = b.blocked_id LEFT JOIN community_profiles cp ON cp.user_id = b.blocked_id
     WHERE b.blocker_id = ? ORDER BY display_name
   `).bind(user.id));
-  return { enabled: true, displayName: profile.display_name, groups, recommendations, incoming, outgoing, directRooms, blocks };
+  const groupInvites = await allRows(env.DB.prepare(`
+    SELECT invite.id, invite.room_id, room.name AS room_name, room.description,
+      COALESCE(profile.display_name, inviter.name) AS inviter_name, invite.created_at
+    FROM chat_group_invitations invite JOIN chat_rooms room ON room.id = invite.room_id
+    JOIN users inviter ON inviter.id = invite.inviter_id LEFT JOIN community_profiles profile ON profile.user_id = invite.inviter_id
+    WHERE invite.recipient_id = ? AND invite.status = 'pending' ORDER BY invite.created_at DESC
+  `).bind(user.id));
+  return { enabled: true, displayName: profile.display_name, groups, recommendations, incoming, outgoing, directRooms, blocks, groupInvites };
 }
 
 async function sessionUser(request, env) {
@@ -403,6 +411,7 @@ async function api(request, env, ctx) {
     const input = await body(request);
     const enabled = Boolean(input.enabled);
     const displayName = safeDisplayName(input.displayName, safeDisplayName(user.name));
+    if (containsBlockedLanguage(displayName)) return fail("Please choose a respectful community name.");
     const now = new Date().toISOString();
     await env.DB.prepare(`
       INSERT INTO community_profiles (user_id, enabled, display_name, created_at, updated_at)
@@ -416,14 +425,15 @@ async function api(request, env, ctx) {
     const query = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
     if (query.length < 2) return json({ people: [] });
     const people = await allRows(env.DB.prepare(`
-      SELECT u.id AS user_id, u.email, COALESCE(cp.display_name, u.name) AS display_name
-      FROM users u LEFT JOIN community_profiles cp ON cp.user_id = u.id
+      SELECT u.id AS user_id, u.email, COALESCE(cp.display_name, u.name) AS display_name,
+        c.id AS connection_id, c.status AS connection_status, c.requester_id
+      FROM users u JOIN community_profiles cp ON cp.user_id = u.id AND cp.enabled = 1
+      LEFT JOIN chat_connections c ON (c.requester_id = ? AND c.recipient_id = u.id) OR (c.recipient_id = ? AND c.requester_id = u.id)
       WHERE u.id != ? AND (LOWER(u.email) LIKE ? OR LOWER(COALESCE(cp.display_name, u.name)) LIKE ?)
-        AND EXISTS (SELECT 1 FROM chat_connections c WHERE c.status = 'accepted' AND ((c.requester_id = ? AND c.recipient_id = u.id) OR (c.recipient_id = ? AND c.requester_id = u.id)))
         AND NOT EXISTS (SELECT 1 FROM chat_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))
       ORDER BY display_name LIMIT 20
-    `).bind(user.id, `%${query}%`, `%${query}%`, user.id, user.id, user.id, user.id));
-    return json({ people });
+    `).bind(user.id, user.id, user.id, `%${query}%`, `%${query}%`, user.id, user.id));
+    return json({ people: people.map((person) => ({ ...person, relationship: person.connection_status === "accepted" ? "friend" : person.connection_status === "pending" ? (person.requester_id === user.id ? "outgoing" : "incoming") : "none" })) });
   }
 
   if (request.method === "POST" && url.pathname === "/api/community/groups") {
@@ -432,6 +442,7 @@ async function api(request, env, ctx) {
     if (!profile?.enabled) return fail("Join the community before creating a group.", 403);
     const name = safeDisplayName(input.name, "New group");
     const description = String(input.description || "").trim().slice(0, 240);
+    if (containsBlockedLanguage(`${name} ${description}`)) return fail("Please use respectful language for the group name and description.");
     const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
     for (const memberId of memberIds) if (!await areFriends(env, user.id, memberId) || await usersBlocked(env, user.id, memberId)) return fail("Groups can include accepted, unblocked friends only.", 403);
     const roomId = `group-${randomBytes(12).toString("hex")}`;
@@ -439,10 +450,23 @@ async function api(request, env, ctx) {
     const statements = [
       env.DB.prepare("INSERT INTO chat_rooms (id, kind, name, description, created_by, created_at, system_managed) VALUES (?, 'group', ?, ?, ?, ?, 0)").bind(roomId, name, description, user.id, now),
       env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'moderator', ?)").bind(roomId, user.id, now),
-      ...memberIds.map((memberId) => env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, memberId, now))
+      ...memberIds.map((memberId) => env.DB.prepare("INSERT INTO chat_group_invitations (id, room_id, inviter_id, recipient_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)").bind(randomBytes(12).toString("hex"), roomId, user.id, memberId, now, now))
     ];
     await env.DB.batch(statements);
     return json({ room: { id: roomId, name, description, systemManaged: false } }, 201);
+  }
+
+  const groupInviteMatch = url.pathname.match(/^\/api\/community\/group-invitations\/([^/]+)\/(accept|decline)$/);
+  if (request.method === "POST" && groupInviteMatch) {
+    const invitationId = decodeURIComponent(groupInviteMatch[1]);
+    const decision = groupInviteMatch[2];
+    const invite = await env.DB.prepare("SELECT * FROM chat_group_invitations WHERE id = ? AND recipient_id = ? AND status = 'pending' LIMIT 1").bind(invitationId, user.id).first();
+    if (!invite) return fail("Group invitation not found.", 404);
+    const now = new Date().toISOString();
+    const statements = [env.DB.prepare("UPDATE chat_group_invitations SET status = ?, updated_at = ? WHERE id = ?").bind(decision === "accept" ? "accepted" : "declined", now, invitationId)];
+    if (decision === "accept") statements.push(env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(invite.room_id, user.id, now));
+    await env.DB.batch(statements);
+    return json({ ok: true, roomId: decision === "accept" ? invite.room_id : null });
   }
 
   if (url.pathname === "/api/community/posts") {
@@ -466,6 +490,7 @@ async function api(request, env, ctx) {
     if (request.method === "POST") {
       const input = await body(request);
       const postBody = String(input.text || "").trim().slice(0, 2000);
+      if (containsBlockedLanguage(postBody)) return fail("Please remove harmful or abusive language before posting.");
       let imageDataUrl;
       try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return fail(error.message); }
       if (!postBody && !imageDataUrl) return fail("Add text or an image first.");
@@ -512,7 +537,7 @@ async function api(request, env, ctx) {
     return json({ ok: true });
   }
 
-  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history))?$/);
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history|invite))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
     const operation = roomMatch[2] || "";
@@ -523,12 +548,29 @@ async function api(request, env, ctx) {
 
     if (request.method === "POST" && operation === "join") {
       if (room.kind !== "group") return fail("Private conversations cannot be joined directly.", 403);
+      if (!room.system_managed) return fail("Member-created groups require an invitation.", 403);
       await env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, user.id, new Date().toISOString()).run();
       return json({ ok: true });
     }
 
     const membership = await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
     if (!membership) return fail("Join this room before reading or sending messages.", 403);
+
+    if (request.method === "POST" && operation === "invite") {
+      if (room.kind !== "group") return fail("Invitations are available in group chats only.");
+      const input = await body(request);
+      const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
+      if (!memberIds.length) return fail("Choose at least one friend to invite.");
+      const now = new Date().toISOString();
+      const statements = [];
+      for (const memberId of memberIds) {
+        if (!await areFriends(env, user.id, memberId) || await usersBlocked(env, user.id, memberId)) return fail("You can invite accepted, unblocked friends only.", 403);
+        const joined = await env.DB.prepare("SELECT 1 AS joined FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, memberId).first();
+        if (!joined) statements.push(env.DB.prepare(`INSERT INTO chat_group_invitations (id, room_id, inviter_id, recipient_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT(room_id, recipient_id) DO UPDATE SET inviter_id = excluded.inviter_id, status = 'pending', updated_at = excluded.updated_at`).bind(randomBytes(12).toString("hex"), roomId, user.id, memberId, now, now));
+      }
+      if (statements.length) await env.DB.batch(statements);
+      return json({ ok: true, invited: statements.length });
+    }
 
     if (request.method === "POST" && operation === "leave") {
       if (room.kind !== "group") return fail("Use Remove friend to close a private conversation.");
@@ -568,12 +610,14 @@ async function api(request, env, ctx) {
       `).bind(roomId, roomId, user.id, user.id));
       const pref = await env.DB.prepare("SELECT pinned_at FROM chat_room_preferences WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
       const other = room.kind === "direct" ? await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id != ? LIMIT 1").bind(roomId, user.id).first() : null;
-      return json({ room: { id: room.id, name: room.name, kind: room.kind, systemManaged: Boolean(room.system_managed), createdBy: room.created_by, pinned: Boolean(pref?.pinned_at), otherUserId: other?.user_id || null }, messages: rows.reverse().map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, createdAt: row.created_at, mine: row.user_id === user.id })) });
+      const members = room.kind === "group" ? await allRows(env.DB.prepare(`SELECT member.user_id, member.role, COALESCE(profile.display_name, account.name) AS display_name FROM chat_members member JOIN users account ON account.id = member.user_id LEFT JOIN community_profiles profile ON profile.user_id = member.user_id WHERE member.room_id = ? ORDER BY member.role = 'moderator' DESC, display_name`).bind(roomId)) : [];
+      return json({ room: { id: room.id, name: room.name, kind: room.kind, systemManaged: Boolean(room.system_managed), createdBy: room.created_by, pinned: Boolean(pref?.pinned_at), otherUserId: other?.user_id || null }, members: members.map((member) => ({ userId: member.user_id, displayName: member.display_name, role: member.role })), messages: rows.reverse().map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, createdAt: row.created_at, mine: row.user_id === user.id })) });
     }
 
     if (request.method === "POST" && operation === "messages") {
       const messageBody = String((await body(request)).message || "").trim().slice(0, 1000);
       if (!messageBody) return fail("Write a message first.");
+      if (containsBlockedLanguage(messageBody)) return fail("Please remove harmful or abusive language before sending.");
       const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
       await env.DB.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)").bind(message.id, roomId, user.id, message.body, message.createdAt).run();
       ctx.waitUntil(syncUser(env, user).catch(() => {}));

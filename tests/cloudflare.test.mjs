@@ -42,11 +42,12 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0002_community_chat.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
-  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
+  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "3");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "4");
   database.close();
 });
 
@@ -91,6 +92,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
   database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0002_community_chat.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -115,16 +117,16 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
   const incoming = (await secondOverview.json()).incoming[0];
   const accepted = await worker.fetch(new Request(`https://village.example/api/community/connections/${incoming.id}/accept`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: second.cookie }, body: "{}" }), env, ctx);
   const roomId = (await accepted.json()).roomId;
-  const sent = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: JSON.stringify({ message: "Hello from the village" }) }), env, ctx);
+  const sent = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: JSON.stringify({ message: "[[sticker:wave]]" }) }), env, ctx);
   assert.equal(sent.status, 201);
   const messages = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { headers: { Cookie: second.cookie } }), env, ctx);
-  assert.equal((await messages.json()).messages[0].body, "Hello from the village");
+  assert.equal((await messages.json()).messages[0].body, "[[sticker:wave]]");
   database.close();
 });
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -136,6 +138,10 @@ test("community controls isolate history, restrict moments to friends, and enfor
   const alex = await register("Alex", "alex-controls@example.com");
   const sam = await register("Sam", "sam-controls@example.com");
   const lee = await register("Lee", "lee-controls@example.com");
+  const discover = await worker.fetch(new Request("https://village.example/api/community/search?q=sam-controls", { headers: { Cookie: alex.cookie } }), env, ctx);
+  const discovered = (await discover.json()).people[0];
+  assert.equal(discovered.user_id, sam.user.id);
+  assert.equal(discovered.relationship, "none");
   const connect = async (from, to) => {
     await worker.fetch(new Request("https://village.example/api/community/connect", { method: "POST", headers: { "Content-Type": "application/json", Cookie: from.cookie }, body: JSON.stringify({ targetUserId: to.user.id }) }), env, ctx);
     const overview = await worker.fetch(new Request("https://village.example/api/community", { headers: { Cookie: to.cookie } }), env, ctx);
@@ -151,21 +157,39 @@ test("community controls isolate history, restrict moments to friends, and enfor
 
   const created = await worker.fetch(new Request("https://village.example/api/community/groups", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ name: "Our group", memberIds: [sam.user.id] }) }), env, ctx);
   const roomId = (await created.json()).room.id;
+  const inviteOverview = await worker.fetch(new Request("https://village.example/api/community", { headers: { Cookie: sam.cookie } }), env, ctx);
+  const invitation = (await inviteOverview.json()).groupInvites[0];
+  assert.equal(invitation.room_id, roomId);
+  const acceptedInvite = await worker.fetch(new Request(`https://village.example/api/community/group-invitations/${invitation.id}/accept`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: sam.cookie }, body: "{}" }), env, ctx);
+  assert.equal(acceptedInvite.status, 200);
+  const invitedLee = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/invite`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ memberIds: [lee.user.id] }) }), env, ctx);
+  assert.equal((await invitedLee.json()).invited, 1);
   await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ message: "Visible to both" }) }), env, ctx);
   await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/history`, { method: "DELETE", headers: { Cookie: alex.cookie } }), env, ctx);
   const alexMessages = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { headers: { Cookie: alex.cookie } }), env, ctx);
   const samMessages = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { headers: { Cookie: sam.cookie } }), env, ctx);
   assert.equal((await alexMessages.json()).messages.length, 0);
-  assert.equal((await samMessages.json()).messages.length, 1);
+  const samRoom = await samMessages.json();
+  assert.equal(samRoom.messages.length, 1);
+  assert.deepEqual(samRoom.members.map((member) => member.displayName).sort(), ["Alex", "Sam"]);
+  const rejectedLanguage = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: sam.cookie }, body: JSON.stringify({ message: "go die" }) }), env, ctx);
+  assert.equal(rejectedLanguage.status, 400);
+  assert.match((await rejectedLanguage.json()).error, /harmful|abusive/i);
+  await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/join", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: "{}" }), env, ctx);
+  const systemInvite = await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/invite", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ memberIds: [sam.user.id] }) }), env, ctx);
+  assert.equal((await systemInvite.json()).invited, 1);
   await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/pin`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ pinned: true }) }), env, ctx);
   const pinnedOverview = await worker.fetch(new Request("https://village.example/api/community", { headers: { Cookie: alex.cookie } }), env, ctx);
   assert.equal((await pinnedOverview.json()).groups.find((group) => group.id === roomId).pinned, 1);
 
-  const posted = await worker.fetch(new Request("https://village.example/api/community/posts", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ text: "Sam can see this", allowedUserIds: [sam.user.id], deniedUserIds: [lee.user.id] }) }), env, ctx);
+  const imageDataUrl = `data:image/png;base64,${Buffer.from("friend-photo").toString("base64")}`;
+  const posted = await worker.fetch(new Request("https://village.example/api/community/posts", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ text: "Sam can see this", imageDataUrl, allowedUserIds: [sam.user.id], deniedUserIds: [lee.user.id] }) }), env, ctx);
   assert.equal(posted.status, 201);
   const samFeed = await worker.fetch(new Request("https://village.example/api/community/posts", { headers: { Cookie: sam.cookie } }), env, ctx);
   const leeFeed = await worker.fetch(new Request("https://village.example/api/community/posts", { headers: { Cookie: lee.cookie } }), env, ctx);
-  assert.equal((await samFeed.json()).posts.length, 1);
+  const samPosts = (await samFeed.json()).posts;
+  assert.equal(samPosts.length, 1);
+  assert.equal(samPosts[0].imageDataUrl, imageDataUrl);
   assert.equal((await leeFeed.json()).posts.length, 0);
 
   await worker.fetch(new Request(`https://village.example/api/community/blocks/${sam.user.id}`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: "{}" }), env, ctx);
@@ -194,7 +218,8 @@ test("recommendation API applies diagnosis and category before scoring database 
   const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
     row("https://example.com/allowed", "Medicaid legal assistance", "Autism", "Legal", "Medicaid"),
     row("https://example.com/wrong-diagnosis", "Medicaid legal assistance", "ADHD", "Legal", "Medicaid"),
-    row("https://example.com/wrong-category", "Medicaid legal assistance", "Autism", "Education", "Medicaid")
+    row("https://example.com/wrong-category", "Medicaid legal assistance", "Autism", "Education", "Medicaid"),
+    row("https://example.com/support", "Affordable family respite support", "Autism", "Caregiver Support", "Respite")
   ] } };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
@@ -208,6 +233,15 @@ test("recommendation API applies diagnosis and category before scoring database 
     const result = await response.json();
     assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
     assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
+    const supportResponse = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ topic: "Caregiver Support", diagnosis: "Autism", description: "Affordable family respite support", count: 5, clarificationHandled: true })
+    }), env, ctx);
+    assert.equal(supportResponse.status, 200);
+    const supportResult = await supportResponse.json();
+    assert.deepEqual(supportResult.resources.map((item) => item.url), ["https://example.com/support"]);
+    assert.equal(supportResult.resources[0].passedFilters[1], "Category: Caregiver Support");
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
