@@ -3,6 +3,13 @@ import { createCreatureArt } from "./creature-art.mjs?v=grounded-audio-20260623"
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
+const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+
+function actorOffset(id) {
+  let hash = 0;
+  for (const character of String(id)) hash = (hash * 31 + character.codePointAt(0)) >>> 0;
+  return { x: ((hash % 7) - 3) * .12, y: (((hash >>> 3) % 5) - 2) * .1 };
+}
 
 export class EcosystemController {
   constructor({ config, stage, creatureLayer, skyLayer, onSound = () => {} }) {
@@ -38,6 +45,7 @@ export class EcosystemController {
       if (!route.length) continue;
       const routeIndex = clampIndex(definition.start, route.length);
       const point = route[routeIndex];
+      const offset = actorOffset(definition.id);
       const element = document.createElement("span");
       element.className = "ecosystem-actor state-idle";
       element.dataset.actorId = definition.id;
@@ -47,16 +55,18 @@ export class EcosystemController {
       element.title = definition.label;
       element.setAttribute("role", "img");
       element.setAttribute("aria-label", definition.label);
-      element.style.left = `${point.x}%`;
-      element.style.top = `${point.y}%`;
+      element.style.left = `${point.x + offset.x}%`;
+      element.style.top = `${point.y + offset.y}%`;
       element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
+      element.style.setProperty("--actor-facing", definition.start % 2 ? "-1" : "1");
+      element.dataset.gait = definition.species;
       const glyph = document.createElement("span");
       glyph.className = "actor-glyph";
       glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
       element.append(glyph);
       (definition.flying ? this.skyLayer : this.creatureLayer).append(element);
       this.actors.set(definition.id, {
-        definition, element, route, routeIndex,
+        definition, element, route, routeIndex, offset,
         nextMoveAt: now + randomBetween(1200, 4500),
         arriveAt: 0, arrivalState: "", inside: false,
         lastGrazeAt: now,
@@ -83,11 +93,13 @@ export class EcosystemController {
     const point = actor.route[clampIndex(targetIndex, actor.route.length)];
     const current = actor.route[actor.routeIndex];
     const distance = Math.hypot(point.x - current.x, point.y - current.y);
-    const durationMs = Math.max(2600, Math.min(actor.definition.flying ? 12_000 : 7200, distance * (actor.definition.flying ? 390 : 290)));
+    const rate = movementRate(actor.definition);
+    const durationMs = Math.max(2200, Math.min(actor.definition.flying ? 11_000 : 8200, distance * (actor.definition.flying ? 390 : 310) / rate));
     actor.routeIndex = clampIndex(targetIndex, actor.route.length);
     actor.element.style.transitionDuration = `${durationMs}ms, ${durationMs}ms, .5s, .8s, ${durationMs}ms`;
-    actor.element.style.left = `${point.x}%`;
-    actor.element.style.top = `${point.y}%`;
+    actor.element.style.setProperty("--actor-facing", point.x >= current.x ? "1" : "-1");
+    actor.element.style.left = `${point.x + actor.offset.x}%`;
+    actor.element.style.top = `${point.y + actor.offset.y}%`;
     actor.element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
     this.setActorState(actor, actor.definition.flying ? "flying" : "walking");
     actor.arriveAt = Date.now() + durationMs;
@@ -154,7 +166,8 @@ export class EcosystemController {
         }
       }
 
-      this.moveTo(actor, this.adjacentIndex(actor), Math.random() < .3 ? "looking" : "idle", randomBetween(3500, 8500));
+      const pauseScale = actor.definition.species === "rabbit" ? .72 : actor.definition.species === "sheep" ? 1.35 : 1;
+      this.moveTo(actor, this.adjacentIndex(actor), Math.random() < .34 ? "looking" : "idle", randomBetween(3500, 8500) * pauseScale);
     }
   }
 

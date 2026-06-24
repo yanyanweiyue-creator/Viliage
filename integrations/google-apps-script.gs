@@ -13,6 +13,7 @@
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents || "{}");
+    if (data.action === "send-password-reset") return sendPasswordResetCode_(data);
     delete data.password;
     data["Password"] = "Not stored — secure hash only";
 
@@ -65,6 +66,25 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function sendPasswordResetCode_(data) {
+  var email = String(data.email || "").trim().toLowerCase();
+  var code = String(data.code || "").trim();
+  if (!/^\S+@\S+\.\S+$/.test(email) || !/^\d{6}$/.test(code)) {
+    throw new Error("Invalid password-reset email or code.");
+  }
+  var minutes = Math.max(1, Math.min(30, Number(data.expiresInMinutes || 10)));
+  var subject = "Your It Takes a Village verification code";
+  var plainText = "Your verification code is " + code + ". It expires in " + minutes + " minutes. If you did not request a password reset, you can ignore this email.";
+  var html = '<div style="font-family:Arial,sans-serif;color:#243a35;max-width:520px;padding:24px">' +
+    '<h2 style="margin:0 0 12px">It Takes a Village</h2>' +
+    '<p>Use this verification code to reset your password:</p>' +
+    '<p style="font-size:32px;font-weight:700;letter-spacing:8px;background:#eef5ef;padding:16px 20px;border-radius:12px;text-align:center">' + code + '</p>' +
+    '<p>This code expires in ' + minutes + ' minutes. If you did not request it, you can safely ignore this email.</p></div>';
+  GmailApp.sendEmail(email, subject, plainText, { htmlBody: html, name: "It Takes a Village" });
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, delivered: true }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function doGet() {

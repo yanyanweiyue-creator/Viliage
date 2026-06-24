@@ -8,12 +8,15 @@ import { tmpdir } from "node:os";
 const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
 const sessionsFile = join(tmpdir(), `capy-village-test-sessions-${process.pid}.json`);
 const communityFile = join(tmpdir(), `capy-village-test-community-${process.pid}.json`);
+const passwordResetsFile = join(tmpdir(), `capy-village-test-password-resets-${process.pid}.json`);
 process.env.USERS_FILE = usersFile;
 process.env.SESSIONS_FILE = sessionsFile;
 process.env.COMMUNITY_FILE = communityFile;
+process.env.PASSWORD_RESETS_FILE = passwordResetsFile;
+process.env.PASSWORD_RESET_SECRET = "local-test-reset-secret";
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
-  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {})]);
+  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {})]);
 });
 
 function httpRequest(url, options = {}) {
@@ -84,6 +87,46 @@ test("registration never returns a password hash", async () => {
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local password reset sends a code and accepts only the new password", async () => {
+  let mailedCode = "";
+  const webhook = createHttpServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    mailedCode = JSON.parse(Buffer.concat(chunks).toString("utf8")).code;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, delivered: true }));
+  });
+  await new Promise((resolve) => webhook.listen(0, "127.0.0.1", resolve));
+  process.env.PASSWORD_EMAIL_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const email = `password-reset-${Date.now()}@example.com`;
+    const registerBody = JSON.stringify({ name: "Password Reset", email, password: "old-password" });
+    const register = await httpRequest(`http://127.0.0.1:${port}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(registerBody) }, body: registerBody });
+    assert.equal(register.status, 201);
+    const requestBody = JSON.stringify({ email });
+    const resetRequest = await httpRequest(`http://127.0.0.1:${port}/api/auth/password/request`, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(requestBody) }, body: requestBody });
+    assert.equal(resetRequest.status, 202);
+    assert.match(mailedCode, /^\d{6}$/);
+    const confirmBody = JSON.stringify({ email, code: mailedCode, password: "new-password" });
+    const confirmed = await httpRequest(`http://127.0.0.1:${port}/api/auth/password/confirm`, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(confirmBody) }, body: confirmBody });
+    assert.equal(confirmed.status, 200);
+    const login = async (password) => {
+      const body = JSON.stringify({ email, password });
+      return httpRequest(`http://127.0.0.1:${port}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) }, body });
+    };
+    assert.equal((await login("old-password")).status, 401);
+    assert.equal((await login("new-password")).status, 200);
+  } finally {
+    delete process.env.PASSWORD_EMAIL_WEBHOOK_URL;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => webhook.close(resolve));
   }
 });
 

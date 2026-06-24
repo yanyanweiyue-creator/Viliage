@@ -4,10 +4,10 @@ A full-stack, no-dependency web prototype for a personalized caregiver resource 
 
 ## What is included
 
-- Account creation and login with salted `scrypt` password hashes and HTTP-only session cookies
+- Account creation, login, and email-code password reset with salted `scrypt` password hashes and HTTP-only session cookies
 - First-visit Community Compass survey and personal record
 - Two-island scene with island zoom, ten independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
-- Support/contact, opt-in community chat, avatar-based settings, education AI, legal AI, recreation AI, and activity panels
+- Support/contact, opt-in community chat, a dedicated Settings icon, avatar-based My Record, education AI, legal AI, recreation AI, and activity panels
 - Font size, color palette, language, reduced-motion, low-stimulation, and three-channel sound controls
 - Dynamic resource loading from the provided Google Sheet with a local fallback
 - Configurable resource scoring with tag-first matching, issue penalties, AI-assisted synonym expansion, result counts from 3–10, and a visible explanation for every score
@@ -42,7 +42,7 @@ Google Forms run inside a cross-origin frame and do not reliably tell the parent
 3. Change `map.image` in `public/site-config.js`.
 4. Adjust each building's `x` and `y` percentages in the same file.
 
-The placeholder scene was generated specifically for this prototype. Buildings are separate HTML layers, so changing the background does not require changing navigation code. You can later add a per-building `image` property and render your own sprite inside each building button.
+The approved illustration remains the 2D visual source. Invisible polygonal hit areas follow each School, Courthouse, Village, Park, or Woods illustration, so users click the artwork directly without visible oval buttons. The 3D Canvas renderer generates matching building models separately while reusing the same configuration and navigation actions.
 
 ## Google Sheet resource database
 
@@ -75,6 +75,8 @@ Use `integrations/google-apps-script.gs`:
 
 The script finds the header row, updates the same user instead of creating duplicates, wraps long text, sizes columns appropriately, and deliberately writes only a safety marker in `Password`. Passwords and password hashes must never be stored in a spreadsheet.
 
+The same script now handles `send-password-reset` requests with `GmailApp.sendEmail`. After replacing the script, create a **new Apps Script deployment version**, then set its `/exec` URL as `PASSWORD_EMAIL_WEBHOOK_URL`. Users can request a six-digit code from the Login screen; only a hash is stored, requests are rate-limited, codes expire after 10 minutes, and a successful reset invalidates existing sessions.
+
 The supplied user sheet currently has eight row-1 headers: `User name`, `Password`, `response of survey`, `AI personal record`, `history`, `feedback`, `Chat History`, and `Email`. The server sends all eight exact keys whenever the account, survey, resource-search history, feedback, or community-message history changes. The Apps Script identifies an existing row by `userId` when available, otherwise by `Email`, and only falls back to `User name`; therefore repeated updates keep one account on one row. The `Password` cell contains only the safety marker “Not stored — secure hash only.” After changing `integrations/google-apps-script.gs`, create a new Apps Script deployment version so the existing `/exec` URL uses the update.
 
 ## Live local environment
@@ -83,7 +85,7 @@ The village map uses an approximate IP location to choose the user's hemisphere 
 
 The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; and moves both sun and moon along a quadratic arc that stays in the upper half of the village. The moon phase is calculated for the local date, flipped for the user's hemisphere, and renders only its illuminated silhouette—crescent, quarter, gibbous, or full—rather than retaining a dark circular ball. Night skies use individually layered, depth-scaled stars and soft nebula glows instead of a repeating texture. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
 
-Settings also offers an illustrated **2D** mode and an immersive **3D** mode. The 3D renderer is generated locally with Canvas: it adds two visibly separated perspective islands, reflective animated water, pointer parallax, interactive ripples, forest depth, and island-specific ecology—fruiting jujube trees on Autism Island and pines/wildflowers on ADHD Island—without sending graphics data to another service. Every building has a separate tested 3D ground coordinate and a contact shadow, so roofs no longer float above the shoreline. Low-stimulation mode pauses its continuous animation. The 2D map remains available as a lightweight fallback and both choices are saved on the device.
+Settings also offers an illustrated **2D** mode and an immersive **3D** mode. The 2D scene overlays live large-scale swells, moving highlights, shoreline foam, pointer ripples, and animated airflow while masking waves away from the land. The 3D renderer is generated locally with Canvas: it adds two visibly separated perspective islands, type-specific School/Courthouse/Village/Park/Woods models, layered moving water, broken sun reflections, interactive ripples, volumetric cloud shapes, airflow ribbons, forest depth, lens bloom, and island-specific ecology—fruiting jujube trees on Autism Island and pines/wildflowers on ADHD Island—without sending graphics data to another service. Every building has a separate tested 3D ground coordinate and a contact shadow. Low-stimulation mode pauses continuous animation. Both visual choices are saved on the device.
 
 Weather ambience and two original fallback scores—daytime **Garden Footsteps** and nighttime **Starlit Current**—are synthesized locally with the browser Web Audio API, alongside replaceable animal recordings. Clear, cloudy, fog, rain, snow, and storm conditions each use different layered filters, with additional seasonal and day/night textures; 3D mode adds a close shoreline layer. Bird and gull calls use the first 3.2 seconds of the project-provided gentle morning-bird recording. The new sparse-insect track joins the environment channel only during local summer from 10:00–16:00, while the small-farm track plays only from 15 minutes before through 45 minutes after local sunrise. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, background-music, and animal volumes are saved on the device; environment defaults louder than the gentler music and animal channels. Low-stimulation mode reduces every channel.
 
@@ -97,7 +99,7 @@ Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation:
 
 The Support building includes three system group chats, invite-only user-created groups, consent-based private connections, community search by name or email, per-user pinning/history clearing, friend removal, blocking, and a friends-only Moments feed. Every group shows its member list, lets members invite accepted friends, and provides one-click `@member` and `@everyone` mentions. Chats include a sticker picker. Moments can contain text and one small image; authors may limit a post to selected friends or hide it from selected friends. Search can send a friend request to any opted-in, unblocked community member; private chat and Moments remain friends-only. Server-side language moderation rejects harmful or abusive language in community names, groups, posts, and messages.
 
-System-created groups remove shared messages older than 12 hours through a Cloudflare scheduled trigger. In user-created groups and private chats, **Clear my history** stores a per-user cutoff: earlier messages disappear only for that user and remain available to other members. The Settings buildings were removed; clicking the top-right avatar opens every visual, sound, motion, language, and local-music setting.
+System-created groups remove shared messages older than 12 hours through a Cloudflare scheduled trigger. In user-created groups and private chats, **Clear my history** stores a per-user cutoff: earlier messages disappear only for that user and remain available to other members. The Settings buildings were removed; the dedicated top-right gear opens visual, sound, motion, language, and local-music settings, while the avatar opens My Record.
 
 Cloudflare stores community profiles, memberships, connections, messages, per-user room preferences, block lists, and Moments in D1, so conversations survive code updates. The local server uses ignored `data/community.json` for development. Images are currently stored as size-limited data URLs; production growth should move them to object storage such as Cloudflare R2. Messages are not end-to-end encrypted; the interface states this directly and warns users not to share passwords, addresses, urgent medical details, or use peer chat as emergency/professional support. A public launch should add moderation/reporting workflows, rate limiting, notifications, malware scanning for uploads, and a formal safeguarding review.
 

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=grounded-audio-20260623" />
+    <link rel="stylesheet" href="/styles.css?v=village-motion-20260624" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -27,7 +27,7 @@
         <p class="eyebrow">A calmer place to begin</p>
         <h1 id="auth-title">Welcome to your village.</h1>
         <p class="lede">Create an account, tell us what matters, and explore resources at your own pace.</p>
-        <div class="segmented" role="tablist" aria-label="Account options">
+        <div id="auth-tabs" class="segmented" role="tablist" aria-label="Account options">
           <button type="button" class="segment active" data-auth-mode="register" role="tab" aria-selected="true">Create account</button>
           <button type="button" class="segment" data-auth-mode="login" role="tab" aria-selected="false">Log in</button>
         </div>
@@ -35,11 +35,31 @@
           <label id="name-field">Your name<input name="name" autocomplete="name" /></label>
           <label>Email<input name="email" type="email" autocomplete="email" required /></label>
           <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required /><small>At least 8 characters. Never stored in Google Sheets.</small></label>
+          <button id="forgot-password-button" class="auth-link hidden" type="button" data-action="open-password-reset">Forgot password?</button>
           <p id="auth-error" class="form-error" role="alert"></p>
           <button class="primary-button" type="submit"><span id="auth-submit-label">Create my village</span><span aria-hidden="true">→</span></button>
         </form>
-        <div class="guest-entry"><span>or</span><button type="button" class="secondary-button" data-action="continue-guest">Continue as guest</button><small>Guest visits are temporary. Village Community is available to registered members only.</small></div>
-        <p class="privacy-note">Your account password is salted and hashed on the server. This prototype is not a medical or diagnostic service.</p>
+        <section id="password-reset-card" class="password-reset-card hidden" aria-labelledby="password-reset-title">
+          <button type="button" class="auth-link back-link" data-action="close-password-reset">← Back to login</button>
+          <p class="eyebrow">Secure account recovery</p>
+          <h2 id="password-reset-title">Reset your password</h2>
+          <p class="lede">Enter your account email. We’ll send a six-digit verification code that expires in 10 minutes.</p>
+          <form id="password-request-form" class="stack-form">
+            <label>Email address<input name="email" type="email" autocomplete="email" required /></label>
+            <button class="primary-button" type="submit">Send verification code →</button>
+            <p id="password-request-status" class="form-error" role="status"></p>
+          </form>
+          <form id="password-confirm-form" class="stack-form hidden">
+            <p class="verification-destination">Code sent to <strong id="password-reset-email"></strong></p>
+            <label class="verification-code">Six-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
+            <label>New password<input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+            <label>Confirm new password<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required /></label>
+            <button class="primary-button" type="submit">Reset password →</button>
+            <p id="password-confirm-status" class="form-error" role="alert"></p>
+          </form>
+        </section>
+        <div id="auth-guest-entry" class="guest-entry"><span>or</span><button type="button" class="secondary-button" data-action="continue-guest">Continue as guest</button><small>Guest visits are temporary. Village Community is available to registered members only.</small></div>
+        <p id="auth-privacy" class="privacy-note">Your account password is salted and hashed on the server. This prototype is not a medical or diagnostic service.</p>
       </div>
     </section>
 
@@ -106,7 +126,8 @@
         <nav aria-label="Main navigation"><button data-action="home" class="nav-button active" data-i18n="village">Village</button><button data-action="open-profile" class="nav-button" data-i18n="myRecord">My record</button></nav>
         <div class="header-tools">
           <button id="calm-toggle" class="pill-button" aria-pressed="false"><span aria-hidden="true">✧</span> <span data-i18n="lowStimulation">Low-stimulation</span></button>
-          <button class="avatar-button" data-action="open-settings" aria-label="Open account settings"><span id="avatar-initial">C</span></button>
+          <button class="settings-icon-button" data-action="open-settings" aria-label="Open settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="m19.1 13.7 1.5 1.2-1.9 3.3-1.9-.7c-.6.5-1.3.9-2.1 1.2l-.3 2h-3.8l-.3-2c-.8-.3-1.5-.7-2.1-1.2l-1.9.7-1.9-3.3 1.5-1.2a8 8 0 0 1 0-2.4l-1.5-1.2 1.9-3.3 1.9.7c.6-.5 1.3-.9 2.1-1.2l.3-2h3.8l.3 2c.8.3 1.5.7 2.1 1.2l1.9-.7 1.9 3.3-1.5 1.2a8 8 0 0 1 0 2.4Z"/></svg></button>
+          <button class="avatar-button" data-action="open-profile" aria-label="Open my record"><span id="avatar-initial">C</span></button>
         </div>
       </header>
 
@@ -137,6 +158,7 @@
               <div class="lightning-flash"></div>
             </div>
             <img id="map-image" alt="Two illustrated green islands connected by a wooden bridge" />
+            <canvas id="surface-motion" class="surface-motion" aria-hidden="true"></canvas>
             <div id="habitat-layer" class="habitat-layer" aria-hidden="true">
               <span class="habitat-feature autism-grove"></span><span class="habitat-feature autism-pond"></span><span class="habitat-feature adhd-wildflowers"></span><span class="habitat-feature adhd-stream"></span>
               <div id="creature-layer" class="creature-layer"></div>
@@ -168,7 +190,7 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>
 
-    <script src="/site-config.js?v=grounded-audio-20260623"></script>
-    <script type="module" src="/app.js?v=grounded-audio-20260623"></script>
+    <script src="/site-config.js?v=village-motion-20260624"></script>
+    <script type="module" src="/app.js?v=village-motion-20260624"></script>
   </body>
 </html>

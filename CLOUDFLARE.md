@@ -4,7 +4,7 @@ This project is prepared for **Cloudflare Workers + Static Assets + D1**.
 
 - `public/` is deployed as the website.
 - `cloudflare/worker.mjs` runs all `/api/*` routes.
-- D1 stores accounts, password hashes, surveys, history, feedback, hashed login sessions, community profiles, rooms, per-user chat preferences, blocks, and friends-only posts.
+- D1 stores accounts, password hashes, short-lived hashed password-reset codes, surveys, history, feedback, hashed login sessions, community profiles, rooms, per-user chat preferences, blocks, and friends-only posts.
 - Deploying or rolling back Worker code does not replace D1 data.
 - Schema changes are applied as numbered files in `migrations/`; never edit or delete a migration that has already reached production.
 
@@ -41,7 +41,11 @@ Use Node.js 20 or newer.
    ```bash
    npx wrangler@4 secret put OPENAI_API_KEY
    npx wrangler@4 secret put USER_SHEET_WEBHOOK_URL
+   npx wrangler@4 secret put PASSWORD_EMAIL_WEBHOOK_URL
+   npx wrangler@4 secret put PASSWORD_RESET_SECRET
    ```
+
+   `PASSWORD_EMAIL_WEBHOOK_URL` may use the same Google Apps Script `/exec` URL after the updated `integrations/google-apps-script.gs` has been saved and deployed as a new version. Apps Script sends the six-digit code through the Google account's Gmail service. Use a long random value for `PASSWORD_RESET_SECRET`; codes are stored only as salted hashes in D1 and expire after 10 minutes.
 
 6. Deploy:
 
@@ -88,6 +92,7 @@ After those are configured, every push to `main` runs `.github/workflows/deploy-
 
 - Passwords are never stored in plaintext.
 - Session tokens are stored only as SHA-256 hashes.
+- Password-reset codes are six digits, hashed with a server-only secret, limited to five attempts, rate-limited to one request per minute, and expire after 10 minutes.
 - Login sessions live in D1 for seven days and survive Worker deployments/restarts.
 - Community memberships, accepted connections, per-user history cutoffs, blocks, messages, and Moments survive Worker deployments/restarts.
 - The scheduled trigger runs every 12 hours and deletes messages older than 12 hours only from system-managed groups.

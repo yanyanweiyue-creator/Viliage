@@ -14,6 +14,7 @@ const DATA_DIR = join(ROOT, "data");
 const USERS_FILE = process.env.USERS_FILE || join(DATA_DIR, "users.json");
 const SESSIONS_FILE = process.env.SESSIONS_FILE || join(DATA_DIR, "sessions.json");
 const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.json");
+const PASSWORD_RESETS_FILE = process.env.PASSWORD_RESETS_FILE || join(DATA_DIR, "password-resets.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -226,6 +227,46 @@ function verifyPassword(password, stored) {
   const actual = scryptSync(password, salt, 64);
   const expected = Buffer.from(key, "hex");
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function passwordResetHash(email, code) {
+  return createHash("sha256").update(`${String(email).toLowerCase()}\u001f${String(code)}\u001f${process.env.PASSWORD_RESET_SECRET || "local-development-only"}`).digest("hex");
+}
+
+function resetCodeMatches(expected, actual) {
+  const first = Buffer.from(String(expected || ""), "hex");
+  const second = Buffer.from(String(actual || ""), "hex");
+  return first.length > 0 && first.length === second.length && timingSafeEqual(first, second);
+}
+
+function createPasswordResetCode() {
+  return String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
+}
+
+async function loadPasswordResets() {
+  try {
+    const saved = JSON.parse(await readFile(PASSWORD_RESETS_FILE, "utf8"));
+    return Array.isArray(saved) ? saved.filter((item) => Number(item.expiresAt) > Date.now() && Number(item.attempts || 0) < 5) : [];
+  } catch { return []; }
+}
+
+async function savePasswordResets(resets) {
+  await saveJsonAtomically(PASSWORD_RESETS_FILE, resets);
+}
+
+async function sendPasswordResetEmail(email, code) {
+  const webhook = process.env.PASSWORD_EMAIL_WEBHOOK_URL;
+  if (!webhook) return false;
+  const response = await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10 }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
+  const result = await response.json().catch(() => ({ ok: true }));
+  if (result.ok === false) throw new Error(result.error || "Password email webhook failed.");
+  return true;
 }
 
 function safeUser(user) {
@@ -586,7 +627,7 @@ async function updateUser(userId, updater) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL) });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL) });
   }
 
   if (req.method === "GET" && url.pathname === "/api/scoring-config") {
@@ -601,6 +642,58 @@ async function handleApi(req, res, url) {
       console.error("Environment update failed:", error.message);
       return sendError(res, 503, "Local weather is temporarily unavailable.");
     }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/password/request") {
+    const { email = "" } = await readJsonBody(req);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return sendError(res, 400, "Please enter a valid email address.");
+    const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL);
+    const generic = { ok: true, deliveryAvailable, message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const users = await loadUsers();
+    const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);
+    if (!user) {
+      passwordResetHash(normalizedEmail, "000000");
+      return sendJson(res, 202, generic);
+    }
+    const now = Date.now();
+    const resets = await loadPasswordResets();
+    const existing = resets.find((item) => item.email === normalizedEmail);
+    if (existing && now - Number(existing.requestedAt) < 60_000) return sendJson(res, 202, generic);
+    const code = createPasswordResetCode();
+    const next = resets.filter((item) => item.email !== normalizedEmail);
+    next.push({ email: normalizedEmail, codeHash: passwordResetHash(normalizedEmail, code), expiresAt: now + 10 * 60_000, attempts: 0, requestedAt: now });
+    await savePasswordResets(next);
+    try { await sendPasswordResetEmail(normalizedEmail, code); }
+    catch (error) { console.error("Password reset email failed:", error.message); }
+    return sendJson(res, 202, generic);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/password/confirm") {
+    const { email = "", code = "", password = "" } = await readJsonBody(req);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) || !/^\d{6}$/.test(String(code))) return sendError(res, 400, "The verification code is invalid or expired.");
+    if (String(password).length < 8) return sendError(res, 400, "Password must be at least 8 characters.");
+    const resets = await loadPasswordResets();
+    const reset = resets.find((item) => item.email === normalizedEmail);
+    const submittedHash = passwordResetHash(normalizedEmail, code);
+    if (!reset || Number(reset.expiresAt) < Date.now() || Number(reset.attempts) >= 5 || !resetCodeMatches(reset.codeHash, submittedHash)) {
+      if (reset) {
+        reset.attempts = Number(reset.attempts || 0) + 1;
+        await savePasswordResets(resets);
+      }
+      return sendError(res, 400, "The verification code is invalid or expired.");
+    }
+    const users = await loadUsers();
+    const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);
+    if (!user) return sendError(res, 400, "The verification code is invalid or expired.");
+    user.passwordHash = hashPassword(String(password));
+    user.updatedAt = new Date().toISOString();
+    await saveUsers(users);
+    await savePasswordResets(resets.filter((item) => item.email !== normalizedEmail));
+    for (const [key, session] of sessions.entries()) if (session.userId === user.id) sessions.delete(key);
+    await saveSessions();
+    return sendJson(res, 200, { ok: true, message: "Your password has been reset. You can now log in." });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/register") {
