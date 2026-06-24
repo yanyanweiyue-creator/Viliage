@@ -47,6 +47,34 @@ function tokenHash(token) {
   return createHash("sha256").update(String(token || "")).digest("hex");
 }
 
+function passwordResetHash(email, code, secret) {
+  return createHash("sha256").update(`${String(email).toLowerCase()}\u001f${String(code)}\u001f${String(secret || "")}`).digest("hex");
+}
+
+function resetCodeMatches(expected, actual) {
+  const first = Buffer.from(String(expected || ""), "hex");
+  const second = Buffer.from(String(actual || ""), "hex");
+  return first.length > 0 && first.length === second.length && timingSafeEqual(first, second);
+}
+
+function createPasswordResetCode() {
+  return String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
+}
+
+async function sendPasswordResetEmail(env, email, code) {
+  if (!env.PASSWORD_EMAIL_WEBHOOK_URL) return false;
+  const response = await fetch(env.PASSWORD_EMAIL_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10 }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
+  const result = await response.json().catch(() => ({ ok: true }));
+  if (result.ok === false) throw new Error(result.error || "Password email webhook failed.");
+  return true;
+}
+
 function parseJson(value, fallback) {
   try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
 }
@@ -363,7 +391,7 @@ async function environment(request) {
 
 async function api(request, env, ctx) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL) });
+  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL) });
   if (request.method === "GET" && url.pathname === "/api/scoring-config") return json(scoreConfig);
   if (request.method === "GET" && url.pathname === "/api/environment") {
     try { return json(await environment(request)); } catch { return fail("Local weather is temporarily unavailable.", 503); }
@@ -371,6 +399,54 @@ async function api(request, env, ctx) {
   if (request.method === "GET" && url.pathname === "/api/resources") {
     const data = await resources(env, url.searchParams.get("refresh") === "1");
     return json({ resources: data.rows, source: data.source, warning: data.warning || null, updatedAt: new Date().toISOString() });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/password/request") {
+    const { email = "" } = await body(request);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return fail("Please enter a valid email address.");
+    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
+    if (!user) {
+      passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET);
+      return json(response, 202);
+    }
+    const now = Date.now();
+    const prior = await env.DB.prepare("SELECT requested_at FROM password_reset_codes WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
+    if (prior && now - Number(prior.requested_at) < 60_000) return json(response, 202);
+    const code = createPasswordResetCode();
+    const codeHash = passwordResetHash(normalizedEmail, code, env.PASSWORD_RESET_SECRET);
+    await env.DB.prepare(`
+      INSERT INTO password_reset_codes (email, code_hash, expires_at, attempts, requested_at)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, requested_at = excluded.requested_at
+    `).bind(normalizedEmail, codeHash, now + 10 * 60_000, now).run();
+    try { await sendPasswordResetEmail(env, normalizedEmail, code); }
+    catch (error) { console.error("Password reset email failed:", error.message); }
+    return json(response, 202);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/password/confirm") {
+    const { email = "", code = "", password = "" } = await body(request);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) || !/^\d{6}$/.test(String(code))) return fail("The verification code is invalid or expired.");
+    if (String(password).length < 8) return fail("Password must be at least 8 characters.");
+    if (!env.PASSWORD_RESET_SECRET) return fail("Password reset is temporarily unavailable.", 503);
+    const reset = await env.DB.prepare("SELECT * FROM password_reset_codes WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
+    const submittedHash = passwordResetHash(normalizedEmail, code, env.PASSWORD_RESET_SECRET);
+    if (!reset || Number(reset.expires_at) < Date.now() || Number(reset.attempts) >= 5 || !resetCodeMatches(reset.code_hash, submittedHash)) {
+      if (reset) await env.DB.prepare("UPDATE password_reset_codes SET attempts = attempts + 1 WHERE email = ?").bind(normalizedEmail).run();
+      return fail("The verification code is invalid or expired.");
+    }
+    const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
+    if (!user) return fail("The verification code is invalid or expired.");
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").bind(hashPassword(String(password)), now, user.id),
+      env.DB.prepare("DELETE FROM password_reset_codes WHERE email = ?").bind(normalizedEmail),
+      env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id)
+    ]);
+    return json({ ok: true, message: "Your password has been reset. You can now log in." });
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/register") {

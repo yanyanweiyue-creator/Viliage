@@ -25,7 +25,7 @@ export function environmentPalette({ isDay = true, weather = "clear", season = "
 }
 
 export function waterWaveHeight(x, y, time) {
-  return Math.sin(x * .034 + time * .0012) * 2.2 + Math.sin(y * .061 - time * .0008 + x * .009) * 1.25;
+  return Math.sin(x * .024 + time * .00115) * 2.8 + Math.sin(y * .052 - time * .00082 + x * .012) * 1.55 + Math.cos(x * .009 - y * .021 + time * .00046) * .9;
 }
 
 function roundedIslandPath(ctx, cx, cy, rx, ry, phase = 0) {
@@ -43,13 +43,14 @@ function roundedIslandPath(ctx, cx, cy, rx, ry, phase = 0) {
 }
 
 export class ImmersiveScene {
-  constructor({ canvas, stage }) {
+  constructor({ canvas, stage, buildings = [] }) {
     this.canvas = canvas;
     this.stage = stage;
     this.ctx = canvas?.getContext("2d", { alpha: false });
     this.enabled = false;
     this.reducedMotion = false;
     this.environment = { isDay: true, weather: "clear", season: "summer" };
+    this.buildings = buildings;
     this.frame = 0;
     this.width = 0;
     this.height = 0;
@@ -155,12 +156,15 @@ export class ImmersiveScene {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
     this.drawSky(ctx, width, height, palette, time);
+    this.drawCloudDepth(ctx, width, height, time);
+    this.drawAirCurrents(ctx, width, height, time);
     this.drawForest(ctx, width, height, palette);
     this.drawWater(ctx, width, height, palette, time);
     const liftX = this.parallax.x * width * .006;
     const liftY = this.parallax.y * height * .008;
     this.drawIsland(ctx, width * .255 + liftX, height * .615 + liftY, width * .218, height * .302, palette, 1, "autism");
     this.drawIsland(ctx, width * .745 + liftX, height * .6 + liftY, width * .218, height * .302, palette, 4, "adhd");
+    this.drawBuildings(ctx, width, height, palette, time);
     this.drawBridge(ctx, width, height, palette);
     this.drawAtmosphere(ctx, width, height, palette, time);
     ctx.restore();
@@ -203,6 +207,69 @@ export class ImmersiveScene {
     }
   }
 
+  drawCloudDepth(ctx, width, height, time) {
+    if (["storm"].includes(this.environment.weather)) return;
+    const coverage = clamp(Number(this.environment.cloudCover || 24) / 100, .12, .92);
+    const count = Math.round(3 + coverage * 7);
+    const speed = .003 + clamp(Number(this.environment.windSpeed || 8), 0, 45) * .00028;
+    ctx.save();
+    for (let index = 0; index < count; index += 1) {
+      const depth = .48 + seededValue(index, 70) * .68;
+      const cloudWidth = width * (.075 + seededValue(index, 71) * .12) * depth;
+      const cloudHeight = cloudWidth * (.25 + seededValue(index, 72) * .13);
+      const travel = width + cloudWidth * 2;
+      const x = ((seededValue(index, 73) * travel + time * speed * (18 + index * 1.7)) % travel) - cloudWidth;
+      const y = height * (.055 + seededValue(index, 74) * .2);
+      ctx.save();
+      ctx.globalAlpha = (.2 + coverage * .38) * depth;
+      ctx.shadowColor = "rgba(27,55,65,.2)";
+      ctx.shadowBlur = cloudHeight * .45;
+      ctx.shadowOffsetY = cloudHeight * .18;
+      const cloud = ctx.createLinearGradient(0, y - cloudHeight, 0, y + cloudHeight);
+      cloud.addColorStop(0, "rgba(255,255,250,.96)");
+      cloud.addColorStop(.58, "rgba(225,239,238,.86)");
+      cloud.addColorStop(1, "rgba(151,181,187,.58)");
+      ctx.fillStyle = cloud;
+      for (let lobe = 0; lobe < 7; lobe += 1) {
+        const progress = lobe / 6;
+        const radius = cloudHeight * (.55 + seededValue(index * 11 + lobe, 75) * .6);
+        ctx.beginPath();
+        ctx.ellipse(x + (progress - .5) * cloudWidth, y - Math.sin(progress * Math.PI) * cloudHeight * .45, radius * 1.15, radius, 0, 0, TAU);
+        ctx.fill();
+      }
+      ctx.shadowColor = "transparent";
+      ctx.fillStyle = "rgba(255,255,255,.38)";
+      ctx.beginPath();
+      ctx.ellipse(x - cloudWidth * .08, y - cloudHeight * .55, cloudWidth * .32, cloudHeight * .18, -.08, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  drawAirCurrents(ctx, width, height, time) {
+    const wind = clamp(Number(this.environment.windSpeed || 8), 0, 45);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.setLineDash([16, 30]);
+    ctx.lineDashOffset = -time * (.004 + wind * .00018);
+    for (let lane = 0; lane < 6; lane += 1) {
+      const y = height * (.08 + lane * .045) + Math.sin(time * .00025 + lane) * 5;
+      const airflow = ctx.createLinearGradient(0, y, width, y);
+      airflow.addColorStop(0, "rgba(255,255,255,0)");
+      airflow.addColorStop(.22, `rgba(239,250,246,${.05 + lane * .006})`);
+      airflow.addColorStop(.78, `rgba(239,250,246,${.045 + lane * .005})`);
+      airflow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.strokeStyle = airflow;
+      ctx.lineWidth = .8 + lane * .16;
+      ctx.beginPath();
+      ctx.moveTo(-30, y);
+      ctx.bezierCurveTo(width * .26, y - 18, width * .62, y + 24, width + 30, y - 7);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   drawForest(ctx, width, height, palette) {
     const horizon = height * .34;
     ctx.save();
@@ -239,9 +306,31 @@ export class ImmersiveScene {
     ctx.fillStyle = water;
     ctx.fillRect(0, horizon, width, height - horizon);
 
+    const wind = clamp(Number(this.environment.windSpeed || 8), 0, 45);
+    ctx.save();
+    ctx.globalAlpha = .22 + Math.min(.18, wind / 160);
+    for (let band = 0; band < 8; band += 1) {
+      const y = horizon + (band / 7) ** 1.45 * (height - horizon);
+      const swell = ctx.createLinearGradient(0, y, width, y);
+      swell.addColorStop(0, "rgba(8,54,67,0)");
+      swell.addColorStop(.25, "rgba(10,60,71,.34)");
+      swell.addColorStop(.72, "rgba(7,44,60,.25)");
+      swell.addColorStop(1, "rgba(8,54,67,0)");
+      ctx.strokeStyle = swell;
+      ctx.lineWidth = 7 + band * 2.8;
+      ctx.beginPath();
+      for (let x = -30; x <= width + 30; x += 15) {
+        const offset = waterWaveHeight(x, y, time + band * 390) * (.7 + band * .13);
+        if (x === -30) ctx.moveTo(x, y + offset);
+        else ctx.lineTo(x, y + offset);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    for (let row = 0; row < 23; row += 1) {
+    for (let row = 0; row < 29; row += 1) {
       const perspective = row / 22;
       const y = horizon + perspective * perspective * (height - horizon);
       ctx.beginPath();
@@ -250,8 +339,8 @@ export class ImmersiveScene {
         if (x === -20) ctx.moveTo(x, y + wave);
         else ctx.lineTo(x, y + wave);
       }
-      ctx.strokeStyle = `rgba(204,238,226,${.035 + perspective * .11})`;
-      ctx.lineWidth = .55 + perspective * 1.2;
+      ctx.strokeStyle = `rgba(204,244,238,${.04 + perspective * (.12 + wind / 500)})`;
+      ctx.lineWidth = .55 + perspective * 1.55;
       ctx.stroke();
     }
     const reflection = ctx.createLinearGradient(0, horizon, 0, height * .87);
@@ -266,6 +355,33 @@ export class ImmersiveScene {
     ctx.lineTo(width * .52, height * .9);
     ctx.closePath();
     ctx.fill();
+
+    ctx.save();
+    ctx.filter = "blur(5px)";
+    for (const island of [[.255, .73, .19], [.745, .72, .19]]) {
+      const islandReflection = ctx.createLinearGradient(0, height * .58, 0, height * .95);
+      islandReflection.addColorStop(0, "rgba(88,128,78,.2)");
+      islandReflection.addColorStop(.5, "rgba(43,83,74,.08)");
+      islandReflection.addColorStop(1, "rgba(25,66,71,0)");
+      ctx.fillStyle = islandReflection;
+      ctx.beginPath();
+      ctx.ellipse(width * island[0], height * island[1], width * island[2], height * .2, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    for (let glint = 0; glint < 34; glint += 1) {
+      const yProgress = seededValue(glint, 91);
+      const x = width * (.54 + seededValue(glint, 92) * .24) + Math.sin(time * .0006 + glint) * 12;
+      const y = horizon + yProgress * (height - horizon) * .78;
+      const length = 5 + yProgress * 24;
+      ctx.strokeStyle = `rgba(255,239,190,${.05 + (1 - yProgress) * .16})`;
+      ctx.lineWidth = .8 + yProgress;
+      ctx.beginPath();
+      ctx.moveTo(x - length, y);
+      ctx.lineTo(x + length, y + waterWaveHeight(x, y, time) * .18);
+      ctx.stroke();
+    }
     ctx.restore();
 
     const now = performance.now();
@@ -278,6 +394,94 @@ export class ImmersiveScene {
       ctx.ellipse(ripple.x, ripple.y, 8 + age * 66, 3 + age * 19, 0, 0, TAU);
       ctx.stroke();
     });
+  }
+
+  drawBuildings(ctx, width, height, palette, time) {
+    const buildings = [...this.buildings].sort((first, second) => Number(first.y3d || first.y) - Number(second.y3d || second.y));
+    for (const building of buildings) {
+      const x = width * Number(building.x3d ?? building.x) / 100;
+      const y = height * Number(building.y3d ?? building.y) / 100;
+      const scale = (width / 1200) * (.72 + y / height * .52);
+      this.drawBuilding(ctx, building, x, y, scale, palette, time);
+    }
+  }
+
+  drawBuilding(ctx, building, x, y, scale, palette, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.shadowColor = "rgba(7,25,22,.34)";
+    ctx.shadowBlur = 13;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = "rgba(17,41,34,.28)";
+    ctx.beginPath();
+    ctx.ellipse(0, 7, 34, 10, 0, 0, TAU);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    const label = String(building.mapLabel || "Village");
+    if (label === "School") this.drawSchool(ctx);
+    else if (label === "Courthouse") this.drawCourthouse(ctx);
+    else if (label === "Village") this.drawVillage(ctx);
+    else if (label === "Park") this.drawPark(ctx, palette, time);
+    else this.drawWoodsBuilding(ctx, palette);
+    ctx.restore();
+  }
+
+  drawSchool(ctx) {
+    const wall = ctx.createLinearGradient(-34, -30, 34, 12);
+    wall.addColorStop(0, "#f2d6a0");
+    wall.addColorStop(1, "#b87845");
+    ctx.fillStyle = wall;
+    ctx.fillRect(-36, -27, 72, 34);
+    ctx.fillStyle = "#914f38";
+    ctx.beginPath(); ctx.moveTo(-43, -27); ctx.lineTo(0, -49); ctx.lineTo(43, -27); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#d8f0e9";
+    for (const wx of [-25, -12, 13, 26]) ctx.fillRect(wx - 4, -18, 8, 9);
+    ctx.fillStyle = "#70503a"; ctx.fillRect(-5, -12, 10, 19);
+    ctx.fillStyle = "#fff4c9"; ctx.beginPath(); ctx.arc(0, -34, 7, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "#6a503c"; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -39); ctx.moveTo(0, -34); ctx.lineTo(4, -31); ctx.stroke();
+  }
+
+  drawCourthouse(ctx) {
+    ctx.fillStyle = "#e9e2ce";
+    ctx.fillRect(-29, -29, 58, 36);
+    ctx.fillStyle = "#cbc3ad";
+    ctx.beginPath(); ctx.moveTo(-36, -29); ctx.lineTo(0, -52); ctx.lineTo(36, -29); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#f5efdc";
+    for (const cx of [-20, -7, 7, 20]) ctx.fillRect(cx - 3.2, -27, 6.4, 31);
+    ctx.fillStyle = "#897b67"; ctx.fillRect(-7, -12, 14, 19);
+    ctx.fillStyle = "#c8bea8"; ctx.fillRect(-36, 5, 72, 5); ctx.fillRect(-30, 12, 60, 4);
+  }
+
+  drawVillage(ctx) {
+    for (const home of [{ x: -26, y: -2, s: .8, c: "#d79b63" }, { x: 0, y: -10, s: 1, c: "#c78655" }, { x: 28, y: 1, s: .72, c: "#e0ad70" }]) {
+      ctx.save(); ctx.translate(home.x, home.y); ctx.scale(home.s, home.s);
+      ctx.fillStyle = home.c; ctx.fillRect(-14, -25, 28, 27);
+      ctx.fillStyle = "#7e4b36"; ctx.beginPath(); ctx.moveTo(-18, -25); ctx.lineTo(0, -39); ctx.lineTo(18, -25); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#e7f3e8"; ctx.fillRect(-9, -17, 6, 7); ctx.fillRect(4, -17, 6, 7);
+      ctx.fillStyle = "#69503c"; ctx.fillRect(-3, -10, 7, 12);
+      ctx.restore();
+    }
+  }
+
+  drawPark(ctx, palette, time) {
+    ctx.strokeStyle = "#83573d"; ctx.lineWidth = 4; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-25, 5); ctx.lineTo(-21, -31); ctx.lineTo(22, -31); ctx.lineTo(26, 5); ctx.moveTo(-18, -22); ctx.lineTo(19, -22); ctx.stroke();
+    ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-10, -21); ctx.lineTo(-10, -4); ctx.moveTo(9, -21); ctx.lineTo(9, -4); ctx.stroke();
+    ctx.fillStyle = "#caa566"; ctx.fillRect(-17, -5 + Math.sin(time * .002) * 1.4, 13, 3); ctx.fillRect(3, -5 - Math.sin(time * .002) * 1.4, 13, 3);
+    ctx.fillStyle = palette.accent; for (let flower = 0; flower < 8; flower += 1) { ctx.beginPath(); ctx.arc(-34 + flower * 10, 4 + (flower % 2) * 3, 2.2, 0, TAU); ctx.fill(); }
+  }
+
+  drawWoodsBuilding(ctx, palette) {
+    for (const tree of [{ x: -25, s: .9 }, { x: -8, s: 1.15 }, { x: 13, s: .86 }, { x: 28, s: 1.05 }]) {
+      ctx.save(); ctx.translate(tree.x, 1); ctx.scale(tree.s, tree.s);
+      ctx.fillStyle = "#604630"; ctx.fillRect(-2, -31, 4, 31);
+      ctx.fillStyle = palette.leaf;
+      for (let lobe = 0; lobe < 4; lobe += 1) { ctx.beginPath(); ctx.arc((lobe - 1.5) * 6, -30 - (lobe % 2) * 5, 10, 0, TAU); ctx.fill(); }
+      ctx.restore();
+    }
+    ctx.fillStyle = "#e6d3a6"; ctx.beginPath(); ctx.moveTo(-13, 3); ctx.lineTo(0, -14); ctx.lineTo(14, 3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#b96f49"; ctx.beginPath(); ctx.moveTo(-13, 3); ctx.lineTo(0, -14); ctx.lineTo(0, 3); ctx.closePath(); ctx.fill();
   }
 
   drawIsland(ctx, cx, cy, rx, ry, palette, phase, island) {
@@ -468,6 +672,22 @@ export class ImmersiveScene {
     if (this.environment.weather === "fog") {
       ctx.fillStyle = `rgba(225,231,219,${.12 + Math.sin(time * .0003) * .03})`;
       ctx.fillRect(0, height * .18, width, height * .62);
+    }
+    if (this.environment.isDay && !["rain", "storm", "fog"].includes(this.environment.weather)) {
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      const bloomX = width * .72;
+      const bloomY = height * .12;
+      for (let ring = 0; ring < 4; ring += 1) {
+        ctx.strokeStyle = `rgba(255,232,174,${.1 - ring * .018})`;
+        ctx.lineWidth = 1.2 + ring;
+        ctx.beginPath();
+        ctx.arc(bloomX, bloomY, 22 + ring * 26 + Math.sin(time * .0005 + ring) * 3, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(255,245,205,.26)";
+      ctx.beginPath(); ctx.arc(bloomX, bloomY, 7, 0, TAU); ctx.fill();
+      ctx.restore();
     }
   }
 

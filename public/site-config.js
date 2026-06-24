@@ -97,15 +97,15 @@ window.CAPY_CONFIG = {
     }
   },
   buildings: [
-    { id: "autism-support", island: "autism", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 34, y: 36, x3d: 18, y3d: 46 },
-    { id: "autism-education", island: "autism", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 15, y: 39, x3d: 39, y3d: 48 },
-    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", mapLabel: "Woods", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 32, y: 48, x3d: 30, y3d: 55 },
-    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 13, y: 67, x3d: 18, y3d: 66 },
-    { id: "autism-activity", island: "autism", type: "activity", mapLabel: "Park", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 39, y: 59, x3d: 34, y3d: 68 },
-    { id: "adhd-support", island: "adhd", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 87, y: 67, x3d: 66, y3d: 42 },
-    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 75, y: 45, x3d: 66, y3d: 57 },
-    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", mapLabel: "Woods", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 90, y: 48, x3d: 74, y3d: 48 },
-    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 70, y: 70, x3d: 82, y3d: 64 },
-    { id: "adhd-activity", island: "adhd", type: "activity", mapLabel: "Park", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 84, y: 26, x3d: 74, y3d: 72 }
+    { id: "autism-support", island: "autism", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 34, y: 36, hitWidth: 15, hitHeight: 14, x3d: 18, y3d: 46 },
+    { id: "autism-education", island: "autism", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 15, y: 39, hitWidth: 18, hitHeight: 21, x3d: 39, y3d: 48 },
+    { id: "autism-recreation", island: "autism", type: "activity", mapLabel: "Woods", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 32, y: 48, hitWidth: 17, hitHeight: 23, x3d: 30, y3d: 55 },
+    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 13, y: 67, hitWidth: 13, hitHeight: 27, x3d: 18, y3d: 66 },
+    { id: "autism-activity", island: "autism", type: "ai", topic: "Recreation", mapLabel: "Park", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 39, y: 59, hitWidth: 16, hitHeight: 23, x3d: 34, y3d: 68 },
+    { id: "adhd-support", island: "adhd", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 87, y: 67, hitWidth: 17, hitHeight: 22, x3d: 66, y3d: 42 },
+    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 75, y: 45, hitWidth: 19, hitHeight: 22, x3d: 66, y3d: 57 },
+    { id: "adhd-recreation", island: "adhd", type: "activity", mapLabel: "Woods", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 90, y: 48, hitWidth: 17, hitHeight: 20, x3d: 74, y3d: 48 },
+    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 70, y: 70, hitWidth: 13, hitHeight: 23, x3d: 82, y3d: 64 },
+    { id: "adhd-activity", island: "adhd", type: "ai", topic: "Recreation", mapLabel: "Park", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 84, y: 26, hitWidth: 16, hitHeight: 18, x3d: 74, y3d: 72 }
   ]
 };

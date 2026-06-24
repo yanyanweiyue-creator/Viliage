@@ -19,11 +19,22 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.equal(config.map.image, "/assets/village-map-approved.png");
   await access(new URL("../public/assets/village-map-approved.png", import.meta.url));
   assert.match(html, /id="island-transition"/);
+  assert.match(html, /id="surface-motion"/);
   assert.match(html, /data-action="continue-guest"/);
+  assert.doesNotMatch(css, /\.map-hotspot::before/);
   assert.match(css, /island-transition\.active/);
   assert.match(css, /island-transition\.disperse/);
   assert.match(css, /map-stage\.focus-autism/);
   assert.match(css, /map-stage\.focus-adhd/);
+});
+
+test("the ocean motion mask keeps animation off islands and the bridge", async () => {
+  const { pointIsOpenWater } = await import("../public/surface-motion.mjs");
+  assert.equal(pointIsOpenWater(0.03, 0.04), true);
+  assert.equal(pointIsOpenWater(0.5, 0.08), true);
+  assert.equal(pointIsOpenWater(0.255, 0.615), false);
+  assert.equal(pointIsOpenWater(0.745, 0.6), false);
+  assert.equal(pointIsOpenWater(0.5, 0.55), false);
 });
 
 test("each island exposes the five approved map destinations", async () => {
@@ -32,8 +43,8 @@ test("each island exposes the five approved map destinations", async () => {
     ["Village", "support"],
     ["School", "ai"],
     ["Courthouse", "ai"],
-    ["Park", "activity"],
-    ["Woods", "ai"]
+    ["Park", "ai"],
+    ["Woods", "activity"]
   ]);
   for (const island of ["autism", "adhd"]) {
     const buildings = config.buildings.filter((building) => building.island === island);
@@ -45,6 +56,7 @@ test("each island exposes the five approved map destinations", async () => {
     }
     assert.equal(buildings.find((item) => item.mapLabel === "School").topic, "Education");
     assert.equal(buildings.find((item) => item.mapLabel === "Courthouse").topic, "Legal");
-    assert.equal(buildings.find((item) => item.mapLabel === "Woods").topic, "Recreation");
+    assert.equal(buildings.find((item) => item.mapLabel === "Park").topic, "Recreation");
+    assert.equal(buildings.find((item) => item.mapLabel === "Woods").topic, undefined);
   }
 });

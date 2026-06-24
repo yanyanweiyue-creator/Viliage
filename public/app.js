@@ -1,5 +1,6 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=grounded-audio-20260623";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=grounded-audio-20260623";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=village-motion-20260624";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=village-motion-20260624";
+import { SurfaceMotion } from "./surface-motion.mjs?v=village-motion-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=grounded-audio-20260623";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
@@ -22,6 +23,7 @@ const state = {
   currentTopic: "Education",
   currentDiagnosis: "",
   pendingSearch: null,
+  passwordResetEmail: "",
   resources: [],
   sheetSync: { configured: false },
   settings: loadSavedSettings(),
@@ -40,6 +42,7 @@ const state = {
   audio: null,
   ecosystem: null,
   immersive: null,
+  surfaceMotion: null,
   localMusic: { day: null, night: null }
 };
 
@@ -655,8 +658,10 @@ state.ecosystem = new EcosystemController({
 });
 state.immersive = new ImmersiveScene({
   canvas: $("#immersive-scene"),
-  stage: $("#map-stage")
+  stage: $("#map-stage"),
+  buildings: config.buildings
 });
+state.surfaceMotion = new SurfaceMotion({ canvas: $("#surface-motion"), stage: $("#map-stage") });
 
 function t(key) {
   const language = state.settings.language || "en";
@@ -702,7 +707,81 @@ function setAuthMode(mode) {
   $("#name-field input").required = mode === "register";
   $("#auth-submit-label").textContent = mode === "register" ? "Create my village" : "Log in";
   $("#auth-form [name='password']").autocomplete = mode === "register" ? "new-password" : "current-password";
+  $("#forgot-password-button").classList.toggle("hidden", mode !== "login");
+  $("#auth-error").classList.remove("form-success");
   $("#auth-error").textContent = "";
+}
+
+function openPasswordReset() {
+  const email = $("#auth-form [name='email']").value;
+  $("#password-request-form [name='email']").value = email;
+  $("#auth-tabs").classList.add("hidden");
+  $("#auth-form").classList.add("hidden");
+  $("#auth-guest-entry").classList.add("hidden");
+  $("#auth-privacy").classList.add("hidden");
+  $("#password-reset-card").classList.remove("hidden");
+  $("#password-request-form").classList.remove("hidden");
+  $("#password-confirm-form").classList.add("hidden");
+  $("#password-request-status").textContent = "";
+  $("#password-confirm-status").textContent = "";
+}
+
+function closePasswordReset() {
+  $("#password-reset-card").classList.add("hidden");
+  $("#auth-tabs").classList.remove("hidden");
+  $("#auth-form").classList.remove("hidden");
+  $("#auth-guest-entry").classList.remove("hidden");
+  $("#auth-privacy").classList.remove("hidden");
+  setAuthMode("login");
+}
+
+async function submitPasswordRequest(event) {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector("button[type='submit']");
+  const status = $("#password-request-status");
+  const email = String(new FormData(form).get("email") || "").trim().toLowerCase();
+  button.disabled = true;
+  status.classList.remove("form-success");
+  status.textContent = "Sending a secure code…";
+  try {
+    const response = await api("/api/auth/password/request", { method: "POST", body: JSON.stringify({ email }) });
+    if (!response.deliveryAvailable) {
+      status.textContent = "Email delivery is not configured yet. Please ask the site administrator for help.";
+      return;
+    }
+    state.passwordResetEmail = email;
+    $("#password-reset-email").textContent = email;
+    $("#password-request-form").classList.add("hidden");
+    $("#password-confirm-form").classList.remove("hidden");
+    $("#password-confirm-form [name='code']").focus();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+}
+
+async function submitPasswordConfirm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const password = String(data.get("password") || "");
+  const status = $("#password-confirm-status");
+  if (password !== String(data.get("passwordConfirm") || "")) {
+    status.textContent = "The two passwords do not match.";
+    return;
+  }
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  status.textContent = "Checking the code…";
+  try {
+    await api("/api/auth/password/confirm", { method: "POST", body: JSON.stringify({ email: state.passwordResetEmail, code: data.get("code"), password }) });
+    const email = state.passwordResetEmail;
+    closePasswordReset();
+    $("#auth-form [name='email']").value = email;
+    $("#auth-error").classList.add("form-success");
+    $("#auth-error").textContent = "Password reset complete. Log in with your new password.";
+    form.reset();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
 async function submitAuth(event) {
@@ -785,7 +864,7 @@ function renderBuildings() {
   const layer = $("#building-layer");
   const buildingLabel = (building) => building.type === "ai" ? t(String(building.topic || "Education").toLowerCase()) : t(building.type === "activity" ? "activities" : building.type);
   layer.innerHTML = config.buildings.map((building) => `
-    <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+    <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%;--hotspot-width:${building.hitWidth || 14}%;--hotspot-height:${building.hitHeight || 18}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-map-label="${escapeHtml(building.mapLabel || building.short)}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
       <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");
@@ -1271,6 +1350,8 @@ function applySettings() {
   state.ecosystem?.setCalm(calm);
   state.immersive?.setReducedMotion(calm);
   state.immersive?.setEnabled(sceneMode === "3d");
+  state.surfaceMotion?.setReducedMotion(calm);
+  state.surfaceMotion?.setEnabled(sceneMode !== "3d");
   state.audio?.setSceneMode?.(sceneMode);
   state.audio?.applySettings();
   if (state.user) renderAccountStatus();
@@ -1569,6 +1650,7 @@ function updateCelestialScene() {
   state.audio?.setDay(isDay);
   state.audio?.setClock({ currentMinutes, sunrise });
   state.immersive?.setEnvironment({ isDay });
+  state.surfaceMotion?.setEnvironment({ isDay });
   renderMoonPhase(environment);
   renderEnvironmentStatus();
 }
@@ -1586,7 +1668,9 @@ function applyEnvironment(environment, available = true) {
   state.audio?.setWeather(kind);
   state.audio?.setSeason(season);
   state.ecosystem?.setWeather(kind);
-  state.immersive?.setEnvironment({ weather: kind, season });
+  const atmosphere = { weather: kind, season, windSpeed: Number(environment.current?.windSpeed || 0), cloudCover: Number(environment.current?.cloudCover || 0) };
+  state.immersive?.setEnvironment(atmosphere);
+  state.surfaceMotion?.setEnvironment(atmosphere);
   updateCelestialScene();
   clearInterval(state.environmentTimer);
   state.environmentTimer = setInterval(updateCelestialScene, 60_000);
@@ -1666,6 +1750,8 @@ document.addEventListener("click", (event) => {
   if (action === "open-settings") settingsPanel();
   if (action === "open-mori") aiPanel("Education");
   if (action === "continue-guest") continueAsGuest();
+  if (action === "open-password-reset") openPasswordReset();
+  if (action === "close-password-reset") closePasswordReset();
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
@@ -1689,6 +1775,8 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("submit", (event) => {
   if (event.target.id === "auth-form") submitAuth(event);
+  if (event.target.id === "password-request-form") submitPasswordRequest(event);
+  if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
   if (event.target.id === "survey-form") submitSurvey(event);
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "clarification-form") submitClarification(event);

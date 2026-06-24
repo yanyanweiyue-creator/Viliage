@@ -22,8 +22,8 @@ class FakeD1 {
   async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
 }
 
-function cloudflareEnv(database) {
-  return { DB: new FakeD1(database), ASSETS: { fetch: async () => new Response("asset") } };
+function cloudflareEnv(database, extra = {}) {
+  return { DB: new FakeD1(database), ASSETS: { fetch: async () => new Response("asset") }, ...extra };
 }
 
 const ctx = { waitUntil(promise) { promise.catch(() => {}); } };
@@ -43,11 +43,13 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0002_community_chat.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "4");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "5");
   database.close();
 });
 
@@ -98,6 +100,47 @@ test("Cloudflare account and hashed session remain usable independently of code 
   }), cloudflareEnv(database), ctx);
   assert.equal(login.status, 200);
   database.close();
+});
+
+test("Cloudflare password reset emails a six-digit code and replaces the password", async () => {
+  const database = new DatabaseSync(":memory:");
+  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
+  const env = cloudflareEnv(database, { PASSWORD_EMAIL_WEBHOOK_URL: "https://mail.example/reset", PASSWORD_RESET_SECRET: "test-reset-secret" });
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Reset User", email: "reset@example.com", password: "old-password" })
+  }), env, ctx);
+  assert.equal(register.status, 201);
+  let mailedCode = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    mailedCode = payload.code;
+    return Response.json({ ok: true, delivered: true });
+  };
+  try {
+    const requestReset = await worker.fetch(new Request("https://village.example/api/auth/password/request", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "reset@example.com" })
+    }), env, ctx);
+    assert.equal(requestReset.status, 202);
+    assert.match(mailedCode, /^\d{6}$/);
+    const confirm = await worker.fetch(new Request("https://village.example/api/auth/password/confirm", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "reset@example.com", code: mailedCode, password: "new-password" })
+    }), env, ctx);
+    assert.equal(confirm.status, 200);
+    const oldLogin = await worker.fetch(new Request("https://village.example/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "reset@example.com", password: "old-password" })
+    }), env, ctx);
+    const newLogin = await worker.fetch(new Request("https://village.example/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "reset@example.com", password: "new-password" })
+    }), env, ctx);
+    assert.equal(oldLogin.status, 401);
+    assert.equal(newLogin.status, 200);
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM password_reset_codes").get().count, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
 });
 
 test("opted-in users can connect, accept, and exchange a private D1 message", async () => {
