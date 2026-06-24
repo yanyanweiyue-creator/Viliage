@@ -8,7 +8,8 @@ import {
   shouldShowDragon,
   shouldLaunchSunsetFlock,
   nextLivestockAction,
-  routeIsConfined
+  routeIsConfined,
+  villagerRouteIsWalkable
 } from "../public/ecosystem-logic.mjs";
 
 test("stableDailyChance is deterministic, date-sensitive, and honors probability boundaries", () => {
@@ -112,5 +113,12 @@ test("configured livestock targets stay on their island and villagers sleep in b
   }
   for (const villager of ecosystem.animals.filter((item) => item.villager)) {
     assert.ok(ecosystem.routes[villager.route][villager.home]?.building, `${villager.id} must enter a building at night`);
+    assert.equal(villagerRouteIsWalkable(ecosystem.routes[villager.route]), true, `${villager.id} must remain on land or the bridge`);
   }
+});
+
+test("villager route validation rejects shortcuts across open water", () => {
+  assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }, { x: 50, y: 54 }, { x: 75, y: 50 }]), true);
+  assert.equal(villagerRouteIsWalkable([{ x: 20, y: 65 }, { x: 75, y: 70 }]), false);
+  assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }]), false);
 });

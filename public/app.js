@@ -1,4 +1,5 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=vector-creatures-20260623";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=environment-3d-20260623";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=environment-3d-20260623";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 
 const config = window.CAPY_CONFIG;
@@ -25,6 +26,7 @@ const state = {
   environmentRefreshTimer: null,
   audio: null,
   ecosystem: null,
+  immersive: null,
   localMusic: { day: null, night: null }
 };
 
@@ -40,7 +42,7 @@ const i18n = {
     jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
-    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
+    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
     support: "Support", settings: "Settings", education: "Education", legal: "Legal", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
@@ -59,7 +61,7 @@ const i18n = {
     jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
-    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
+    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
     support: "支持", settings: "设置", education: "教育", legal: "法律", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
@@ -78,7 +80,7 @@ const i18n = {
     jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
-    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
+    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
     support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
@@ -104,6 +106,8 @@ class VillageAudio {
     this.animalTimer = null;
     this.weather = "clear";
     this.isDay = true;
+    this.sceneMode = "2d";
+    this.season = "summer";
     this.buffers = new Map();
     this.bufferPromise = null;
     this.customTrackRecords = new Map();
@@ -204,35 +208,97 @@ class VillageAudio {
     this.environmentNodes = [];
   }
 
+  addEnvironmentNoise({ type = "lowpass", frequency = 500, q = .7, level = .04, rate = 1, pulse = 0 } = {}) {
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    source.buffer = this.noiseBuffer;
+    source.loop = true;
+    source.playbackRate.value = rate;
+    filter.type = type;
+    filter.frequency.value = frequency;
+    filter.Q.value = q;
+    gain.gain.value = level;
+    source.connect(filter).connect(gain).connect(this.environmentGain);
+    source.start();
+    this.environmentNodes.push(source, filter, gain);
+    if (pulse > 0) {
+      const lfo = this.context.createOscillator();
+      const depth = this.context.createGain();
+      lfo.type = "sine";
+      lfo.frequency.value = pulse;
+      depth.gain.value = level * .28;
+      lfo.connect(depth).connect(gain.gain);
+      lfo.start();
+      this.environmentNodes.push(lfo, depth);
+    }
+  }
+
+  addEnvironmentTone({ frequency = 90, level = .01, type = "sine", pulse = .06 } = {}) {
+    const oscillator = this.context.createOscillator();
+    const gain = this.context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.value = frequency;
+    gain.gain.value = level;
+    oscillator.connect(gain).connect(this.environmentGain);
+    oscillator.start();
+    this.environmentNodes.push(oscillator, gain);
+    if (pulse > 0) {
+      const lfo = this.context.createOscillator();
+      const depth = this.context.createGain();
+      lfo.frequency.value = pulse;
+      depth.gain.value = level * .38;
+      lfo.connect(depth).connect(gain.gain);
+      lfo.start();
+      this.environmentNodes.push(lfo, depth);
+    }
+  }
+
   restartEnvironment() {
     if (!this.context || this.context.state !== "running") return;
     this.stopEnvironment();
-    const source = this.context.createBufferSource();
-    const filter = this.context.createBiquadFilter();
-    const texture = this.context.createGain();
-    source.buffer = this.noiseBuffer;
-    source.loop = true;
-    const presets = {
-      clear: ["lowpass", 540, .035], cloudy: ["lowpass", 420, .055], fog: ["lowpass", 260, .075],
-      rain: ["highpass", 850, .2], snow: ["lowpass", 320, .035], storm: ["bandpass", 480, .28]
+    const scenes = {
+      clear: [
+        { type: "lowpass", frequency: 520, level: .028, rate: .82, pulse: .055 },
+        { type: "bandpass", frequency: 1180, q: .5, level: .009, rate: 1.08, pulse: .11 }
+      ],
+      cloudy: [
+        { type: "lowpass", frequency: 390, level: .052, rate: .74, pulse: .075 },
+        { type: "bandpass", frequency: 760, q: .65, level: .018, rate: .9, pulse: .13 }
+      ],
+      fog: [
+        { type: "lowpass", frequency: 235, level: .068, rate: .58, pulse: .035 },
+        { type: "bandpass", frequency: 480, q: 1.4, level: .012, rate: .7, pulse: .05 }
+      ],
+      rain: [
+        { type: "highpass", frequency: 1050, level: .145, rate: 1.18, pulse: .17 },
+        { type: "bandpass", frequency: 3300, q: .75, level: .045, rate: 1.5, pulse: .29 },
+        { type: "lowpass", frequency: 330, level: .025, rate: .72, pulse: .08 }
+      ],
+      snow: [
+        { type: "lowpass", frequency: 300, level: .026, rate: .62, pulse: .045 },
+        { type: "bandpass", frequency: 1450, q: 2.1, level: .006, rate: .84, pulse: .09 }
+      ],
+      storm: [
+        { type: "highpass", frequency: 820, level: .17, rate: 1.35, pulse: .2 },
+        { type: "bandpass", frequency: 420, q: .5, level: .13, rate: .66, pulse: .055 },
+        { type: "bandpass", frequency: 2800, q: .7, level: .055, rate: 1.55, pulse: .31 }
+      ]
     };
-    const [type, frequency, level] = presets[this.weather] || presets.clear;
-    filter.type = type;
-    filter.frequency.value = frequency;
-    texture.gain.value = level;
-    source.connect(filter).connect(texture).connect(this.environmentGain);
-    source.start();
-    this.environmentNodes.push(source, filter, texture);
-    if (this.weather === "storm") {
-      const rumble = this.context.createOscillator();
-      const rumbleGain = this.context.createGain();
-      rumble.type = "sine";
-      rumble.frequency.value = 42;
-      rumbleGain.gain.value = .035;
-      rumble.connect(rumbleGain).connect(this.environmentGain);
-      rumble.start();
-      this.environmentNodes.push(rumble, rumbleGain);
+    (scenes[this.weather] || scenes.clear).forEach((layer) => this.addEnvironmentNoise(layer));
+
+    // A close, softly pulsing water edge is added in immersive mode. It is
+    // intentionally quieter in 2D so the visual choice also has an audible depth cue.
+    this.addEnvironmentNoise({ type: "bandpass", frequency: 680, q: 1.15, level: this.sceneMode === "3d" ? .027 : .008, rate: .48, pulse: .12 });
+    if (!this.isDay) {
+      this.addEnvironmentNoise({ type: "highpass", frequency: 3550, q: 2.4, level: .006, rate: 1.6, pulse: 2.7 });
+      this.addEnvironmentTone({ frequency: 118, level: .0035, pulse: .045 });
     }
+    if (this.season === "spring") this.addEnvironmentNoise({ type: "highpass", frequency: 2400, q: 1.4, level: .004, rate: 1.25, pulse: .18 });
+    if (this.season === "autumn") this.addEnvironmentNoise({ type: "bandpass", frequency: 920, q: .8, level: .014, rate: .82, pulse: .16 });
+    if (this.season === "winter") this.addEnvironmentNoise({ type: "bandpass", frequency: 410, q: 1.6, level: .009, rate: .55, pulse: .04 });
+    if (this.weather === "storm") this.addEnvironmentTone({ frequency: 42, level: .032, pulse: .07 });
+    if (this.weather === "fog") this.addEnvironmentTone({ frequency: 74, level: .008, pulse: .035 });
   }
 
   playBuffer(buffer, destination, volume = .3, maximumDuration = null) {
@@ -496,7 +562,22 @@ class VillageAudio {
     const next = Boolean(isDay);
     if (next === this.isDay) return;
     this.isDay = next;
+    this.restartEnvironment();
     this.restartMusic();
+  }
+
+  setSceneMode(mode) {
+    const next = mode === "3d" ? "3d" : "2d";
+    if (next === this.sceneMode) return;
+    this.sceneMode = next;
+    this.restartEnvironment();
+  }
+
+  setSeason(season) {
+    const next = ["spring", "summer", "autumn", "winter"].includes(season) ? season : "summer";
+    if (next === this.season) return;
+    this.season = next;
+    this.restartEnvironment();
   }
 
   applySettings() {
@@ -520,6 +601,10 @@ state.ecosystem = new EcosystemController({
   creatureLayer: $("#creature-layer"),
   skyLayer: $("#sky-creature-layer"),
   onSound: (species) => state.audio?.playAnimal(species)
+});
+state.immersive = new ImmersiveScene({
+  canvas: $("#immersive-scene"),
+  stage: $("#map-stage")
 });
 
 function t(key) {
@@ -704,6 +789,9 @@ function settingsPanel() {
       <div class="setting-group"><strong>${escapeHtml(t("language"))}</strong><div class="setting-options">
         ${[["en","English"],["zh","中文"],["es","Español"]].map(([value,label]) => `<button type="button" aria-pressed="${String((current.language || "en") === value)}" class="setting-option ${(current.language || "en") === value ? "active" : ""}" data-setting="language" data-value="${value}">${label}</button>`).join("")}
       </div></div>
+      <div class="setting-group scene-mode-settings"><strong>${escapeHtml(t("sceneStyle"))}</strong><div class="setting-options">
+        ${[["2d",t("scene2d")],["3d",t("scene3d")]].map(([value,label]) => `<button type="button" aria-pressed="${String((current.sceneMode || "2d") === value)}" class="setting-option ${(current.sceneMode || "2d") === value ? "active" : ""}" data-setting="sceneMode" data-value="${value}">${escapeHtml(label)}</button>`).join("")}
+      </div><small>${escapeHtml(t("sceneHint"))}</small></div>
       <div class="setting-group"><strong>${escapeHtml(t("motion"))}</strong><button type="button" class="secondary-button" data-action="toggle-calm">${escapeHtml(document.body.classList.contains("low-stimulation") ? t("useStandard") : t("useLow"))}</button></div>
       <div class="setting-group sound-settings"><div class="sound-heading"><strong>${escapeHtml(t("sound"))}</strong><span class="sound-status">${escapeHtml(current.soundEnabled ? t("soundOn") : t("soundOff"))}</span></div>
         <button type="button" class="secondary-button sound-toggle" data-action="toggle-sound">${escapeHtml(current.soundEnabled ? t("muteSound") : t("enableSound"))}</button>
@@ -802,14 +890,16 @@ function handleBuilding(id) {
 }
 
 function applySettings() {
-  state.settings = { fontSize: "normal", theme: "sage", language: "en", calm: false, soundEnabled: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
-  const { fontSize, theme, language, calm } = state.settings;
+  state.settings = { fontSize: "normal", theme: "sage", language: "en", sceneMode: "2d", calm: false, soundEnabled: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
+  const { fontSize, theme, language, sceneMode, calm } = state.settings;
   const scales = { small: ".9", normal: "1", large: "1.12", xlarge: "1.25" };
   document.documentElement.style.setProperty("--font-scale", scales[fontSize] || "1");
   document.body.classList.remove("theme-sage", "theme-blue", "theme-plum", "theme-high");
   document.body.classList.add(`theme-${theme}`);
   document.body.dataset.fontSize = fontSize;
   document.body.classList.toggle("low-stimulation", Boolean(calm));
+  document.body.classList.toggle("scene-3d", sceneMode === "3d");
+  document.body.classList.toggle("scene-2d", sceneMode !== "3d");
   $("#calm-toggle")?.setAttribute("aria-pressed", String(Boolean(calm)));
   const dictionary = i18n[language] || i18n.en;
   $$('[data-i18n]').forEach((element) => { element.textContent = dictionary[element.dataset.i18n] || i18n.en[element.dataset.i18n]; });
@@ -818,6 +908,9 @@ function applySettings() {
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
   renderEnvironmentStatus();
   state.ecosystem?.setCalm(calm);
+  state.immersive?.setReducedMotion(calm);
+  state.immersive?.setEnabled(sceneMode === "3d");
+  state.audio?.setSceneMode?.(sceneMode);
   state.audio?.applySettings();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
@@ -1053,6 +1146,7 @@ function updateCelestialScene() {
   const locationSeed = [environment.location?.city, environment.location?.region, environment.location?.country, environment.location?.timezone].filter(Boolean).join("|") || "village";
   state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
   state.audio?.setDay(isDay);
+  state.immersive?.setEnvironment({ isDay });
   renderEnvironmentStatus();
 }
 
@@ -1067,7 +1161,9 @@ function applyEnvironment(environment, available = true) {
   stage.classList.add(`season-${season}`, `weather-${kind}`);
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
   state.audio?.setWeather(kind);
+  state.audio?.setSeason(season);
   state.ecosystem?.setWeather(kind);
+  state.immersive?.setEnvironment({ weather: kind, season });
   updateCelestialScene();
   clearInterval(state.environmentTimer);
   state.environmentTimer = setInterval(updateCelestialScene, 60_000);

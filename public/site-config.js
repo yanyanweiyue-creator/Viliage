@@ -48,8 +48,8 @@ window.CAPY_CONFIG = {
       villagePath: [
         { x: 17, y: 44, building: "autism-support" }, { x: 29, y: 27, building: "autism-settings" },
         { x: 39, y: 45, building: "autism-education" }, { x: 34, y: 64, building: "autism-activity" },
-        { x: 20, y: 65, building: "autism-legal" }, { x: 39, y: 63 }, { x: 45, y: 63 },
-        { x: 50, y: 63, bridge: true }, { x: 55, y: 63 }, { x: 61, y: 58 },
+        { x: 20, y: 65, building: "autism-legal" }, { x: 39, y: 55 }, { x: 45, y: 53 },
+        { x: 50, y: 54, bridge: true }, { x: 55, y: 53 }, { x: 61, y: 55 },
         { x: 66, y: 54, building: "adhd-education" }, { x: 72, y: 70, building: "adhd-activity" },
         { x: 81, y: 62, building: "adhd-legal" }, { x: 81, y: 41, building: "adhd-settings" },
         { x: 66, y: 29, building: "adhd-support" }

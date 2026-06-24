@@ -151,3 +151,28 @@ export function routeIsConfined(route, island) {
     return Array.isArray(route) ? point.island === island : point.island == null || point.island === island;
   });
 }
+
+/** Sample every route segment so a villager cannot cut across open water. */
+export function villagerRouteIsWalkable(points = []) {
+  if (!Array.isArray(points) || points.length < 2) return false;
+  const onWalkableSurface = ({ x, y }) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const leftLand = ((x - 25) / 24) ** 2 + ((y - 52) / 33) ** 2 <= 1;
+    const rightLand = ((x - 75) / 25) ** 2 + ((y - 51) / 34) ** 2 <= 1;
+    const bridge = x >= 43 && x <= 57 && y >= 48 && y <= 59;
+    return leftLand || rightLand || bridge;
+  };
+
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1];
+    const to = points[index];
+    for (let step = 0; step <= 24; step += 1) {
+      const progress = step / 24;
+      if (!onWalkableSurface({
+        x: Number(from.x) + (Number(to.x) - Number(from.x)) * progress,
+        y: Number(from.y) + (Number(to.y) - Number(from.y)) * progress
+      })) return false;
+    }
+  }
+  return true;
+}

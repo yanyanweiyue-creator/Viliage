@@ -1,0 +1,414 @@
+const TAU = Math.PI * 2;
+
+const clamp = (value, minimum = 0, maximum = 1) => Math.max(minimum, Math.min(maximum, value));
+const mix = (from, to, amount) => from + (to - from) * amount;
+
+function seededValue(index, salt = 0) {
+  const value = Math.sin(index * 91.73 + salt * 37.11) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+export function environmentPalette({ isDay = true, weather = "clear", season = "summer" } = {}) {
+  const seasons = {
+    spring: { grass: "#72a65d", leaf: "#5d9254", accent: "#e5a6b8" },
+    summer: { grass: "#668f47", leaf: "#3f7445", accent: "#e2b958" },
+    autumn: { grass: "#8c8a45", leaf: "#9b6337", accent: "#d07a3b" },
+    winter: { grass: "#8ba095", leaf: "#637b70", accent: "#dbe8e5" }
+  };
+  const base = seasons[season] || seasons.summer;
+  if (!isDay) return { ...base, skyTop: "#07172d", skyBottom: "#28415a", waterTop: "#142f45", waterBottom: "#071d2b", light: "#9bc5d5", haze: "rgba(116,151,174,.24)" };
+  if (weather === "storm") return { ...base, skyTop: "#263742", skyBottom: "#68777a", waterTop: "#344f58", waterBottom: "#172f37", light: "#b7c2bd", haze: "rgba(181,193,190,.32)" };
+  if (weather === "rain") return { ...base, skyTop: "#536d78", skyBottom: "#9eaaa4", waterTop: "#426b70", waterBottom: "#244a53", light: "#c6d1c8", haze: "rgba(196,207,202,.28)" };
+  if (weather === "fog") return { ...base, skyTop: "#7c918d", skyBottom: "#d4d7c8", waterTop: "#668a85", waterBottom: "#3f6565", light: "#f0e6c9", haze: "rgba(229,231,216,.5)" };
+  if (weather === "snow") return { ...base, skyTop: "#839aa8", skyBottom: "#d8e2dd", waterTop: "#6f959a", waterBottom: "#3e6872", light: "#f7f0d7", haze: "rgba(229,239,237,.38)" };
+  return { ...base, skyTop: "#6aa3ad", skyBottom: "#edd5a6", waterTop: "#3d8585", waterBottom: "#163f49", light: "#ffe6a3", haze: "rgba(255,225,174,.18)" };
+}
+
+export function waterWaveHeight(x, y, time) {
+  return Math.sin(x * .034 + time * .0012) * 2.2 + Math.sin(y * .061 - time * .0008 + x * .009) * 1.25;
+}
+
+function roundedIslandPath(ctx, cx, cy, rx, ry, phase = 0) {
+  const points = 32;
+  ctx.beginPath();
+  for (let index = 0; index <= points; index += 1) {
+    const angle = index / points * TAU;
+    const irregularity = 1 + Math.sin(angle * 3 + phase) * .032 + Math.sin(angle * 7 - phase) * .018;
+    const x = cx + Math.cos(angle) * rx * irregularity;
+    const y = cy + Math.sin(angle) * ry * irregularity;
+    if (!index) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+export class ImmersiveScene {
+  constructor({ canvas, stage }) {
+    this.canvas = canvas;
+    this.stage = stage;
+    this.ctx = canvas?.getContext("2d", { alpha: false });
+    this.enabled = false;
+    this.reducedMotion = false;
+    this.environment = { isDay: true, weather: "clear", season: "summer" };
+    this.frame = 0;
+    this.width = 0;
+    this.height = 0;
+    this.dpr = 1;
+    this.parallax = { x: 0, y: 0, tx: 0, ty: 0 };
+    this.ripples = [];
+    this.resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => this.resize()) : null;
+    this.boundPointerMove = (event) => this.pointerMove(event);
+    this.boundPointerLeave = () => { this.parallax.tx = 0; this.parallax.ty = 0; };
+    this.boundRipple = (event) => this.addRipple(event);
+    this.boundVisibility = () => this.syncLoop();
+    this.resizeObserver?.observe(stage);
+    stage?.addEventListener("pointermove", this.boundPointerMove, { passive: true });
+    stage?.addEventListener("pointerleave", this.boundPointerLeave, { passive: true });
+    stage?.addEventListener("pointerdown", this.boundRipple, { passive: true });
+    document.addEventListener("visibilitychange", this.boundVisibility);
+    this.resize();
+  }
+
+  setEnabled(enabled) {
+    this.enabled = Boolean(enabled);
+    this.canvas?.classList.toggle("active", this.enabled);
+    this.resize();
+    this.syncLoop();
+  }
+
+  setReducedMotion(reduced) {
+    this.reducedMotion = Boolean(reduced);
+    this.syncLoop();
+  }
+
+  setEnvironment(environment = {}) {
+    this.environment = { ...this.environment, ...environment };
+    if (this.enabled && this.reducedMotion) this.draw(performance.now());
+  }
+
+  resize() {
+    if (!this.canvas || !this.stage || !this.ctx) return;
+    // clientWidth/clientHeight deliberately ignore the map's focus transform.
+    // getBoundingClientRect() would bake the 1.63x island zoom into the backing
+    // canvas and shift every projected object after returning to the overview.
+    const baseWidth = this.stage.clientWidth;
+    const baseHeight = this.stage.clientHeight;
+    if (!baseWidth || !baseHeight) return;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 1.6);
+    this.width = Math.round(baseWidth);
+    this.height = Math.round(baseHeight);
+    const pixelWidth = Math.round(this.width * this.dpr);
+    const pixelHeight = Math.round(this.height * this.dpr);
+    if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
+      this.canvas.width = pixelWidth;
+      this.canvas.height = pixelHeight;
+      this.canvas.style.width = `${this.width}px`;
+      this.canvas.style.height = `${this.height}px`;
+    }
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (this.enabled) this.draw(performance.now());
+  }
+
+  pointerMove(event) {
+    if (!this.enabled || this.reducedMotion) return;
+    const rect = this.stage.getBoundingClientRect();
+    this.parallax.tx = ((event.clientX - rect.left) / rect.width - .5) * 1.6;
+    this.parallax.ty = ((event.clientY - rect.top) / rect.height - .5) * 1.1;
+  }
+
+  addRipple(event) {
+    if (!this.enabled || this.reducedMotion) return;
+    const rect = this.stage.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (y < rect.height * .32) return;
+    this.ripples.push({ x, y, born: performance.now() });
+    if (this.ripples.length > 12) this.ripples.shift();
+  }
+
+  syncLoop() {
+    const shouldRun = this.enabled && !this.reducedMotion && !document.hidden;
+    if (shouldRun && !this.frame) this.frame = requestAnimationFrame((time) => this.animate(time));
+    if (!shouldRun && this.frame) {
+      cancelAnimationFrame(this.frame);
+      this.frame = 0;
+      if (this.enabled) this.draw(performance.now());
+    }
+  }
+
+  animate(time) {
+    this.frame = 0;
+    if (!this.enabled || this.reducedMotion || document.hidden) return;
+    this.parallax.x = mix(this.parallax.x, this.parallax.tx, .025);
+    this.parallax.y = mix(this.parallax.y, this.parallax.ty, .025);
+    this.draw(time);
+    this.frame = requestAnimationFrame((next) => this.animate(next));
+  }
+
+  draw(time) {
+    if (!this.ctx || !this.width || !this.height) return;
+    const ctx = this.ctx;
+    const width = this.width;
+    const height = this.height;
+    const palette = environmentPalette(this.environment);
+    ctx.save();
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    this.drawSky(ctx, width, height, palette, time);
+    this.drawForest(ctx, width, height, palette);
+    this.drawWater(ctx, width, height, palette, time);
+    const liftX = this.parallax.x * width * .006;
+    const liftY = this.parallax.y * height * .008;
+    this.drawIsland(ctx, width * .275 + liftX, height * .615 + liftY, width * .247, height * .305, palette, 1, "autism");
+    this.drawIsland(ctx, width * .73 + liftX, height * .59 + liftY, width * .255, height * .31, palette, 4, "adhd");
+    this.drawBridge(ctx, width, height, palette);
+    this.drawAtmosphere(ctx, width, height, palette, time);
+    ctx.restore();
+  }
+
+  drawSky(ctx, width, height, palette, time) {
+    const sky = ctx.createLinearGradient(0, 0, 0, height * .62);
+    sky.addColorStop(0, palette.skyTop);
+    sky.addColorStop(1, palette.skyBottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, height);
+
+    const lightX = width * (.72 + this.parallax.x * .018);
+    const lightY = height * (.12 + this.parallax.y * .01);
+    const glow = ctx.createRadialGradient(lightX, lightY, 0, lightX, lightY, width * .45);
+    glow.addColorStop(0, this.environment.isDay ? "rgba(255,238,185,.75)" : "rgba(173,206,231,.16)");
+    glow.addColorStop(.18, this.environment.isDay ? "rgba(255,228,163,.23)" : "rgba(109,150,190,.08)");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height * .72);
+
+    if (this.environment.isDay && !["storm", "rain"].includes(this.environment.weather)) {
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      ctx.translate(lightX, lightY);
+      ctx.rotate(-.21 + Math.sin(time * .00008) * .01);
+      const ray = ctx.createLinearGradient(0, 0, 0, height * .8);
+      ray.addColorStop(0, "rgba(255,238,190,.2)");
+      ray.addColorStop(1, "rgba(255,238,190,0)");
+      ctx.fillStyle = ray;
+      for (let index = 0; index < 5; index += 1) {
+        ctx.beginPath();
+        ctx.moveTo(index * 35 - 110, 0);
+        ctx.lineTo(index * 150 - 350, height * .9);
+        ctx.lineTo(index * 150 - 265, height * .9);
+        ctx.lineTo(index * 35 - 85, 0);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  drawForest(ctx, width, height, palette) {
+    const horizon = height * .34;
+    ctx.save();
+    ctx.globalAlpha = this.environment.weather === "fog" ? .32 : .48;
+    for (let index = 0; index < 34; index += 1) {
+      const x = seededValue(index, 2) * width;
+      const treeHeight = height * (.13 + seededValue(index, 8) * .2);
+      const trunkWidth = Math.max(2, treeHeight * .035);
+      ctx.fillStyle = index % 3 ? "#334d42" : "#48604b";
+      ctx.fillRect(x - trunkWidth / 2, horizon - treeHeight, trunkWidth, treeHeight);
+      ctx.fillStyle = palette.leaf;
+      ctx.beginPath();
+      ctx.ellipse(x, horizon - treeHeight * .72, treeHeight * .2, treeHeight * .3, 0, 0, TAU);
+      ctx.fill();
+    }
+    const mist = ctx.createLinearGradient(0, horizon * .55, 0, horizon * 1.25);
+    mist.addColorStop(0, "rgba(235,226,196,0)");
+    mist.addColorStop(1, palette.haze);
+    ctx.fillStyle = mist;
+    ctx.fillRect(0, 0, width, horizon * 1.35);
+    ctx.restore();
+  }
+
+  drawWater(ctx, width, height, palette, time) {
+    const horizon = height * .29;
+    const water = ctx.createLinearGradient(0, horizon, 0, height);
+    water.addColorStop(0, palette.waterTop);
+    water.addColorStop(1, palette.waterBottom);
+    ctx.fillStyle = water;
+    ctx.fillRect(0, horizon, width, height - horizon);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (let row = 0; row < 23; row += 1) {
+      const perspective = row / 22;
+      const y = horizon + perspective * perspective * (height - horizon);
+      ctx.beginPath();
+      for (let x = -20; x <= width + 20; x += 18) {
+        const wave = waterWaveHeight(x, y, time) * (.3 + perspective * 1.2);
+        if (x === -20) ctx.moveTo(x, y + wave);
+        else ctx.lineTo(x, y + wave);
+      }
+      ctx.strokeStyle = `rgba(204,238,226,${.035 + perspective * .11})`;
+      ctx.lineWidth = .55 + perspective * 1.2;
+      ctx.stroke();
+    }
+    const reflection = ctx.createLinearGradient(0, horizon, 0, height * .87);
+    reflection.addColorStop(0, "rgba(255,226,164,.2)");
+    reflection.addColorStop(.45, "rgba(255,226,164,.045)");
+    reflection.addColorStop(1, "rgba(255,226,164,0)");
+    ctx.fillStyle = reflection;
+    ctx.beginPath();
+    ctx.moveTo(width * .61, horizon);
+    ctx.lineTo(width * .83, horizon);
+    ctx.lineTo(width * .68, height * .9);
+    ctx.lineTo(width * .52, height * .9);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    const now = performance.now();
+    this.ripples = this.ripples.filter((ripple) => now - ripple.born < 2400);
+    this.ripples.forEach((ripple) => {
+      const age = (now - ripple.born) / 2400;
+      ctx.strokeStyle = `rgba(205,238,226,${(1 - age) * .42})`;
+      ctx.lineWidth = 1.5 - age;
+      ctx.beginPath();
+      ctx.ellipse(ripple.x, ripple.y, 8 + age * 66, 3 + age * 19, 0, 0, TAU);
+      ctx.stroke();
+    });
+  }
+
+  drawIsland(ctx, cx, cy, rx, ry, palette, phase, island) {
+    ctx.save();
+    ctx.shadowColor = "rgba(3,22,20,.45)";
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 14;
+    roundedIslandPath(ctx, cx, cy + 10, rx, ry, phase);
+    ctx.fillStyle = "#5a5135";
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+
+    roundedIslandPath(ctx, cx, cy, rx, ry, phase);
+    const land = ctx.createRadialGradient(cx - rx * .28, cy - ry * .36, rx * .06, cx, cy, rx * 1.05);
+    land.addColorStop(0, this.environment.season === "winter" ? "#cad4c9" : "#a8bc68");
+    land.addColorStop(.58, palette.grass);
+    land.addColorStop(1, "#405f38");
+    ctx.fillStyle = land;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(226,211,154,.72)";
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    ctx.save();
+    roundedIslandPath(ctx, cx, cy, rx - 4, ry - 4, phase);
+    ctx.clip();
+    const pathColor = "rgba(222,199,139,.8)";
+    ctx.strokeStyle = pathColor;
+    ctx.lineWidth = Math.max(5, rx * .035);
+    ctx.lineCap = "round";
+    ctx.setLineDash([rx * .055, rx * .025]);
+    ctx.beginPath();
+    if (island === "autism") {
+      ctx.moveTo(cx - rx * .72, cy + ry * .1);
+      ctx.bezierCurveTo(cx - rx * .2, cy - ry * .62, cx + rx * .5, cy - ry * .4, cx + rx * .72, cy + ry * .02);
+      ctx.bezierCurveTo(cx + rx * .38, cy + ry * .38, cx - rx * .1, cy + ry * .46, cx - rx * .54, cy + ry * .62);
+    } else {
+      ctx.moveTo(cx - rx * .76, cy + ry * .2);
+      ctx.bezierCurveTo(cx - rx * .34, cy - ry * .2, cx + rx * .16, cy - ry * .58, cx + rx * .76, cy - ry * .18);
+      ctx.bezierCurveTo(cx + rx * .54, cy + ry * .2, cx + rx * .22, cy + ry * .38, cx + rx * .62, cy + ry * .7);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    this.drawPond(ctx, island === "autism" ? cx - rx * .66 : cx + rx * .58, island === "autism" ? cy + ry * .05 : cy - ry * .32, rx * .19, ry * .16);
+    this.drawTrees(ctx, cx, cy, rx, ry, palette, island === "autism" ? 3 : 7);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  drawPond(ctx, x, y, rx, ry) {
+    const pond = ctx.createRadialGradient(x - rx * .2, y - ry * .4, 1, x, y, rx);
+    pond.addColorStop(0, "rgba(170,227,213,.95)");
+    pond.addColorStop(1, "rgba(37,116,116,.95)");
+    ctx.fillStyle = pond;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, -.18, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(221,225,169,.7)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  drawTrees(ctx, cx, cy, rx, ry, palette, seed) {
+    const treeCount = 18;
+    const trees = Array.from({ length: treeCount }, (_, index) => {
+      const angle = seededValue(index, seed) * TAU;
+      const radius = .62 + seededValue(index, seed + 1) * .3;
+      return {
+        x: cx + Math.cos(angle) * rx * radius,
+        y: cy + Math.sin(angle) * ry * radius,
+        scale: .55 + seededValue(index, seed + 2) * .65
+      };
+    }).sort((a, b) => a.y - b.y);
+    trees.forEach((tree, index) => {
+      const trunkHeight = ry * .19 * tree.scale;
+      ctx.fillStyle = "#5c452f";
+      ctx.fillRect(tree.x - 2 * tree.scale, tree.y - trunkHeight, 4 * tree.scale, trunkHeight);
+      const crown = ctx.createRadialGradient(tree.x - 3, tree.y - trunkHeight * 1.1, 2, tree.x, tree.y - trunkHeight, trunkHeight * .72);
+      crown.addColorStop(0, index % 5 === 0 ? palette.accent : "#91ae61");
+      crown.addColorStop(.52, palette.leaf);
+      crown.addColorStop(1, "#294f3c");
+      ctx.fillStyle = crown;
+      ctx.beginPath();
+      ctx.ellipse(tree.x, tree.y - trunkHeight, trunkHeight * .62, trunkHeight * .82, 0, 0, TAU);
+      ctx.fill();
+    });
+  }
+
+  drawBridge(ctx, width, height) {
+    const y = height * .55;
+    const start = width * .46;
+    const end = width * .55;
+    ctx.save();
+    ctx.translate(0, this.parallax.y * 2);
+    ctx.strokeStyle = "rgba(54,39,25,.55)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(start, y - 9);
+    ctx.quadraticCurveTo(width * .505, y + 5, end, y - 10);
+    ctx.moveTo(start, y + 10);
+    ctx.quadraticCurveTo(width * .505, y + 24, end, y + 9);
+    ctx.stroke();
+    for (let index = 0; index <= 13; index += 1) {
+      const progress = index / 13;
+      const x = mix(start, end, progress);
+      const bow = Math.sin(progress * Math.PI) * 14;
+      ctx.fillStyle = index % 2 ? "#9d7042" : "#b1814d";
+      ctx.save();
+      ctx.translate(x, y + bow);
+      ctx.rotate((progress - .5) * .12);
+      ctx.fillRect(-3, -11, 7, 26);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  drawAtmosphere(ctx, width, height, palette, time) {
+    const vignette = ctx.createRadialGradient(width * .5, height * .5, width * .22, width * .5, height * .5, width * .72);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, this.environment.isDay ? "rgba(16,34,27,.22)" : "rgba(0,8,20,.48)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+    if (this.environment.weather === "fog") {
+      ctx.fillStyle = `rgba(225,231,219,${.12 + Math.sin(time * .0003) * .03})`;
+      ctx.fillRect(0, height * .18, width, height * .62);
+    }
+  }
+
+  destroy() {
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.resizeObserver?.disconnect();
+    this.stage?.removeEventListener("pointermove", this.boundPointerMove);
+    this.stage?.removeEventListener("pointerleave", this.boundPointerLeave);
+    this.stage?.removeEventListener("pointerdown", this.boundRipple);
+    document.removeEventListener("visibilitychange", this.boundVisibility);
+  }
+}

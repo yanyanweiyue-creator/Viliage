@@ -49,6 +49,7 @@ export class EcosystemController {
       element.setAttribute("aria-label", definition.label);
       element.style.left = `${point.x}%`;
       element.style.top = `${point.y}%`;
+      element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
       const glyph = document.createElement("span");
       glyph.className = "actor-glyph";
       glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
@@ -84,9 +85,10 @@ export class EcosystemController {
     const distance = Math.hypot(point.x - current.x, point.y - current.y);
     const durationMs = Math.max(2600, Math.min(actor.definition.flying ? 12_000 : 7200, distance * (actor.definition.flying ? 390 : 290)));
     actor.routeIndex = clampIndex(targetIndex, actor.route.length);
-    actor.element.style.transitionDuration = `${durationMs}ms, ${durationMs}ms, .5s, .8s`;
+    actor.element.style.transitionDuration = `${durationMs}ms, ${durationMs}ms, .5s, .8s, ${durationMs}ms`;
     actor.element.style.left = `${point.x}%`;
     actor.element.style.top = `${point.y}%`;
+    actor.element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
     this.setActorState(actor, actor.definition.flying ? "flying" : "walking");
     actor.arriveAt = Date.now() + durationMs;
     actor.arrivalState = arrivalState;

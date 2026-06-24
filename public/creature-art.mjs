@@ -1,6 +1,14 @@
 const commonSvg = (species, body) => `
-  <svg class="actor-art creature-${species}" viewBox="0 0 96 72" aria-hidden="true" focusable="false">
-    ${body}
+  <svg class="actor-art creature-${species}" viewBox="0 0 96 72" aria-hidden="true" focusable="false" style="--model-filter:url(#model-surface-${species})">
+    <defs>
+      <filter id="model-surface-${species}" x="-20%" y="-25%" width="140%" height="155%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="2" seed="7" result="texture"/>
+        <feColorMatrix in="texture" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .1 0" result="softTexture"/>
+        <feBlend in="SourceGraphic" in2="softTexture" mode="soft-light"/>
+      </filter>
+    </defs>
+    <ellipse class="model-shadow" cx="47" cy="65" rx="29" ry="5" fill="rgba(20,35,29,.52)" opacity=".18"/>
+    <g class="model-surface">${body}</g>
   </svg>`;
 
 const CREATURE_MARKUP = Object.freeze({
