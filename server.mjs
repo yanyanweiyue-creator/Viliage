@@ -137,7 +137,10 @@ function defaultCommunity() {
     ],
     members: [],
     messages: [],
-    connections: []
+    connections: [],
+    blocks: [],
+    roomPreferences: {},
+    posts: []
   };
 }
 
@@ -145,12 +148,37 @@ async function loadCommunity() {
   try {
     const saved = JSON.parse(await readFile(COMMUNITY_FILE, "utf8"));
     const base = defaultCommunity();
-    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [] };
+    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [], blocks: saved.blocks || [], roomPreferences: saved.roomPreferences || {}, posts: saved.posts || [] };
   } catch { return defaultCommunity(); }
 }
 
 async function saveCommunity(community) {
   await saveJsonAtomically(COMMUNITY_FILE, community);
+}
+
+function localFriends(community, firstId, secondId) {
+  return community.connections.some((item) => item.status === "accepted" && ((item.requesterId === firstId && item.recipientId === secondId) || (item.requesterId === secondId && item.recipientId === firstId)));
+}
+
+function localBlocked(community, firstId, secondId) {
+  return community.blocks.some((item) => (item.blockerId === firstId && item.blockedId === secondId) || (item.blockerId === secondId && item.blockedId === firstId));
+}
+
+function cleanupLocalSystemHistory(community) {
+  const cutoff = Date.now() - 12 * 60 * 60 * 1000;
+  const systemIds = new Set(community.rooms.filter((room) => room.kind === "group" && !room.createdBy).map((room) => room.id));
+  community.messages = community.messages.filter((message) => !systemIds.has(message.roomId) || new Date(message.createdAt).getTime() >= cutoff);
+}
+
+function localRoomPreference(community, roomId, userId) {
+  return community.roomPreferences[`${roomId}:${userId}`] || {};
+}
+
+function safeImageDataUrl(value) {
+  const image = String(value || "");
+  if (!image) return null;
+  if (image.length > 750000 || !/^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i.test(image)) throw new Error("Use a PNG, JPEG, WebP, or GIF image smaller than about 550 KB.");
+  return image;
 }
 
 async function localCommunityOverview(user, community) {
@@ -161,10 +189,13 @@ async function localCommunityOverview(user, community) {
     name: room.name,
     description: room.description,
     member_count: community.members.filter((member) => member.roomId === room.id).length,
-    joined: community.members.some((member) => member.roomId === room.id && member.userId === user.id)
-  }));
+    joined: community.members.some((member) => member.roomId === room.id && member.userId === user.id),
+    created_by: room.createdBy || null,
+    system_managed: room.createdBy ? 0 : 1,
+    pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt)
+  })).sort((a, b) => Number(b.pinned) - Number(a.pinned));
   if (!ownProfile?.enabled) return { enabled: false, displayName: ownProfile?.displayName || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
-  const recommendations = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !community.connections.some((connection) => connection.pairKey === pairKey(user.id, candidate.id))).map((candidate) => {
+  const recommendations = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !localBlocked(community, user.id, candidate.id) && !community.connections.some((connection) => connection.pairKey === pairKey(user.id, candidate.id))).map((candidate) => {
     const match = communitySimilarity(user.profile, candidate.profile);
     return { userId: candidate.id, displayName: community.profiles[candidate.id].displayName, score: match.score, reasons: match.reasons };
   }).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)).slice(0, 6);
@@ -173,9 +204,11 @@ async function localCommunityOverview(user, community) {
   const outgoing = community.connections.filter((item) => item.requesterId === user.id && item.status === "pending").map((item) => withName(item, item.recipientId));
   const directRooms = community.rooms.filter((room) => room.kind === "direct" && community.members.some((member) => member.roomId === room.id && member.userId === user.id)).map((room) => {
     const otherId = community.members.find((member) => member.roomId === room.id && member.userId !== user.id)?.userId;
-    return { id: room.id, name: community.profiles[otherId]?.displayName || "Private conversation" };
-  });
-  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms };
+    const other = users.find((item) => item.id === otherId);
+    return { id: room.id, user_id: otherId, email: other?.email || "", name: community.profiles[otherId]?.displayName || "Private conversation", pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt) };
+  }).sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const blocks = community.blocks.filter((item) => item.blockerId === user.id).map((item) => ({ user_id: item.blockedId, display_name: community.profiles[item.blockedId]?.displayName || users.find((candidate) => candidate.id === item.blockedId)?.name || "Village member" }));
+  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms, blocks };
 }
 
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -617,11 +650,100 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, await localCommunityOverview(user, community));
   }
 
-  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages))?$/);
+  if (req.method === "GET" && url.pathname === "/api/community/search") {
+    const query = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
+    if (query.length < 2) return sendJson(res, 200, { people: [] });
+    const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
+    const people = users.filter((candidate) => candidate.id !== user.id && localFriends(community, user.id, candidate.id) && !localBlocked(community, user.id, candidate.id))
+      .map((candidate) => ({ user_id: candidate.id, email: candidate.email, display_name: community.profiles[candidate.id]?.displayName || candidate.name }))
+      .filter((candidate) => candidate.email.toLowerCase().includes(query) || candidate.display_name.toLowerCase().includes(query)).slice(0, 20);
+    return sendJson(res, 200, { people });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/community/groups") {
+    const input = await readJsonBody(req);
+    const community = await loadCommunity();
+    if (!community.profiles[user.id]?.enabled) return sendError(res, 403, "Join the community before creating a group.");
+    const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
+    if (memberIds.some((memberId) => !localFriends(community, user.id, memberId) || localBlocked(community, user.id, memberId))) return sendError(res, 403, "Groups can include accepted, unblocked friends only.");
+    const room = { id: `group-${randomBytes(12).toString("hex")}`, kind: "group", name: safeDisplayName(input.name, "New group"), description: String(input.description || "").trim().slice(0, 240), createdBy: user.id, createdAt: new Date().toISOString() };
+    community.rooms.push(room);
+    community.members.push({ roomId: room.id, userId: user.id, role: "moderator", joinedAt: room.createdAt }, ...memberIds.map((memberId) => ({ roomId: room.id, userId: memberId, role: "member", joinedAt: room.createdAt })));
+    await saveCommunity(community);
+    return sendJson(res, 201, { room: { id: room.id, name: room.name, description: room.description, systemManaged: false } });
+  }
+
+  if (url.pathname === "/api/community/posts") {
+    const community = await loadCommunity();
+    if (req.method === "GET") {
+      const users = await loadUsers();
+      const posts = community.posts.filter((post) => {
+        if (post.userId === user.id) return true;
+        if (!localFriends(community, user.id, post.userId) || localBlocked(community, user.id, post.userId)) return false;
+        return (!post.allowedUserIds?.length || post.allowedUserIds.includes(user.id)) && !post.deniedUserIds?.includes(user.id);
+      }).slice(-100).reverse().map((post) => ({ ...post, author: community.profiles[post.userId]?.displayName || users.find((candidate) => candidate.id === post.userId)?.name || "Village member", mine: post.userId === user.id, allowedUserIds: post.userId === user.id ? post.allowedUserIds : undefined, deniedUserIds: post.userId === user.id ? post.deniedUserIds : undefined }));
+      return sendJson(res, 200, { posts });
+    }
+    if (req.method === "POST") {
+      const input = await readJsonBody(req);
+      const postBody = String(input.text || "").trim().slice(0, 2000);
+      let imageDataUrl;
+      try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return sendError(res, 400, error.message); }
+      if (!postBody && !imageDataUrl) return sendError(res, 400, "Add text or an image first.");
+      const allowedUserIds = [...new Set((Array.isArray(input.allowedUserIds) ? input.allowedUserIds : []).map(String))].filter((id) => id !== user.id).slice(0, 100);
+      const deniedUserIds = [...new Set((Array.isArray(input.deniedUserIds) ? input.deniedUserIds : []).map(String))].filter((id) => id !== user.id).slice(0, 100);
+      if ([...allowedUserIds, ...deniedUserIds].some((targetId) => !localFriends(community, user.id, targetId) || localBlocked(community, user.id, targetId))) return sendError(res, 403, "Post visibility can include accepted, unblocked friends only.");
+      const post = { id: randomBytes(12).toString("hex"), userId: user.id, body: postBody, imageDataUrl, allowedUserIds, deniedUserIds, createdAt: new Date().toISOString() };
+      community.posts.push(post);
+      community.posts = community.posts.slice(-1000);
+      await saveCommunity(community);
+      return sendJson(res, 201, { post });
+    }
+  }
+
+  const postDeleteMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)$/);
+  if (req.method === "DELETE" && postDeleteMatch) {
+    const community = await loadCommunity();
+    const before = community.posts.length;
+    community.posts = community.posts.filter((post) => post.id !== decodeURIComponent(postDeleteMatch[1]) || post.userId !== user.id);
+    if (community.posts.length === before) return sendError(res, 404, "Post not found.");
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  const friendMatch = url.pathname.match(/^\/api\/community\/friends\/([^/]+)$/);
+  if (req.method === "DELETE" && friendMatch) {
+    const targetId = decodeURIComponent(friendMatch[1]);
+    const community = await loadCommunity();
+    community.connections = community.connections.filter((item) => !(item.status === "accepted" && item.pairKey === pairKey(user.id, targetId)));
+    const directIds = new Set(community.rooms.filter((room) => room.kind === "direct" && community.members.some((member) => member.roomId === room.id && member.userId === user.id) && community.members.some((member) => member.roomId === room.id && member.userId === targetId)).map((room) => room.id));
+    community.members = community.members.filter((member) => !(member.userId === user.id && directIds.has(member.roomId)));
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  const blockMatch = url.pathname.match(/^\/api\/community\/blocks\/([^/]+)$/);
+  if (blockMatch && ["POST", "DELETE"].includes(req.method)) {
+    const targetId = decodeURIComponent(blockMatch[1]);
+    const community = await loadCommunity();
+    if (!targetId || targetId === user.id) return sendError(res, 400, "Choose another member.");
+    if (req.method === "DELETE") community.blocks = community.blocks.filter((item) => !(item.blockerId === user.id && item.blockedId === targetId));
+    else {
+      if (!community.blocks.some((item) => item.blockerId === user.id && item.blockedId === targetId)) community.blocks.push({ blockerId: user.id, blockedId: targetId, createdAt: new Date().toISOString() });
+      community.connections = community.connections.filter((item) => item.pairKey !== pairKey(user.id, targetId));
+      const directIds = new Set(community.rooms.filter((room) => room.kind === "direct" && community.members.some((member) => member.roomId === room.id && member.userId === user.id) && community.members.some((member) => member.roomId === room.id && member.userId === targetId)).map((room) => room.id));
+      community.members = community.members.filter((member) => !(member.userId === user.id && directIds.has(member.roomId)));
+    }
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
     const operation = roomMatch[2] || "";
     const community = await loadCommunity();
+    cleanupLocalSystemHistory(community);
     if (!community.profiles[user.id]?.enabled) return sendError(res, 403, "Join the community before using chat.");
     const room = community.rooms.find((item) => item.id === roomId);
     if (!room) return sendError(res, 404, "Chat room not found.");
@@ -632,9 +754,31 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { ok: true });
     }
     if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Join this room before reading or sending messages.");
+    if (req.method === "POST" && operation === "leave") {
+      if (room.kind !== "group") return sendError(res, 400, "Use Remove friend to close a private conversation.");
+      community.members = community.members.filter((member) => !(member.roomId === roomId && member.userId === user.id));
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method === "POST" && operation === "pin") {
+      const pinned = Boolean((await readJsonBody(req)).pinned);
+      const key = `${roomId}:${user.id}`;
+      community.roomPreferences[key] = { ...community.roomPreferences[key], pinnedAt: pinned ? new Date().toISOString() : null };
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, pinned });
+    }
+    if (req.method === "DELETE" && operation === "history") {
+      const key = `${roomId}:${user.id}`;
+      community.roomPreferences[key] = { ...community.roomPreferences[key], clearedBefore: new Date().toISOString() };
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, clearedBefore: community.roomPreferences[key].clearedBefore });
+    }
     if (req.method === "GET" && operation === "messages") {
-      const messages = community.messages.filter((message) => message.roomId === roomId).slice(-100).map((message) => ({ ...message, author: community.profiles[message.userId]?.displayName || "Village member", mine: message.userId === user.id }));
-      return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind }, messages });
+      const preference = localRoomPreference(community, roomId, user.id);
+      const messages = community.messages.filter((message) => message.roomId === roomId && (!preference.clearedBefore || message.createdAt > preference.clearedBefore) && !community.blocks.some((block) => block.blockerId === user.id && block.blockedId === message.userId)).slice(-100).map((message) => ({ ...message, author: community.profiles[message.userId]?.displayName || "Village member", mine: message.userId === user.id }));
+      await saveCommunity(community);
+      const otherUserId = room.kind === "direct" ? community.members.find((member) => member.roomId === roomId && member.userId !== user.id)?.userId || null : null;
+      return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind, systemManaged: room.kind === "group" && !room.createdBy, createdBy: room.createdBy || null, pinned: Boolean(preference.pinnedAt), otherUserId }, messages });
     }
     if (req.method === "POST" && operation === "messages") {
       const messageBody = String((await readJsonBody(req)).message || "").trim().slice(0, 1000);
@@ -654,6 +798,7 @@ async function handleApi(req, res, url) {
     const community = await loadCommunity();
     if (!targetUserId || targetUserId === user.id) return sendError(res, 400, "Choose another community member.");
     if (!community.profiles[user.id]?.enabled || !community.profiles[targetUserId]?.enabled) return sendError(res, 403, "Both members must opt in to community matching.");
+    if (localBlocked(community, user.id, targetUserId)) return sendError(res, 403, "This connection is unavailable.");
     const key = pairKey(user.id, targetUserId);
     if (community.connections.some((item) => item.pairKey === key)) return sendError(res, 409, "A connection request or private chat already exists.");
     community.connections.push({ id: randomBytes(12).toString("hex"), pairKey: key, requesterId: user.id, recipientId: targetUserId, status: "pending", roomId: null, createdAt: new Date().toISOString() });
@@ -666,6 +811,7 @@ async function handleApi(req, res, url) {
     const community = await loadCommunity();
     const connection = community.connections.find((item) => item.id === decodeURIComponent(connectionMatch[1]) && item.recipientId === user.id && item.status === "pending");
     if (!connection) return sendError(res, 404, "Connection request not found.");
+    if (localBlocked(community, connection.requesterId, connection.recipientId)) return sendError(res, 403, "This connection is unavailable.");
     if (connectionMatch[2] === "decline") {
       connection.status = "declined";
       await saveCommunity(community);

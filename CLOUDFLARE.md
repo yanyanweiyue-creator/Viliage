@@ -4,7 +4,7 @@ This project is prepared for **Cloudflare Workers + Static Assets + D1**.
 
 - `public/` is deployed as the website.
 - `cloudflare/worker.mjs` runs all `/api/*` routes.
-- D1 stores accounts, password hashes, surveys, history, feedback, hashed login sessions, opt-in community profiles, room membership, connections, and chat messages.
+- D1 stores accounts, password hashes, surveys, history, feedback, hashed login sessions, community profiles, rooms, per-user chat preferences, blocks, and friends-only posts.
 - Deploying or rolling back Worker code does not replace D1 data.
 - Schema changes are applied as numbered files in `migrations/`; never edit or delete a migration that has already reached production.
 
@@ -56,7 +56,7 @@ Cloudflare will return a `workers.dev` URL. A custom domain can be added from **
 - Visual/UI changes: edit files in `public/`.
 - Recommendation logic: edit `scoring-engine.mjs` and `config/scoring-config.json`.
 - API or account features: edit `cloudflare/worker.mjs`; keep `server.mjs` aligned for local Node development.
-- Database fields or tables: create a new migration rather than changing `0001_persistent_accounts.sql` or `0002_community_chat.sql`:
+- Database fields or tables: create a new migration rather than changing any migration already deployed:
 
   ```bash
   npx wrangler@4 d1 migrations create it-takes-a-village-db describe_your_change
@@ -89,6 +89,7 @@ After those are configured, every push to `main` runs `.github/workflows/deploy-
 - Passwords are never stored in plaintext.
 - Session tokens are stored only as SHA-256 hashes.
 - Login sessions live in D1 for seven days and survive Worker deployments/restarts.
-- Community memberships, accepted connections, and messages also survive Worker deployments/restarts.
+- Community memberships, accepted connections, per-user history cutoffs, blocks, messages, and Moments survive Worker deployments/restarts.
+- The scheduled trigger runs twice daily and deletes messages older than 12 hours only from system-managed groups.
 - The local Node server writes users and hashed sessions atomically to ignored data files, so ordinary code updates do not overwrite them.
 - Do not delete the D1 database, reuse its name for testing, or run destructive SQL in a migration.

@@ -6,8 +6,8 @@ A full-stack, no-dependency web prototype for a personalized caregiver resource 
 
 - Account creation and login with salted `scrypt` password hashes and HTTP-only session cookies
 - First-visit Community Compass survey and personal record
-- Two-island scene with island zoom, twelve independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
-- Support/contact, opt-in community chat, settings, education AI, legal AI, recreation AI, and activity panels
+- Two-island scene with island zoom, ten independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
+- Support/contact, opt-in community chat, avatar-based settings, education AI, legal AI, recreation AI, and activity panels
 - Font size, color palette, language, reduced-motion, low-stimulation, and three-channel sound controls
 - Dynamic resource loading from the provided Google Sheet with a local fallback
 - Configurable resource scoring with tag-first matching, issue penalties, AI-assisted synonym expansion, result counts from 3–10, and a visible explanation for every score
@@ -95,9 +95,11 @@ Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation:
 
 ## Village community
 
-The Support building includes three seeded group chats and consent-based private connections. A user must opt in and choose a display name before appearing in recommendations. Waffles' matching algorithm compares only shared interests, age group, journey stage, and broad situation; email addresses, passwords, and private survey notes are excluded and never shown to another user. Connection requests must be accepted before a private room is created.
+The Support building includes three system group chats, user-created groups, consent-based private connections, friend search, per-user pinning/history clearing, friend removal, blocking, and a friends-only Moments feed. Moments can contain text and one small image; authors may limit a post to selected friends or hide it from selected friends. Connection requests must be accepted before private chat, group invitations, search results, or Moments visibility become available.
 
-Cloudflare stores community profiles, memberships, connections, and messages in D1, so conversations survive code updates. The local server uses ignored `data/community.json` for development. Messages are not end-to-end encrypted; the interface states this directly and warns users not to share passwords, addresses, urgent medical details, or use peer chat as emergency/professional support. A public launch should add moderation/reporting workflows, rate limiting, notifications, and a formal safeguarding review.
+System-created groups remove shared messages older than 12 hours through a Cloudflare scheduled trigger. In user-created groups and private chats, **Clear my history** stores a per-user cutoff: earlier messages disappear only for that user and remain available to other members. The Settings buildings were removed; clicking the top-right avatar opens every visual, sound, motion, language, and local-music setting.
+
+Cloudflare stores community profiles, memberships, connections, messages, per-user room preferences, block lists, and Moments in D1, so conversations survive code updates. The local server uses ignored `data/community.json` for development. Images are currently stored as size-limited data URLs; production growth should move them to object storage such as Cloudflare R2. Messages are not end-to-end encrypted; the interface states this directly and warns users not to share passwords, addresses, urgent medical details, or use peer chat as emergency/professional support. A public launch should add moderation/reporting workflows, rate limiting, notifications, malware scanning for uploads, and a formal safeguarding review.
 
 ## Editable content
 
