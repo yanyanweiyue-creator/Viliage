@@ -4,11 +4,39 @@ import { createCreatureArt } from "./creature-art.mjs?v=grounded-audio-20260623"
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
 const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+const ISLAND_PROJECTIONS = Object.freeze({
+  autism: {
+    "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 },
+    "3d": { x: 25.5, y: 61.5, rx: 19.6, ry: 25.2 }
+  },
+  adhd: {
+    "2d": { x: 75, y: 51, rx: 23, ry: 31 },
+    "3d": { x: 74.5, y: 60, rx: 19.6, ry: 25.2 }
+  }
+});
 
 function actorOffset(id) {
   let hash = 0;
   for (const character of String(id)) hash = (hash * 31 + character.codePointAt(0)) >>> 0;
   return { x: ((hash % 7) - 3) * .12, y: (((hash >>> 3) % 5) - 2) * .1 };
+}
+
+export function projectActorPoint(point, island, sceneMode = "2d", offset = { x: 0, y: 0 }) {
+  if (!point || !ISLAND_PROJECTIONS[island]) return { x: Number(point?.x || 0) + Number(offset.x || 0), y: Number(point?.y || 0) + Number(offset.y || 0) };
+  const source = ISLAND_PROJECTIONS[island]["2d"];
+  const target = ISLAND_PROJECTIONS[island][sceneMode === "3d" ? "3d" : "2d"];
+  let nx = (Number(point.x) - source.x) / source.rx;
+  let ny = (Number(point.y) - source.y) / source.ry;
+  const radius = Math.hypot(nx, ny);
+  const safeRadius = .86;
+  if (radius > safeRadius) {
+    nx *= safeRadius / radius;
+    ny *= safeRadius / radius;
+  }
+  return {
+    x: target.x + nx * target.rx + Number(offset.x || 0),
+    y: target.y + ny * target.ry + Number(offset.y || 0)
+  };
 }
 
 export class EcosystemController {
@@ -22,6 +50,7 @@ export class EcosystemController {
     this.clock = { isDay: true, currentMinutes: 720, sunrise: 360, sunset: 1080, localDate: "", locationSeed: "village" };
     this.weather = "clear";
     this.calm = false;
+    this.sceneMode = "2d";
     this.timer = null;
     this.dragonShownDate = "";
     this.flockShownDate = "";
@@ -55,9 +84,7 @@ export class EcosystemController {
       element.title = definition.label;
       element.setAttribute("role", "img");
       element.setAttribute("aria-label", definition.label);
-      element.style.left = `${point.x + offset.x}%`;
-      element.style.top = `${point.y + offset.y}%`;
-      element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
+      this.positionActor({ definition, element, route, routeIndex, offset }, point);
       element.style.setProperty("--actor-facing", definition.start % 2 ? "-1" : "1");
       element.dataset.gait = definition.species;
       const glyph = document.createElement("span");
@@ -89,6 +116,15 @@ export class EcosystemController {
     actor.element.classList.add(`state-${stateName}`);
   }
 
+  positionActor(actor, point) {
+    const projected = actor.definition.flying
+      ? { x: Number(point.x) + actor.offset.x, y: Number(point.y) + actor.offset.y }
+      : projectActorPoint(point, actor.definition.island, this.sceneMode, actor.offset);
+    actor.element.style.left = `${projected.x}%`;
+    actor.element.style.top = `${projected.y}%`;
+    actor.element.style.setProperty("--depth-scale", String(.72 + projected.y * .006));
+  }
+
   moveTo(actor, targetIndex, arrivalState = "idle", pauseMs = 5000) {
     const point = actor.route[clampIndex(targetIndex, actor.route.length)];
     const current = actor.route[actor.routeIndex];
@@ -98,9 +134,7 @@ export class EcosystemController {
     actor.routeIndex = clampIndex(targetIndex, actor.route.length);
     actor.element.style.transitionDuration = `${durationMs}ms, ${durationMs}ms, .5s, .8s, ${durationMs}ms`;
     actor.element.style.setProperty("--actor-facing", point.x >= current.x ? "1" : "-1");
-    actor.element.style.left = `${point.x + actor.offset.x}%`;
-    actor.element.style.top = `${point.y + actor.offset.y}%`;
-    actor.element.style.setProperty("--depth-scale", String(.72 + point.y * .006));
+    this.positionActor(actor, point);
     this.setActorState(actor, actor.definition.flying ? "flying" : "walking");
     actor.arriveAt = Date.now() + durationMs;
     actor.arrivalState = arrivalState;
@@ -232,6 +266,10 @@ export class EcosystemController {
 
   setWeather(kind) { this.weather = kind || "clear"; }
   setCalm(value) { this.calm = Boolean(value); }
+  setSceneMode(mode) {
+    this.sceneMode = mode === "3d" ? "3d" : "2d";
+    for (const actor of this.actors.values()) this.positionActor(actor, actor.route[actor.routeIndex]);
+  }
 
   audibleSpecies(selectedIsland = null) {
     return [...this.actors.values()]

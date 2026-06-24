@@ -26,9 +26,10 @@ function doPost(e) {
       headers = sheet.getRange(2, 1, 1, lastColumn).getDisplayValues()[0];
     }
     var headerRow = sheet.getRange(1, 1).getDisplayValue() ? 1 : 2;
-    var userIdIndex = headers.indexOf("userId");
-    var emailIndex = headers.indexOf("Email");
-    var userNameIndex = headers.indexOf("User name");
+    var normalizedHeaders = headers.map(function(header) { return String(header).trim().toLowerCase(); });
+    var userIdIndex = normalizedHeaders.indexOf("userid");
+    var emailIndex = normalizedHeaders.indexOf("email");
+    var userNameIndex = normalizedHeaders.indexOf("user name");
     var existingRow = -1;
 
     if (sheet.getLastRow() > headerRow) {
@@ -45,9 +46,12 @@ function doPost(e) {
       }
     }
 
+    var dataKeys = Object.keys(data);
     var row = headers.map(function(header) {
-      if (String(header).toLowerCase() === "password") return "Not stored — secure hash only";
-      return Object.prototype.hasOwnProperty.call(data, header) ? data[header] : "";
+      var normalizedHeader = String(header).trim().toLowerCase();
+      if (normalizedHeader === "password") return "Not stored — secure hash only";
+      var matchingKey = dataKeys.filter(function(key) { return String(key).trim().toLowerCase() === normalizedHeader; })[0];
+      return matchingKey && Object.prototype.hasOwnProperty.call(data, matchingKey) ? data[matchingKey] : "";
     });
 
     var targetRow = existingRow > 0 ? existingRow : Math.max(sheet.getLastRow() + 1, headerRow + 1);
@@ -75,15 +79,23 @@ function sendPasswordResetCode_(data) {
     throw new Error("Invalid password-reset email or code.");
   }
   var minutes = Math.max(1, Math.min(30, Number(data.expiresInMinutes || 10)));
+  var requestedFrom = String(data.fromAddress || "").trim().toLowerCase();
+  var senderName = String(data.fromName || "It Takes a Village").trim() || "It Takes a Village";
+  var accountAddress = String(Session.getEffectiveUser().getEmail() || "").trim().toLowerCase();
+  var aliases = GmailApp.getAliases().map(function(alias) { return String(alias).toLowerCase(); });
+  var senderAddress = aliases.indexOf(requestedFrom) >= 0 ? requestedFrom : accountAddress;
   var subject = "Your It Takes a Village verification code";
   var plainText = "Your verification code is " + code + ". It expires in " + minutes + " minutes. If you did not request a password reset, you can ignore this email.";
   var html = '<div style="font-family:Arial,sans-serif;color:#243a35;max-width:520px;padding:24px">' +
     '<h2 style="margin:0 0 12px">It Takes a Village</h2>' +
     '<p>Use this verification code to reset your password:</p>' +
     '<p style="font-size:32px;font-weight:700;letter-spacing:8px;background:#eef5ef;padding:16px 20px;border-radius:12px;text-align:center">' + code + '</p>' +
-    '<p>This code expires in ' + minutes + ' minutes. If you did not request it, you can safely ignore this email.</p></div>';
-  GmailApp.sendEmail(email, subject, plainText, { htmlBody: html, name: "It Takes a Village" });
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, delivered: true }))
+    '<p>This code expires in ' + minutes + ' minutes. If you did not request it, you can safely ignore this email.</p>' +
+    '<p style="font-size:12px;color:#6d7d78">Sent by ' + senderAddress + '</p></div>';
+  var options = { htmlBody: html, name: senderName, replyTo: requestedFrom || senderAddress };
+  if (aliases.indexOf(requestedFrom) >= 0) options.from = requestedFrom;
+  GmailApp.sendEmail(email, subject, plainText + "\n\nSent by " + senderAddress, options);
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, delivered: true, senderAddress: senderAddress }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 

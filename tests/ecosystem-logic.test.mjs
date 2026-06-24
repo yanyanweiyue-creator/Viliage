@@ -12,6 +12,22 @@ import {
   shouldAnimalRest,
   villagerRouteIsWalkable
 } from "../public/ecosystem-logic.mjs";
+import { projectActorPoint } from "../public/ecosystem-runtime.mjs";
+
+test("land actors project safely inside their island in both scene modes", () => {
+  const islands = {
+    autism: { "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 }, "3d": { x: 25.5, y: 61.5, rx: 19.6, ry: 25.2 } },
+    adhd: { "2d": { x: 75, y: 51, rx: 23, ry: 31 }, "3d": { x: 74.5, y: 60, rx: 19.6, ry: 25.2 } }
+  };
+  for (const island of Object.keys(islands)) {
+    for (const mode of ["2d", "3d"]) {
+      const projected = projectActorPoint({ x: island === "autism" ? -20 : 130, y: -40 }, island, mode, { x: .2, y: -.1 });
+      const bounds = islands[island][mode];
+      const normalized = ((projected.x - bounds.x) / bounds.rx) ** 2 + ((projected.y - bounds.y) / bounds.ry) ** 2;
+      assert.ok(normalized < 1, `${island} ${mode} actor must stay inside land`);
+    }
+  }
+});
 
 test("stableDailyChance is deterministic, date-sensitive, and honors probability boundaries", () => {
   const first = stableDailyChance("dragon:37.3,-122.0", "2026-06-23", 0.42);

@@ -66,7 +66,7 @@ async function sendPasswordResetEmail(env, email, code) {
   const response = await fetch(env.PASSWORD_EMAIL_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10 }),
+    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -87,6 +87,7 @@ function dbUser(row) {
     email: row.email,
     passwordHash: row.password_hash,
     surveyCompleted: Boolean(row.survey_completed),
+    onboardingCompleted: Boolean(row.onboarding_completed),
     profile: parseJson(row.profile_json, null),
     history: parseJson(row.history_json, []),
     feedback: row.feedback || "",
@@ -96,7 +97,7 @@ function dbUser(row) {
 }
 
 function safeUser(user) {
-  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), profile: user.profile || null, history: user.history || [] };
+  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "" };
 }
 
 function guestUser() {
@@ -357,7 +358,11 @@ async function syncUser(env, user) {
   };
   const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
-  return { synced: true };
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "User sheet rejected the update.");
+  return { synced: true, row: result.row || null };
 }
 
 async function environment(request) {
@@ -391,7 +396,7 @@ async function environment(request) {
 
 async function api(request, env, ctx) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL) });
+  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   if (request.method === "GET" && url.pathname === "/api/scoring-config") return json(scoreConfig);
   if (request.method === "GET" && url.pathname === "/api/environment") {
     try { return json(await environment(request)); } catch { return fail("Local weather is temporarily unavailable.", 503); }
@@ -405,7 +410,7 @@ async function api(request, env, ctx) {
     const { email = "" } = await body(request);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return fail("Please enter a valid email address.");
-    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (!user) {
       passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET);
@@ -457,8 +462,8 @@ async function api(request, env, ctx) {
     const normalizedEmail = String(email).toLowerCase();
     if (await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first()) return fail("An account with this email already exists.", 409);
     const now = new Date().toISOString();
-    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, profile: null, history: [], feedback: "", createdAt: now, updatedAt: now };
-    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, profile_json, history_json, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, 0, NULL, '[]', '', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
+    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", createdAt: now, updatedAt: now };
+    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": await createSession(env, user.id) });
   }
@@ -759,6 +764,14 @@ async function api(request, env, ctx) {
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
+    if (user.guest) return fail("Create an account to save onboarding progress.", 403);
+    user.onboardingCompleted = true;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET onboarding_completed = 1, updated_at = ? WHERE id = ?").bind(user.updatedAt, user.id).run();
+    return json({ user: safeUser(user) });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/ai/recommend") {
     const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await body(request);
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
@@ -793,8 +806,9 @@ async function api(request, env, ctx) {
     if (user.guest) return fail("Create an account to save feedback.", 403);
     user.feedback = String((await body(request)).feedback || "").slice(0, 2000);
     await env.DB.prepare("UPDATE users SET feedback = ?, updated_at = ? WHERE id = ?").bind(user.feedback, new Date().toISOString(), user.id).run();
-    ctx.waitUntil(syncUser(env, user).catch(() => {}));
-    return json({ ok: true, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, sync });
   }
 
   return fail("API route not found.", 404);

@@ -81,6 +81,7 @@ small { color: var(--muted); font-size: .76rem; font-weight: 500; }
 .password-reset-card { display: grid; gap: 1rem; margin-top: 1.5rem; padding: 1.35rem; border: 1px solid var(--line); border-radius: 1.35rem; background: rgba(255,255,255,.82); box-shadow: 0 1rem 2.8rem rgba(42,74,64,.09); }
 .password-reset-card h2 { margin-bottom: 0; font-size: clamp(2rem,3vw,2.8rem); }
 .password-reset-card .lede { margin-bottom: .4rem; font-size: .95rem; }
+.email-sender-note { margin: -.25rem 0 .2rem; padding: .65rem .8rem; border-left: 3px solid var(--sage); border-radius: 0 .7rem .7rem 0; background: var(--sage-soft); color: var(--sage-dark); font-size: .78rem; }
 .password-reset-card .back-link { justify-self: start; }
 .verification-destination { margin: 0; padding: .65rem .8rem; border-radius: .75rem; background: var(--sage-soft); font-size: .82rem; }
 .verification-code input { font-size: 1.35rem; font-weight: 800; letter-spacing: .48rem; text-align: center; }
@@ -110,6 +111,19 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 
 /* App */
 .app-shell { background: var(--cream); min-height: 100vh; transition: background .25s ease, color .25s ease; }
+.waffles-intro { position: fixed; z-index: 95; inset: 0; display: grid; place-items: center; padding: 1.2rem; background: radial-gradient(circle at 18% 20%, rgba(227,240,232,.68), transparent 32%), rgba(19,43,37,.62); backdrop-filter: blur(12px) saturate(.82); }
+.waffles-intro-card { position: relative; display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); gap: 1rem 2rem; width: min(48rem, 96vw); min-height: 27rem; padding: clamp(1.4rem, 4vw, 2.8rem); overflow: hidden; border: 1px solid rgba(255,255,255,.82); border-radius: 2rem; background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(243,247,235,.96)); box-shadow: 0 2.5rem 7rem rgba(7,32,25,.34); }
+.waffles-intro-card::before { content: ""; position: absolute; width: 20rem; height: 20rem; right: -8rem; bottom: -12rem; border-radius: 50%; background: rgba(244,216,135,.32); }
+.intro-skip { position: absolute; z-index: 2; right: 1.4rem; top: 1.2rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-weight: 700; }
+.intro-capy { position: relative; display: grid; place-items: center; align-self: center; min-height: 13rem; }
+.intro-capy .capy-avatar { width: clamp(7.5rem, 13vw, 10.5rem); height: clamp(6.5rem, 11vw, 9rem); filter: drop-shadow(0 1.2rem 1rem rgba(77,53,34,.18)); animation: capyFloat 4s ease-in-out infinite; }
+.intro-capy .capy-ear { width: 2rem; height: 2rem; }.intro-capy .capy-eye { top: 42%; }.intro-capy .capy-nose { top: 57%; }
+.intro-spark { position: absolute; color: #d4a944; animation: introSpark 2.2s ease-in-out infinite alternate; }.spark-one { left: 4%; top: 14%; font-size: 1.7rem; }.spark-two { right: 4%; bottom: 18%; font-size: 2.2rem; animation-delay: -.7s; }
+.intro-copy { align-self: center; position: relative; z-index: 1; }.intro-copy h2 { margin-bottom: .8rem; }.intro-copy > p:last-of-type { max-width: 31rem; color: var(--muted); font-size: 1.02rem; }
+.intro-building-badge { display: inline-grid; grid-template-columns: auto auto; align-items: center; gap: .75rem; margin-top: .65rem; padding: .65rem .9rem; border: 1px solid color-mix(in srgb, var(--sage) 40%, var(--line)); border-radius: 1rem; background: white; box-shadow: 0 .55rem 1.3rem rgba(42,74,64,.1); }.intro-building-badge b { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: .75rem; background: var(--sage-soft); color: var(--sage-dark); font-family: "Fraunces", serif; font-size: 1.25rem; }.intro-building-badge small, .intro-building-badge strong { display: block; }.intro-building-badge small { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; }
+.intro-progress { grid-column: 1 / -1; display: flex; align-items: center; gap: .9rem; align-self: end; color: var(--muted); font-size: .75rem; font-weight: 700; }.intro-dots { display: flex; gap: .35rem; }.intro-dots span { width: .48rem; height: .48rem; border-radius: 50%; background: #d9e1da; transition: width .2s, background .2s; }.intro-dots span.active { width: 1.5rem; border-radius: 999px; background: var(--sage); }
+.intro-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .7rem; position: relative; z-index: 1; }.intro-actions .secondary-button { margin-right: auto; }
+@keyframes introSpark { to { transform: translateY(-.45rem) rotate(12deg); opacity: .55; } }
 .app-header { position: sticky; top: 0; z-index: 30; height: 5.35rem; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 4vw; background: color-mix(in srgb, var(--cream) 93%, transparent); backdrop-filter: blur(18px); border-bottom: 1px solid var(--line); }
 .app-header nav { display: flex; gap: .4rem; background: #edf1ec; padding: .25rem; border-radius: 999px; }
 .nav-button { background: transparent; padding: .55rem 1rem; border-radius: 999px; font-weight: 700; color: var(--muted); }
@@ -174,6 +188,10 @@ body.scene-2d .habitat-feature { display: none; }
 .ecosystem-actor[data-gait="rabbit"].state-walking .actor-glyph { animation-duration: .46s; }
 .ecosystem-actor[data-gait="sheep"].state-walking .actor-glyph, .ecosystem-actor[data-gait="deer"].state-walking .actor-glyph { animation-duration: .82s; }
 .ecosystem-actor[data-gait="fox"].state-walking .actor-glyph { animation-duration: .58s; }
+.ecosystem-actor[data-gait="rabbit"].state-walking .actor-glyph { animation-name: rabbitHop; animation-timing-function: cubic-bezier(.35,0,.45,1); }
+.ecosystem-actor[data-gait="fox"].state-walking .creature-body { animation: foxStride .58s ease-in-out infinite alternate; transform-origin: 50% 70%; }
+.ecosystem-actor[data-gait="deer"].state-walking .creature-head { animation: deerBalance .82s ease-in-out infinite alternate; transform-origin: 30% 80%; }
+.ecosystem-actor[data-gait="sheep"].state-walking .wool-cloud { animation: woolBounce .82s ease-in-out infinite alternate; transform-origin: 50% 70%; }
 .ecosystem-actor.state-walking .leg-front, .ecosystem-actor.state-walking .arm-back { animation: limbStride .68s ease-in-out infinite alternate; }
 .ecosystem-actor.state-walking .leg-back, .ecosystem-actor.state-walking .arm-front { animation: limbStrideReverse .68s ease-in-out infinite alternate; }
 .ecosystem-actor.state-walking .creature-tail { animation: tailSway 1.15s ease-in-out infinite alternate; }
@@ -190,10 +208,16 @@ body.scene-2d .habitat-feature { display: none; }
 .ecosystem-actor.state-inside { opacity: 0; }
 .map-stage.focus-autism .ecosystem-actor[data-island="adhd"], .map-stage.focus-adhd .ecosystem-actor[data-island="autism"] { opacity: 0; }
 .map-stage.time-night .ecosystem-actor { filter: brightness(.72) drop-shadow(0 0 .35rem rgba(220,238,255,.42)); }
+body.scene-3d .ecosystem-actor .actor-art { filter: saturate(1.12) contrast(1.06) drop-shadow(0 .18rem .12rem rgba(255,255,255,.16)); }
+body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) scaleX(1.08); }
 .map-stage.time-night .ecosystem-actor[data-flying="true"] { opacity: 0; }
 .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="rabbit"], .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="fox"] { opacity: .22; }
 .map-stage.season-winter .habitat-feature { filter: saturate(.45) brightness(1.22); }
 @keyframes landBodyBob { 0%, 100% { transform: translateY(0) rotate(-.5deg); } 50% { transform: translateY(-6%) rotate(.7deg); } }
+@keyframes rabbitHop { 0%, 100% { transform: translateY(0) rotate(-1deg) scaleX(1.02); } 42% { transform: translateY(-16%) rotate(1deg) scaleX(.96); } 70% { transform: translateY(-5%) scaleX(1.04); } }
+@keyframes foxStride { from { transform: scaleX(.97) rotate(-1deg); } to { transform: scaleX(1.035) rotate(1deg); } }
+@keyframes deerBalance { from { transform: rotate(-2deg) translateY(1%); } to { transform: rotate(3deg) translateY(-2%); } }
+@keyframes woolBounce { from { transform: scaleY(.98); } to { transform: translateY(-3%) scaleY(1.025); } }
 @keyframes limbStride { from { transform: rotate(11deg); } to { transform: rotate(-11deg); } }
 @keyframes limbStrideReverse { from { transform: rotate(-11deg); } to { transform: rotate(11deg); } }
 @keyframes tailSway { from { transform: rotate(-5deg); } to { transform: rotate(7deg); } }
@@ -291,14 +315,14 @@ body.scene-2d .habitat-feature { display: none; }
 .map-stage.focus-adhd { transform: scale(2.08) translate(-25%, 0); }
 .map-stage.focus-autism .building[data-island="adhd"], .map-stage.focus-adhd .building[data-island="autism"],
 .map-stage.focus-autism .island-label, .map-stage.focus-adhd .island-label { opacity: 0; pointer-events: none; }
-.map-hotspot { border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.map-hotspot, .map-hotspot:hover, .map-hotspot:active, .map-hotspot:focus, body.scene-3d .map-hotspot, body.scene-3d .map-hotspot:hover { border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; filter: none !important; }
 .map-hotspot[data-map-label="School"] { clip-path: polygon(4% 22%, 26% 22%, 31% 5%, 69% 5%, 75% 22%, 96% 22%, 96% 96%, 4% 96%); }
 .map-hotspot[data-map-label="Courthouse"] { clip-path: polygon(50% 0, 96% 22%, 88% 30%, 88% 88%, 96% 88%, 96% 100%, 4% 100%, 4% 88%, 12% 88%, 12% 30%, 4% 22%); }
 .map-hotspot[data-map-label="Village"] { clip-path: polygon(5% 31%, 19% 18%, 35% 31%, 50% 10%, 67% 28%, 80% 17%, 96% 33%, 96% 98%, 4% 98%); }
 .map-hotspot[data-map-label="Woods"] { clip-path: polygon(8% 25%, 18% 7%, 34% 22%, 48% 2%, 61% 23%, 79% 8%, 95% 31%, 88% 93%, 12% 96%); }
 .map-hotspot[data-map-label="Park"] { clip-path: polygon(6% 18%, 28% 8%, 52% 18%, 73% 4%, 96% 20%, 91% 94%, 7% 94%); }
 .map-hotspot::after { top: calc(100% + .2rem); opacity: 0; transition: opacity .2s, transform .2s; }
-.map-hotspot:hover, .map-hotspot:focus-visible { background: rgba(255,255,255,.075); filter: drop-shadow(0 0 .5rem rgba(255,255,255,.75)); }
+.map-hotspot:hover, .map-hotspot:focus-visible { background: transparent; filter: none; }
 .map-hotspot:hover::after, .map-hotspot:focus-visible::after { opacity: 1; }
 .map-hotspot .building-icon, .map-hotspot .building-ground { display: none; }
 body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3d); width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .72); border: 0; background: transparent; box-shadow: none; }
@@ -452,6 +476,7 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   h1 { font-size: 2.65rem; }.simple-header, .app-header { padding: 0 1rem; }.survey-main { padding-top: 2.5rem; }.progress-rail { margin-bottom: 2.8rem; }
   .survey-grid fieldset { padding: 1rem; }.choice-grid, .choice-grid.compact { grid-template-columns: 1fr 1fr; }.form-actions { flex-direction: column-reverse; }
   .hero-copy { margin-inline: .5rem; }.panel-top, .panel-content { padding-left: 1.2rem; padding-right: 1.2rem; }.community-search-fixed { margin-inline: -1.2rem; padding-inline: 1.2rem; }.community-direct-room, .community-room-card, .community-person-card { grid-template-columns: auto minmax(0,1fr); }.community-direct-room .community-actions, .community-room-card .community-actions, .community-person-card .community-actions { grid-column: 1 / -1; justify-content: flex-end; }.mori-dock { left: 1rem; right: 1rem; bottom: .8rem; }.village-footer-cards { padding-inline: .3rem; }
+  .waffles-intro-card { grid-template-columns: 1fr; gap: .5rem; min-height: min(42rem, 92dvh); padding: 3.3rem 1.35rem 1.35rem; }.intro-capy { min-height: 8rem; }.intro-capy .capy-avatar { width: 6.4rem; height: 5.5rem; }.intro-copy { text-align: center; }.intro-copy > p:last-of-type { font-size: .9rem; }.intro-building-badge { text-align: left; }.intro-progress, .intro-actions { grid-column: 1; }.intro-actions .primary-button, .intro-actions .secondary-button { min-height: 2.8rem; padding: .65rem .85rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

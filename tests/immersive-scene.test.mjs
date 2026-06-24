@@ -22,6 +22,13 @@ test("water surface is deterministic at one instant and changes over time", () =
   assert.ok(Number.isFinite(first));
 });
 
+test("3D buildings render dedicated night lighting", async () => {
+  const source = await readFile(new URL("../public/immersive-scene.mjs", import.meta.url), "utf8");
+  assert.match(source, /drawLitWindow/);
+  assert.match(source, /isNight/);
+  assert.match(source, /rgba\(255,218,112/);
+});
+
 test("every 3D building center is grounded inside its own island", async () => {
   const source = await readFile(new URL("../public/site-config.js", import.meta.url), "utf8");
   const context = { window: {} };

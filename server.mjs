@@ -260,7 +260,7 @@ async function sendPasswordResetEmail(email, code) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10 }),
+    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: process.env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -275,8 +275,10 @@ function safeUser(user) {
     name: user.name,
     email: user.email,
     surveyCompleted: Boolean(user.surveyCompleted),
+    onboardingCompleted: user.onboardingCompleted === undefined ? true : Boolean(user.onboardingCompleted),
     profile: user.profile || null,
-    history: user.history || []
+    history: user.history || [],
+    feedback: user.feedback || ""
   };
 }
 
@@ -627,7 +629,7 @@ async function updateUser(userId, updater) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL) });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "GET" && url.pathname === "/api/scoring-config") {
@@ -649,7 +651,7 @@ async function handleApi(req, res, url) {
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return sendError(res, 400, "Please enter a valid email address.");
     const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL);
-    const generic = { ok: true, deliveryAvailable, message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const generic = { ok: true, deliveryAvailable, senderAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);
     if (!user) {
@@ -703,7 +705,7 @@ async function handleApi(req, res, url) {
     if (String(password || "").length < 8) return sendError(res, 400, "Password must be at least 8 characters.");
     const users = await loadUsers();
     if (users.some((user) => user.email.toLowerCase() === email.toLowerCase())) return sendError(res, 409, "An account with this email already exists.");
-    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, profile: null, history: [], createdAt: new Date().toISOString() };
+    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", createdAt: new Date().toISOString() };
     users.push(user);
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
@@ -984,6 +986,12 @@ async function handleApi(req, res, url) {
     let sync = { synced: false };
     try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
     return sendJson(res, 200, { user: safeUser(saved), sync });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/onboarding/complete") {
+    if (user.guest) return sendError(res, 403, "Create an account to save onboarding progress.");
+    const saved = await updateUser(user.id, (item) => ({ ...item, onboardingCompleted: true, updatedAt: new Date().toISOString() }));
+    return sendJson(res, 200, { user: safeUser(saved) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {

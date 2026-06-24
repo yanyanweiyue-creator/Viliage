@@ -22,6 +22,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /id="surface-motion"/);
   assert.match(html, /data-action="continue-guest"/);
   assert.doesNotMatch(css, /\.map-hotspot::before/);
+  assert.match(css, /\.map-hotspot:hover[^}]*background:\s*transparent/);
+  assert.match(html, /id="waffles-intro"/);
   assert.match(css, /island-transition\.active/);
   assert.match(css, /island-transition\.disperse/);
   assert.match(css, /map-stage\.focus-autism/);

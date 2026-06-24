@@ -6,6 +6,14 @@ import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 
 const config = window.CAPY_CONFIG;
+const WAFFLES_INTRO_STEPS = Object.freeze([
+  { eyebrow: "Meet your village guide", title: "Hi, I’m Waffles.", text: "I’m a friendly AI resource guide. Tell me what you are trying to find, and I’ll compare the village database with your personal record. I don’t diagnose or replace professional advice." },
+  { eyebrow: "Village · Support", title: "Start with support.", text: "The Village connects you with contact options, community conversations, friends, groups, and a dedicated search for support resources.", building: "Village", symbol: "⌂" },
+  { eyebrow: "School · Education", title: "Find education resources.", text: "The School helps Waffles search for education programs, school accommodations, IEP information, learning support, and nearby services.", building: "School", symbol: "▤" },
+  { eyebrow: "Courthouse · Legal", title: "Understand rights and advocacy.", text: "The Courthouse searches legal and advocacy resources. Always verify formal advice with a qualified professional or service provider.", building: "Courthouse", symbol: "§" },
+  { eyebrow: "Park · Recreation", title: "Explore recreation.", text: "The Park helps you find inclusive recreation, calm weekend activities, sports, camps, and community programs that fit your needs.", building: "Park", symbol: "◇" },
+  { eyebrow: "Woods · Activities", title: "See village activities.", text: "The Woods opens volunteer opportunities and upcoming village activities. You can return to Waffles from the guide button at any time.", building: "Woods", symbol: "♧" }
+]);
 
 function loadSavedSettings() {
   try {
@@ -24,6 +32,8 @@ const state = {
   currentDiagnosis: "",
   pendingSearch: null,
   passwordResetEmail: "",
+  introStep: 0,
+  introOpen: false,
   resources: [],
   sheetSync: { configured: false },
   settings: loadSavedSettings(),
@@ -750,6 +760,9 @@ async function submitPasswordRequest(event) {
       status.textContent = "Email delivery is not configured yet. Please ask the site administrator for help.";
       return;
     }
+    $("#password-email-sender").textContent = response.senderAddress
+      ? `The verification email will come from ${response.senderAddress}.`
+      : "The verification email will come from the It Takes a Village Gmail account. Check spam if it does not appear.";
     state.passwordResetEmail = email;
     $("#password-reset-email").textContent = email;
     $("#password-request-form").classList.add("hidden");
@@ -1313,7 +1326,7 @@ function profilePanel() {
       <div class="sync-badge ${state.sheetSync.configured ? "connected" : "missing"}">${escapeHtml(state.sheetSync.configured ? t("sheetConnected") : t("sheetMissing"))}</div>
       <div class="record-summary">${escapeHtml(profile?.summary || "Complete the Community Compass to create your record.")}</div>
       <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article></div>
-      <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?"></textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
+      <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
       <button class="text-button" data-action="logout">${escapeHtml(t("logout"))}</button>`
   });
 }
@@ -1348,6 +1361,7 @@ function applySettings() {
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
   renderEnvironmentStatus();
   state.ecosystem?.setCalm(calm);
+  state.ecosystem?.setSceneMode(sceneMode);
   state.immersive?.setReducedMotion(calm);
   state.immersive?.setEnabled(sceneMode === "3d");
   state.surfaceMotion?.setReducedMotion(calm);
@@ -1704,6 +1718,49 @@ function hydrateApp() {
   loadIntegrationStatus();
   loadResources();
   loadEnvironment();
+  if (!state.user?.guest && state.user?.onboardingCompleted === false && !state.introOpen) setTimeout(openWafflesIntro, 350);
+}
+
+function renderWafflesIntro() {
+  const step = WAFFLES_INTRO_STEPS[state.introStep] || WAFFLES_INTRO_STEPS[0];
+  $("#waffles-intro-eyebrow").textContent = step.eyebrow;
+  $("#waffles-intro-title").textContent = step.title;
+  $("#waffles-intro-text").textContent = step.text;
+  $("#waffles-intro-count").textContent = `${state.introStep + 1} of ${WAFFLES_INTRO_STEPS.length}`;
+  $("#waffles-intro-dots").innerHTML = WAFFLES_INTRO_STEPS.map((_, index) => `<span class="${index === state.introStep ? "active" : ""}"></span>`).join("");
+  const badge = $("#waffles-intro-building");
+  badge.classList.toggle("hidden", !step.building);
+  badge.innerHTML = step.building ? `<b aria-hidden="true">${escapeHtml(step.symbol)}</b><span><small>Tap the illustration</small><strong>${escapeHtml(step.building)}</strong></span>` : "";
+  $("#intro-back").classList.toggle("hidden", state.introStep === 0);
+  $("#intro-next").textContent = state.introStep === WAFFLES_INTRO_STEPS.length - 1 ? "Enter the village →" : "Next →";
+}
+
+function openWafflesIntro() {
+  if (!state.user || state.user.guest || state.user.onboardingCompleted !== false) return;
+  state.introStep = 0;
+  state.introOpen = true;
+  $("#waffles-intro").classList.remove("hidden");
+  renderWafflesIntro();
+  $("#intro-next").focus();
+}
+
+async function finishWafflesIntro() {
+  state.introOpen = false;
+  $("#waffles-intro").classList.add("hidden");
+  if (!state.user || state.user.guest || state.user.onboardingCompleted) return;
+  state.user.onboardingCompleted = true;
+  try {
+    const { user } = await api("/api/onboarding/complete", { method: "POST", body: "{}" });
+    state.user = user;
+  } catch { toast("Introduction dismissed for this visit."); }
+}
+
+function changeIntroStep(direction) {
+  const next = state.introStep + direction;
+  if (next < 0) return;
+  if (next >= WAFFLES_INTRO_STEPS.length) return finishWafflesIntro();
+  state.introStep = next;
+  renderWafflesIntro();
 }
 
 async function logout() {
@@ -1725,8 +1782,12 @@ async function submitFeedback(event) {
   status.textContent = "Saving…";
   try {
     const data = await api("/api/feedback", { method: "POST", body: JSON.stringify({ feedback }) });
+    if (state.user) state.user.feedback = String(feedback || "");
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
-    status.textContent = "Feedback saved. Thank you.";
+    status.classList.toggle("form-success", Boolean(data.sync?.synced));
+    status.textContent = data.sync?.synced
+      ? "Feedback saved to your account and User data sheet. Thank you."
+      : `Feedback saved to your account, but the User data sheet could not be updated${data.sync?.reason ? `: ${data.sync.reason}` : "."}`;
   } catch (error) {
     status.textContent = error.message;
   }
@@ -1752,6 +1813,9 @@ document.addEventListener("click", (event) => {
   if (action === "continue-guest") continueAsGuest();
   if (action === "open-password-reset") openPasswordReset();
   if (action === "close-password-reset") closePasswordReset();
+  if (action === "intro-next") changeIntroStep(1);
+  if (action === "intro-back") changeIntroStep(-1);
+  if (action === "intro-skip") finishWafflesIntro();
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();

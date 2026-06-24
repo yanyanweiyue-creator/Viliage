@@ -186,6 +186,7 @@ test("registration and survey automatically send the expected Google Sheet field
       body: registerBody
     });
     assert.equal(register.status, 201);
+    assert.equal(JSON.parse(register.text).user.onboardingCompleted, false);
     assert.equal(received[0]["User name"], "Sheet Test");
     assert.equal(received[0]["Password"], "Not stored — secure hash only");
     assert.equal(received[0]["Email"], email);
@@ -194,6 +195,10 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(received[0]["history"], "[]");
     assert.equal(received[0]["feedback"], "");
     assert.equal(received[0]["Chat History"], "[]");
+
+    const onboarding = await httpRequest(`http://127.0.0.1:${port}/api/onboarding/complete`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: register.headers["set-cookie"][0].split(";")[0] }, body: "{}" });
+    assert.equal(onboarding.status, 200);
+    assert.equal(JSON.parse(onboarding.text).user.onboardingCompleted, true);
 
     const profileBody = JSON.stringify({ responses: { interests: ["Autism"], age: "8–12", journey: "1–3 years", situation: ["Exploring concerns"], note: "IEP support" } });
     const profile = await httpRequest(`http://127.0.0.1:${port}/api/profile`, {
@@ -211,6 +216,16 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(received[1]["Email"], email);
     assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Email", "Password", "User name", "feedback", "history", "response of survey"].sort());
 
+    const feedbackBody = JSON.stringify({ feedback: "Please keep the calmer map controls." });
+    const feedback = await httpRequest(`http://127.0.0.1:${port}/api/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(feedbackBody), Cookie: register.headers["set-cookie"][0].split(";")[0] },
+      body: feedbackBody
+    });
+    assert.equal(feedback.status, 200);
+    assert.equal(JSON.parse(feedback.text).sync.synced, true);
+    assert.equal(received[2].feedback, "Please keep the calmer map controls.");
+
     const cookie = register.headers["set-cookie"][0].split(";")[0];
     for (const [path, requestBody] of [
       ["/api/community/settings", { enabled: true, displayName: "Sheet Test" }],
@@ -224,8 +239,8 @@ test("registration and survey automatically send the expected Google Sheet field
       });
       assert.ok([200, 201].includes(communityResponse.status));
     }
-    assert.match(received[2]["Chat History"], /A sheet-synced hello/);
-    assert.match(received[2]["Chat History"], /Village Commons/);
+    assert.match(received[3]["Chat History"], /A sheet-synced hello/);
+    assert.match(received[3]["Chat History"], /Village Commons/);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
     server.closeAllConnections();

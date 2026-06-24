@@ -419,15 +419,45 @@ export class ImmersiveScene {
     ctx.fill();
     ctx.shadowColor = "transparent";
     const label = String(building.mapLabel || "Village");
-    if (label === "School") this.drawSchool(ctx);
-    else if (label === "Courthouse") this.drawCourthouse(ctx);
-    else if (label === "Village") this.drawVillage(ctx);
-    else if (label === "Park") this.drawPark(ctx, palette, time);
-    else this.drawWoodsBuilding(ctx, palette);
+    const isNight = !this.environment.isDay;
+    if (isNight) {
+      ctx.save();
+      ctx.globalCompositeOperation = "screen";
+      const aura = ctx.createRadialGradient(0, -13, 3, 0, -13, 58);
+      aura.addColorStop(0, "rgba(255,210,103,.2)");
+      aura.addColorStop(1, "rgba(255,194,76,0)");
+      ctx.fillStyle = aura;
+      ctx.fillRect(-62, -70, 124, 88);
+      ctx.restore();
+    }
+    if (label === "School") this.drawSchool(ctx, isNight, time);
+    else if (label === "Courthouse") this.drawCourthouse(ctx, isNight, time);
+    else if (label === "Village") this.drawVillage(ctx, isNight, time);
+    else if (label === "Park") this.drawPark(ctx, palette, time, isNight);
+    else this.drawWoodsBuilding(ctx, palette, isNight, time);
     ctx.restore();
   }
 
-  drawSchool(ctx) {
+  drawLitWindow(ctx, x, y, width, height, isNight, time, phase = 0) {
+    const flicker = .9 + Math.sin(time * .0011 + phase) * .08;
+    ctx.save();
+    ctx.fillStyle = isNight ? `rgba(255,218,112,${flicker})` : "#d8f0e9";
+    if (isNight) {
+      ctx.shadowColor = "rgba(255,193,72,.88)";
+      ctx.shadowBlur = 9;
+    }
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = isNight ? "rgba(125,83,38,.72)" : "rgba(74,104,94,.5)";
+    ctx.lineWidth = .8;
+    ctx.strokeRect(x, y, width, height);
+    ctx.beginPath();
+    ctx.moveTo(x + width / 2, y); ctx.lineTo(x + width / 2, y + height);
+    ctx.moveTo(x, y + height / 2); ctx.lineTo(x + width, y + height / 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawSchool(ctx, isNight, time) {
     const wall = ctx.createLinearGradient(-34, -30, 34, 12);
     wall.addColorStop(0, "#f2d6a0");
     wall.addColorStop(1, "#b87845");
@@ -435,14 +465,13 @@ export class ImmersiveScene {
     ctx.fillRect(-36, -27, 72, 34);
     ctx.fillStyle = "#914f38";
     ctx.beginPath(); ctx.moveTo(-43, -27); ctx.lineTo(0, -49); ctx.lineTo(43, -27); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#d8f0e9";
-    for (const wx of [-25, -12, 13, 26]) ctx.fillRect(wx - 4, -18, 8, 9);
+    for (const [index, wx] of [-25, -12, 13, 26].entries()) this.drawLitWindow(ctx, wx - 4, -18, 8, 9, isNight, time, index);
     ctx.fillStyle = "#70503a"; ctx.fillRect(-5, -12, 10, 19);
     ctx.fillStyle = "#fff4c9"; ctx.beginPath(); ctx.arc(0, -34, 7, 0, TAU); ctx.fill();
     ctx.strokeStyle = "#6a503c"; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -39); ctx.moveTo(0, -34); ctx.lineTo(4, -31); ctx.stroke();
   }
 
-  drawCourthouse(ctx) {
+  drawCourthouse(ctx, isNight, time) {
     ctx.fillStyle = "#e9e2ce";
     ctx.fillRect(-29, -29, 58, 36);
     ctx.fillStyle = "#cbc3ad";
@@ -450,29 +479,35 @@ export class ImmersiveScene {
     ctx.fillStyle = "#f5efdc";
     for (const cx of [-20, -7, 7, 20]) ctx.fillRect(cx - 3.2, -27, 6.4, 31);
     ctx.fillStyle = "#897b67"; ctx.fillRect(-7, -12, 14, 19);
+    this.drawLitWindow(ctx, -24, -20, 8, 13, isNight, time, 1.2);
+    this.drawLitWindow(ctx, 16, -20, 8, 13, isNight, time, 2.5);
     ctx.fillStyle = "#c8bea8"; ctx.fillRect(-36, 5, 72, 5); ctx.fillRect(-30, 12, 60, 4);
   }
 
-  drawVillage(ctx) {
-    for (const home of [{ x: -26, y: -2, s: .8, c: "#d79b63" }, { x: 0, y: -10, s: 1, c: "#c78655" }, { x: 28, y: 1, s: .72, c: "#e0ad70" }]) {
+  drawVillage(ctx, isNight, time) {
+    for (const [index, home] of [{ x: -26, y: -2, s: .8, c: "#d79b63" }, { x: 0, y: -10, s: 1, c: "#c78655" }, { x: 28, y: 1, s: .72, c: "#e0ad70" }].entries()) {
       ctx.save(); ctx.translate(home.x, home.y); ctx.scale(home.s, home.s);
       ctx.fillStyle = home.c; ctx.fillRect(-14, -25, 28, 27);
       ctx.fillStyle = "#7e4b36"; ctx.beginPath(); ctx.moveTo(-18, -25); ctx.lineTo(0, -39); ctx.lineTo(18, -25); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#e7f3e8"; ctx.fillRect(-9, -17, 6, 7); ctx.fillRect(4, -17, 6, 7);
+      this.drawLitWindow(ctx, -9, -17, 6, 7, isNight, time, index); this.drawLitWindow(ctx, 4, -17, 6, 7, isNight, time, index + .7);
       ctx.fillStyle = "#69503c"; ctx.fillRect(-3, -10, 7, 12);
       ctx.restore();
     }
   }
 
-  drawPark(ctx, palette, time) {
+  drawPark(ctx, palette, time, isNight) {
     ctx.strokeStyle = "#83573d"; ctx.lineWidth = 4; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(-25, 5); ctx.lineTo(-21, -31); ctx.lineTo(22, -31); ctx.lineTo(26, 5); ctx.moveTo(-18, -22); ctx.lineTo(19, -22); ctx.stroke();
     ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-10, -21); ctx.lineTo(-10, -4); ctx.moveTo(9, -21); ctx.lineTo(9, -4); ctx.stroke();
     ctx.fillStyle = "#caa566"; ctx.fillRect(-17, -5 + Math.sin(time * .002) * 1.4, 13, 3); ctx.fillRect(3, -5 - Math.sin(time * .002) * 1.4, 13, 3);
     ctx.fillStyle = palette.accent; for (let flower = 0; flower < 8; flower += 1) { ctx.beginPath(); ctx.arc(-34 + flower * 10, 4 + (flower % 2) * 3, 2.2, 0, TAU); ctx.fill(); }
+    for (const lampX of [-33, 33]) {
+      ctx.strokeStyle = "#574a3c"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lampX, 5); ctx.lineTo(lampX, -24); ctx.stroke();
+      ctx.fillStyle = isNight ? "#ffe59b" : "#edf4df"; ctx.shadowColor = isNight ? "#ffc858" : "transparent"; ctx.shadowBlur = isNight ? 12 : 0; ctx.beginPath(); ctx.arc(lampX, -26, 4.2, 0, TAU); ctx.fill(); ctx.shadowColor = "transparent";
+    }
   }
 
-  drawWoodsBuilding(ctx, palette) {
+  drawWoodsBuilding(ctx, palette, isNight, time) {
     for (const tree of [{ x: -25, s: .9 }, { x: -8, s: 1.15 }, { x: 13, s: .86 }, { x: 28, s: 1.05 }]) {
       ctx.save(); ctx.translate(tree.x, 1); ctx.scale(tree.s, tree.s);
       ctx.fillStyle = "#604630"; ctx.fillRect(-2, -31, 4, 31);
@@ -482,6 +517,7 @@ export class ImmersiveScene {
     }
     ctx.fillStyle = "#e6d3a6"; ctx.beginPath(); ctx.moveTo(-13, 3); ctx.lineTo(0, -14); ctx.lineTo(14, 3); ctx.closePath(); ctx.fill();
     ctx.fillStyle = "#b96f49"; ctx.beginPath(); ctx.moveTo(-13, 3); ctx.lineTo(0, -14); ctx.lineTo(0, 3); ctx.closePath(); ctx.fill();
+    this.drawLitWindow(ctx, -3, -5, 6, 7, isNight, time, 3.2);
   }
 
   drawIsland(ctx, cx, cy, rx, ry, palette, phase, island) {

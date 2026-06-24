@@ -150,11 +150,39 @@ export class SurfaceMotion {
       ctx.quadraticCurveTo(x + length * .5, y - waterWave(x, y, time, wind), x + length, y + 1.5);
       ctx.stroke();
     }
+    this.drawCurrentField(ctx, time, wind);
     ctx.restore();
 
     this.drawShoreFoam(ctx, time, wind);
     this.drawRipples(ctx, time);
     this.drawAirflow(ctx, time, wind);
+  }
+
+  drawCurrentField(ctx, time, wind) {
+    const drift = time * (.012 + wind * .0007);
+    ctx.save();
+    ctx.lineCap = "round";
+    for (let lane = 0; lane < 8; lane += 1) {
+      const baseY = this.height * (.14 + lane * .105);
+      const shift = (drift + lane * 83) % (this.width * .34);
+      ctx.strokeStyle = `rgba(188,239,240,${.035 + (lane % 3) * .018})`;
+      ctx.lineWidth = 5 + lane * .55;
+      ctx.beginPath();
+      ctx.moveTo(-this.width * .2 + shift, baseY);
+      ctx.bezierCurveTo(this.width * .18 + shift, baseY - 34, this.width * .42 + shift, baseY + 28, this.width * .72 + shift, baseY - 7);
+      ctx.stroke();
+    }
+    for (let cell = 0; cell < 28; cell += 1) {
+      const x = ((cell * 149 + drift * 2.1) % (this.width + 120)) - 60;
+      const y = this.height * (.13 + ((cell * 47) % 79) / 100);
+      const pulse = .5 + Math.sin(time * .0014 + cell * 1.7) * .5;
+      ctx.strokeStyle = `rgba(233,255,248,${.035 + pulse * .055})`;
+      ctx.lineWidth = .7;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 9 + pulse * 7, 3 + pulse * 2, -.18, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawShoreFoam(ctx, time, wind) {
