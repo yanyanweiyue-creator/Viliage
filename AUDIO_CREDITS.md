@@ -7,6 +7,10 @@ decoded, the app uses a species-specific Web Audio fallback.
 
 ## Bundled recordings
 
+- `public/audio/sfx/morning-birds.mp3` — project-provided ElevenLabs-generated
+  gentle morning bird ambience. Playback uses only the opening 3.2 seconds with
+  a short fade-in and fade-out.
+
 - `public/audio/sfx/cow.ogg` — “Single Cow Moo” by MichaeltheFox8621,
   [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Single_Cow_Moo.ogg),
   licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
@@ -21,10 +25,11 @@ decoded, the app uses a species-specific Web Audio fallback.
   [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:American_Elk_Bugling.ogg),
   public domain as a work created in official U.S. federal duties.
 
-The fox, rabbit, songbird, gull, footsteps, dawn-dragon whoosh, and Waffles answer
-chirp currently use distinct procedural Web Audio voices. Bird and gull calls
-use a deliberately quiet, slow-fading tone with a short spatial echo. These can be replaced
-with licensed recordings by adding entries to the same sample manifest.
+The fox, rabbit, footsteps, dawn-dragon whoosh, and Waffles answer chirp use
+distinct procedural Web Audio voices. Songbirds and gulls use the quiet
+project-provided sample above; when it cannot be decoded, they fall back to a
+slow-fading procedural tone. Any voice can be replaced by changing the same
+sample manifest.
 
 ## Background music
 

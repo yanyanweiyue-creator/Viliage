@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
 import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "../scoring-engine.mjs";
+import { communitySimilarity, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -68,6 +69,60 @@ function dbUser(row) {
 
 function safeUser(user) {
   return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), profile: user.profile || null, history: user.history || [] };
+}
+
+async function allRows(statement) {
+  const result = await statement.all();
+  return Array.isArray(result) ? result : result?.results || [];
+}
+
+async function communityProfile(env, userId) {
+  return env.DB.prepare("SELECT * FROM community_profiles WHERE user_id = ? LIMIT 1").bind(userId).first();
+}
+
+async function communityOverview(env, user) {
+  const profile = await communityProfile(env, user.id);
+  const groups = await allRows(env.DB.prepare(`
+    SELECT r.id, r.name, r.description,
+      (SELECT COUNT(*) FROM chat_members members WHERE members.room_id = r.id) AS member_count,
+      EXISTS(SELECT 1 FROM chat_members mine WHERE mine.room_id = r.id AND mine.user_id = ?) AS joined
+    FROM chat_rooms r WHERE r.kind = 'group' ORDER BY r.created_at, r.name
+  `).bind(user.id));
+  if (!profile?.enabled) return { enabled: false, displayName: profile?.display_name || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
+
+  const candidates = await allRows(env.DB.prepare(`
+    SELECT u.id, u.profile_json, cp.display_name
+    FROM community_profiles cp JOIN users u ON u.id = cp.user_id
+    WHERE cp.enabled = 1 AND u.id != ?
+      AND NOT EXISTS (SELECT 1 FROM chat_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))
+      AND NOT EXISTS (SELECT 1 FROM chat_connections c WHERE (c.requester_id = ? AND c.recipient_id = u.id) OR (c.recipient_id = ? AND c.requester_id = u.id))
+    LIMIT 60
+  `).bind(user.id, user.id, user.id, user.id, user.id));
+  const recommendations = candidates.map((candidate) => {
+    const match = communitySimilarity(user.profile, parseJson(candidate.profile_json, null));
+    return { userId: candidate.id, displayName: candidate.display_name, score: match.score, reasons: match.reasons };
+  }).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)).slice(0, 6);
+
+  const incoming = await allRows(env.DB.prepare(`
+    SELECT c.id, c.requester_id AS user_id, cp.display_name, c.created_at
+    FROM chat_connections c JOIN community_profiles cp ON cp.user_id = c.requester_id
+    WHERE c.recipient_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC
+  `).bind(user.id));
+  const outgoing = await allRows(env.DB.prepare(`
+    SELECT c.id, c.recipient_id AS user_id, cp.display_name, c.created_at
+    FROM chat_connections c JOIN community_profiles cp ON cp.user_id = c.recipient_id
+    WHERE c.requester_id = ? AND c.status = 'pending' ORDER BY c.created_at DESC
+  `).bind(user.id));
+  const directRooms = await allRows(env.DB.prepare(`
+    SELECT r.id, COALESCE(cp.display_name, other_user.name) AS name
+    FROM chat_rooms r
+    JOIN chat_members mine ON mine.room_id = r.id AND mine.user_id = ?
+    JOIN chat_members other ON other.room_id = r.id AND other.user_id != ?
+    JOIN users other_user ON other_user.id = other.user_id
+    LEFT JOIN community_profiles cp ON cp.user_id = other.user_id
+    WHERE r.kind = 'direct' ORDER BY r.created_at DESC
+  `).bind(user.id, user.id));
+  return { enabled: true, displayName: profile.display_name, groups, recommendations, incoming, outgoing, directRooms };
 }
 
 async function sessionUser(request, env) {
@@ -299,6 +354,96 @@ async function api(request, env, ctx) {
 
   const user = await sessionUser(request, env);
   if (!user) return fail("Please sign in first.", 401);
+
+  if (request.method === "GET" && url.pathname === "/api/community") {
+    return json(await communityOverview(env, user));
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/community/settings") {
+    const input = await body(request);
+    const enabled = Boolean(input.enabled);
+    const displayName = safeDisplayName(input.displayName, safeDisplayName(user.name));
+    const now = new Date().toISOString();
+    await env.DB.prepare(`
+      INSERT INTO community_profiles (user_id, enabled, display_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled, display_name = excluded.display_name, updated_at = excluded.updated_at
+    `).bind(user.id, enabled ? 1 : 0, displayName, now, now).run();
+    return json(await communityOverview(env, user));
+  }
+
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages))?$/);
+  if (roomMatch) {
+    const roomId = decodeURIComponent(roomMatch[1]);
+    const operation = roomMatch[2] || "";
+    const profile = await communityProfile(env, user.id);
+    if (!profile?.enabled) return fail("Join the community before using chat.", 403);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+
+    if (request.method === "POST" && operation === "join") {
+      if (room.kind !== "group") return fail("Private conversations cannot be joined directly.", 403);
+      await env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, user.id, new Date().toISOString()).run();
+      return json({ ok: true });
+    }
+
+    const membership = await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    if (!membership) return fail("Join this room before reading or sending messages.", 403);
+
+    if (request.method === "GET" && operation === "messages") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT m.id, m.user_id, m.body, m.created_at, COALESCE(cp.display_name, u.name) AS author
+        FROM chat_messages m JOIN users u ON u.id = m.user_id
+        LEFT JOIN community_profiles cp ON cp.user_id = m.user_id
+        WHERE m.room_id = ? ORDER BY m.created_at DESC LIMIT 100
+      `).bind(roomId));
+      return json({ room: { id: room.id, name: room.name, kind: room.kind }, messages: rows.reverse().map((row) => ({ id: row.id, userId: row.user_id, author: row.author, body: row.body, createdAt: row.created_at, mine: row.user_id === user.id })) });
+    }
+
+    if (request.method === "POST" && operation === "messages") {
+      const messageBody = String((await body(request)).message || "").trim().slice(0, 1000);
+      if (!messageBody) return fail("Write a message first.");
+      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
+      await env.DB.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)").bind(message.id, roomId, user.id, message.body, message.createdAt).run();
+      return json({ message: { ...message, author: profile.display_name, mine: true } }, 201);
+    }
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/community/connect") {
+    const targetUserId = String((await body(request)).targetUserId || "");
+    if (!targetUserId || targetUserId === user.id) return fail("Choose another community member.");
+    const ownProfile = await communityProfile(env, user.id);
+    const targetProfile = await communityProfile(env, targetUserId);
+    if (!ownProfile?.enabled || !targetProfile?.enabled) return fail("Both members must opt in to community matching.", 403);
+    const key = pairKey(user.id, targetUserId);
+    const existing = await env.DB.prepare("SELECT id, status FROM chat_connections WHERE pair_key = ? LIMIT 1").bind(key).first();
+    if (existing) return fail(existing.status === "accepted" ? "You already have a private chat." : "A connection request already exists.", 409);
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO chat_connections (id, pair_key, requester_id, recipient_id, status, room_id, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', NULL, ?, ?)")
+      .bind(randomBytes(12).toString("hex"), key, user.id, targetUserId, now, now).run();
+    return json({ ok: true }, 201);
+  }
+
+  const connectionMatch = url.pathname.match(/^\/api\/community\/connections\/([^/]+)\/(accept|decline)$/);
+  if (request.method === "POST" && connectionMatch) {
+    const connectionId = decodeURIComponent(connectionMatch[1]);
+    const action = connectionMatch[2];
+    const connection = await env.DB.prepare("SELECT * FROM chat_connections WHERE id = ? AND recipient_id = ? AND status = 'pending' LIMIT 1").bind(connectionId, user.id).first();
+    if (!connection) return fail("Connection request not found.", 404);
+    const now = new Date().toISOString();
+    if (action === "decline") {
+      await env.DB.prepare("UPDATE chat_connections SET status = 'declined', updated_at = ? WHERE id = ?").bind(now, connection.id).run();
+      return json({ ok: true });
+    }
+    const roomId = `direct-${randomBytes(12).toString("hex")}`;
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO chat_rooms (id, kind, name, description, created_by, created_at) VALUES (?, 'direct', 'Private conversation', '', ?, ?)").bind(roomId, connection.requester_id, now),
+      env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, connection.requester_id, now),
+      env.DB.prepare("INSERT INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, connection.recipient_id, now),
+      env.DB.prepare("UPDATE chat_connections SET status = 'accepted', room_id = ?, updated_at = ? WHERE id = ?").bind(roomId, now, connection.id)
+    ]);
+    return json({ ok: true, roomId });
+  }
 
   if (request.method === "POST" && url.pathname === "/api/profile") {
     const { responses } = await body(request);

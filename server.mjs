@@ -6,12 +6,14 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { DEFAULT_SCORE_CONFIG, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, rankResources } from "./scoring-engine.mjs";
+import { communitySimilarity, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const DATA_DIR = join(ROOT, "data");
 const USERS_FILE = process.env.USERS_FILE || join(DATA_DIR, "users.json");
 const SESSIONS_FILE = process.env.SESSIONS_FILE || join(DATA_DIR, "sessions.json");
+const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -122,6 +124,58 @@ async function loadUsers() {
 
 async function saveUsers(users) {
   await saveJsonAtomically(USERS_FILE, users);
+}
+
+function defaultCommunity() {
+  const createdAt = new Date().toISOString();
+  return {
+    profiles: {},
+    rooms: [
+      { id: "group-general", kind: "group", name: "Village Commons", description: "A welcoming place for everyday questions, encouragement, and shared experiences.", createdAt },
+      { id: "group-school", kind: "group", name: "School & IEP Circle", description: "Share school-navigation experiences and preparation ideas.", createdAt },
+      { id: "group-recreation", kind: "group", name: "Inclusive Recreation", description: "Exchange ideas for calm, accessible, and inclusive activities.", createdAt }
+    ],
+    members: [],
+    messages: [],
+    connections: []
+  };
+}
+
+async function loadCommunity() {
+  try {
+    const saved = JSON.parse(await readFile(COMMUNITY_FILE, "utf8"));
+    const base = defaultCommunity();
+    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [] };
+  } catch { return defaultCommunity(); }
+}
+
+async function saveCommunity(community) {
+  await saveJsonAtomically(COMMUNITY_FILE, community);
+}
+
+async function localCommunityOverview(user, community) {
+  const users = await loadUsers();
+  const ownProfile = community.profiles[user.id];
+  const groups = community.rooms.filter((room) => room.kind === "group").map((room) => ({
+    id: room.id,
+    name: room.name,
+    description: room.description,
+    member_count: community.members.filter((member) => member.roomId === room.id).length,
+    joined: community.members.some((member) => member.roomId === room.id && member.userId === user.id)
+  }));
+  if (!ownProfile?.enabled) return { enabled: false, displayName: ownProfile?.displayName || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
+  const recommendations = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !community.connections.some((connection) => connection.pairKey === pairKey(user.id, candidate.id))).map((candidate) => {
+    const match = communitySimilarity(user.profile, candidate.profile);
+    return { userId: candidate.id, displayName: community.profiles[candidate.id].displayName, score: match.score, reasons: match.reasons };
+  }).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)).slice(0, 6);
+  const withName = (connection, userId) => ({ id: connection.id, user_id: userId, display_name: community.profiles[userId]?.displayName || "Village member", created_at: connection.createdAt });
+  const incoming = community.connections.filter((item) => item.recipientId === user.id && item.status === "pending").map((item) => withName(item, item.requesterId));
+  const outgoing = community.connections.filter((item) => item.requesterId === user.id && item.status === "pending").map((item) => withName(item, item.recipientId));
+  const directRooms = community.rooms.filter((room) => room.kind === "direct" && community.members.some((member) => member.roomId === room.id && member.userId === user.id)).map((room) => {
+    const otherId = community.members.find((member) => member.roomId === room.id && member.userId !== user.id)?.userId;
+    return { id: room.id, name: community.profiles[otherId]?.displayName || "Private conversation" };
+  });
+  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms };
 }
 
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -539,6 +593,81 @@ async function handleApi(req, res, url) {
 
   const user = await getSessionUser(req);
   if (!user) return sendError(res, 401, "Please sign in first.");
+
+  if (req.method === "GET" && url.pathname === "/api/community") {
+    const community = await loadCommunity();
+    return sendJson(res, 200, await localCommunityOverview(user, community));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/community/settings") {
+    const input = await readJsonBody(req);
+    const community = await loadCommunity();
+    const existing = community.profiles[user.id] || {};
+    community.profiles[user.id] = { ...existing, enabled: Boolean(input.enabled), displayName: safeDisplayName(input.displayName, safeDisplayName(user.name)), updatedAt: new Date().toISOString() };
+    await saveCommunity(community);
+    return sendJson(res, 200, await localCommunityOverview(user, community));
+  }
+
+  const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages))?$/);
+  if (roomMatch) {
+    const roomId = decodeURIComponent(roomMatch[1]);
+    const operation = roomMatch[2] || "";
+    const community = await loadCommunity();
+    if (!community.profiles[user.id]?.enabled) return sendError(res, 403, "Join the community before using chat.");
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (req.method === "POST" && operation === "join") {
+      if (room.kind !== "group") return sendError(res, 403, "Private conversations cannot be joined directly.");
+      if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) community.members.push({ roomId, userId: user.id, joinedAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Join this room before reading or sending messages.");
+    if (req.method === "GET" && operation === "messages") {
+      const messages = community.messages.filter((message) => message.roomId === roomId).slice(-100).map((message) => ({ ...message, author: community.profiles[message.userId]?.displayName || "Village member", mine: message.userId === user.id }));
+      return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind }, messages });
+    }
+    if (req.method === "POST" && operation === "messages") {
+      const messageBody = String((await readJsonBody(req)).message || "").trim().slice(0, 1000);
+      if (!messageBody) return sendError(res, 400, "Write a message first.");
+      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
+      community.messages.push(message);
+      community.messages = community.messages.slice(-5000);
+      await saveCommunity(community);
+      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id].displayName, mine: true } });
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/community/connect") {
+    const targetUserId = String((await readJsonBody(req)).targetUserId || "");
+    const community = await loadCommunity();
+    if (!targetUserId || targetUserId === user.id) return sendError(res, 400, "Choose another community member.");
+    if (!community.profiles[user.id]?.enabled || !community.profiles[targetUserId]?.enabled) return sendError(res, 403, "Both members must opt in to community matching.");
+    const key = pairKey(user.id, targetUserId);
+    if (community.connections.some((item) => item.pairKey === key)) return sendError(res, 409, "A connection request or private chat already exists.");
+    community.connections.push({ id: randomBytes(12).toString("hex"), pairKey: key, requesterId: user.id, recipientId: targetUserId, status: "pending", roomId: null, createdAt: new Date().toISOString() });
+    await saveCommunity(community);
+    return sendJson(res, 201, { ok: true });
+  }
+
+  const connectionMatch = url.pathname.match(/^\/api\/community\/connections\/([^/]+)\/(accept|decline)$/);
+  if (req.method === "POST" && connectionMatch) {
+    const community = await loadCommunity();
+    const connection = community.connections.find((item) => item.id === decodeURIComponent(connectionMatch[1]) && item.recipientId === user.id && item.status === "pending");
+    if (!connection) return sendError(res, 404, "Connection request not found.");
+    if (connectionMatch[2] === "decline") {
+      connection.status = "declined";
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    const roomId = `direct-${randomBytes(12).toString("hex")}`;
+    connection.status = "accepted";
+    connection.roomId = roomId;
+    community.rooms.push({ id: roomId, kind: "direct", name: "Private conversation", description: "", createdAt: new Date().toISOString() });
+    community.members.push({ roomId, userId: connection.requesterId, joinedAt: new Date().toISOString() }, { roomId, userId: connection.recipientId, joinedAt: new Date().toISOString() });
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, roomId });
+  }
 
   if (req.method === "POST" && url.pathname === "/api/profile") {
     const { responses } = await readJsonBody(req);

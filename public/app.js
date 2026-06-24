@@ -1,5 +1,6 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=environment-3d-20260623";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=environment-3d-20260623";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=celestial-community-20260623";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=celestial-community-20260623";
+import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=celestial-community-20260623";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 
 const config = window.CAPY_CONFIG;
@@ -24,6 +25,8 @@ const state = {
   environment: null,
   environmentTimer: null,
   environmentRefreshTimer: null,
+  communityTimer: null,
+  communityRoom: null,
   audio: null,
   ecosystem: null,
   immersive: null,
@@ -43,8 +46,9 @@ const i18n = {
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
     language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
-    support: "Support", settings: "Settings", education: "Education", legal: "Legal", activities: "Activities",
+    support: "Support", settings: "Settings", education: "Education", legal: "Legal", recreation: "Recreation", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
+    communityTitle: "Village Community", communityIntro: "Join group conversations or connect privately with people who chose to participate.", communityOpen: "Open community chats", communityPrivacy: "Your email and private survey note are never shown. Waffles matches only shared interests, age group, and journey stage. You can leave at any time.", communityEnable: "Join the community", communityDisable: "Leave community matching", communityDisplayName: "Community display name", communityGroups: "Group chats", communitySuggestions: "People Waffles suggests", communityIncoming: "Connection requests", communityDirect: "Private chats", communityJoin: "Join group", communityOpenRoom: "Open chat", communityConnect: "Say hello", communityPending: "Request sent", communityAccept: "Accept", communityDecline: "Decline", communitySend: "Send", communityMessagePlaceholder: "Write a kind message…", communityEmpty: "No messages yet. You can start gently.", communityLoading: "Opening the community…", communitySafety: "Community messages are stored securely but are not end-to-end encrypted. They are peer conversation, not professional or emergency support. Do not share passwords, addresses, or urgent medical details.",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
     aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used",
     recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
@@ -62,8 +66,9 @@ const i18n = {
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
     language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
-    support: "支持", settings: "设置", education: "教育", legal: "法律", activities: "活动",
+    support: "支持", settings: "设置", education: "教育", legal: "法律", recreation: "休闲活动", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
+    communityTitle: "村庄社区", communityIntro: "加入不同群聊，或与自愿参与且经历相似的用户私聊。", communityOpen: "打开社区聊天", communityPrivacy: "不会展示你的邮箱或问卷私人备注。Waffles 只比较共同关注领域、年龄组和经历阶段；你可以随时退出。", communityEnable: "加入社区", communityDisable: "退出社区匹配", communityDisplayName: "社区显示名称", communityGroups: "群聊", communitySuggestions: "Waffles 推荐认识的人", communityIncoming: "好友申请", communityDirect: "私聊", communityJoin: "加入群聊", communityOpenRoom: "打开聊天", communityConnect: "打个招呼", communityPending: "已发送申请", communityAccept: "接受", communityDecline: "拒绝", communitySend: "发送", communityMessagePlaceholder: "写一条友善的消息……", communityEmpty: "还没有消息，可以轻轻地开始。", communityLoading: "正在打开社区……", communitySafety: "社区消息会安全保存，但不是端到端加密。这里属于用户互助，不是专业或紧急服务；请勿发送密码、住址或紧急医疗隐私。",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
     aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词",
     recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
@@ -81,8 +86,9 @@ const i18n = {
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
     language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
-    support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", activities: "Actividades",
+    support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", recreation: "Recreación", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
+    communityTitle: "Comunidad de la aldea", communityIntro: "Únete a grupos o conecta en privado con personas que aceptaron participar.", communityOpen: "Abrir chats", communityPrivacy: "Tu correo y tus notas privadas nunca se muestran. Waffles compara solo intereses, edad y etapa del recorrido.", communityEnable: "Unirme a la comunidad", communityDisable: "Salir de la comunidad", communityDisplayName: "Nombre visible", communityGroups: "Chats grupales", communitySuggestions: "Personas sugeridas por Waffles", communityIncoming: "Solicitudes", communityDirect: "Chats privados", communityJoin: "Unirme", communityOpenRoom: "Abrir chat", communityConnect: "Saludar", communityPending: "Solicitud enviada", communityAccept: "Aceptar", communityDecline: "Rechazar", communitySend: "Enviar", communityMessagePlaceholder: "Escribe un mensaje amable…", communityEmpty: "Aún no hay mensajes.", communityLoading: "Abriendo la comunidad…", communitySafety: "Los mensajes se guardan de forma segura, pero no tienen cifrado de extremo a extremo. Son apoyo entre pares, no atención profesional ni de emergencia. No compartas contraseñas, direcciones ni datos médicos urgentes.",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
     aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados",
     recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
@@ -423,12 +429,11 @@ class VillageAudio {
 
   playAnimal(species) {
     if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
-    if (species === "bird" || species === "gull") {
-      this.airyBird(species);
-      return;
-    }
-    const sample = config.ecosystem?.audio?.samples?.[species];
-    if (sample && this.playBuffer(this.buffers.get(species), this.animalGain, Number(sample.volume || .3), species === "gull" ? 5.8 : null)) return;
+    const samples = config.ecosystem?.audio?.samples || {};
+    const sampleKey = species === "gull" && !samples.gull ? "bird" : species;
+    const sample = samples[sampleKey];
+    const volume = Number(sample?.volume || .3) * (species === "gull" ? .76 : 1);
+    if (sample && this.playBuffer(this.buffers.get(sampleKey), this.animalGain, volume, Number(sample.maximumDuration || 0) || null)) return;
     this.synthesizeSpecies(species);
   }
 
@@ -716,9 +721,9 @@ function routeForUser() {
 
 function renderBuildings() {
   const layer = $("#building-layer");
-  const buildingLabel = (building) => building.type === "ai" ? t(building.topic === "Legal" ? "legal" : "education") : t(building.type === "activity" ? "activities" : building.type);
+  const buildingLabel = (building) => building.type === "ai" ? t(String(building.topic || "Education").toLowerCase()) : t(building.type === "activity" ? "activities" : building.type);
   layer.innerHTML = config.buildings.map((building) => `
-    <button class="building" type="button" style="left:${building.x}%;top:${building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-label="${escapeHtml(buildingLabel(building))}" aria-label="${escapeHtml(buildingLabel(building))} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+    <button class="building" type="button" style="left:${building.x}%;top:${building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(buildingLabel(building))}" aria-label="${escapeHtml(buildingLabel(building))} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");
 }
@@ -751,6 +756,9 @@ function openPanel({ title, eyebrow = "Village building", html }) {
 }
 
 function closePanel() {
+  clearInterval(state.communityTimer);
+  state.communityTimer = null;
+  state.communityRoom = null;
   $("#panel").classList.remove("open");
   $("#panel").setAttribute("aria-hidden", "true");
   $("#panel-scrim").classList.remove("open");
@@ -761,10 +769,109 @@ function supportPanel() {
     title: t("supportTitle"),
     eyebrow: t("supportEyebrow"),
     html: `<p class="panel-intro">${escapeHtml(config.support.intro)}</p>
+      <article class="community-launch"><div><small>${escapeHtml(t("communityTitle"))}</small><h3>${escapeHtml(t("communityIntro"))}</h3><p>${escapeHtml(t("communityPrivacy"))}</p></div><button type="button" class="primary-button" data-action="open-community">${escapeHtml(t("communityOpen"))} →</button></article>
       <div class="card-list">${config.support.contacts.map((contact) => `<article class="info-card"><div><h3>${escapeHtml(contact.title)}</h3><p>${escapeHtml(contact.detail)}</p></div><a href="${escapeHtml(contact.href)}" target="${contact.href.startsWith("http") ? "_blank" : "_self"}" rel="noreferrer">${escapeHtml(contact.action)} →</a></article>`).join("")}</div>
       <h3>${escapeHtml(t("prepare"))}</h3><ul class="gentle-list">${config.support.options.map((option) => `<li>${escapeHtml(option)}</li>`).join("")}</ul>
       <p class="privacy-note">Edit all contact cards in <code>public/site-config.js</code>.</p>`
   });
+}
+
+function communityOverviewHtml(data) {
+  if (!data.enabled) return `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p>
+    <form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
+
+  const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members</small></div><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button></article>`).join("");
+  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.displayName)}</strong><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet. More appear as opted-in members join.</p>`;
+  const incoming = (data.incoming || []).map((request) => `<article class="community-person-card"><strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
+  const directRooms = (data.directRooms || []).map((room) => `<button type="button" class="community-direct-room" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><span class="community-avatar">${escapeHtml(String(room.name || "V").charAt(0).toUpperCase())}</span><span><strong>${escapeHtml(room.name)}</strong><small>${escapeHtml(t("communityOpenRoom"))}</small></span><span>→</span></button>`).join("");
+  return `<div class="community-shell"><div class="community-account"><div><small>${escapeHtml(t("communityDisplayName"))}</small><strong>${escapeHtml(data.displayName)}</strong></div><button type="button" class="text-button" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button></div>
+    ${incoming ? `<section><h3>${escapeHtml(t("communityIncoming"))}</h3><div class="community-grid">${incoming}</div></section>` : ""}
+    <section><h3>${escapeHtml(t("communityGroups"))}</h3><div class="community-grid">${groupCards}</div></section>
+    ${directRooms ? `<section><h3>${escapeHtml(t("communityDirect"))}</h3><div class="community-direct-list">${directRooms}</div></section>` : ""}
+    <section><h3>${escapeHtml(t("communitySuggestions"))}</h3><div class="community-grid">${suggestions}</div></section>
+    <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>`;
+}
+
+async function communityPanel() {
+  clearInterval(state.communityTimer);
+  state.communityRoom = null;
+  openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
+  try {
+    const data = await api("/api/community");
+    $("#panel-content").innerHTML = communityOverviewHtml(data);
+  } catch (error) {
+    $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function communityMessagesHtml(messages = []) {
+  if (!messages.length) return `<p class="community-empty">${escapeHtml(t("communityEmpty"))}</p>`;
+  return messages.map((message) => `<article class="community-message ${message.mine ? "mine" : ""}"><header><strong>${escapeHtml(message.author)}</strong><time>${escapeHtml(new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time></header><p>${escapeHtml(message.body)}</p></article>`).join("");
+}
+
+async function refreshCommunityRoom() {
+  if (!state.communityRoom) return;
+  try {
+    const data = await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`);
+    const list = $("#community-message-list");
+    if (list && state.communityRoom?.id === data.room.id) list.innerHTML = communityMessagesHtml(data.messages);
+  } catch {}
+}
+
+async function openCommunityRoom(roomId, roomName) {
+  clearInterval(state.communityTimer);
+  const data = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`);
+  state.communityRoom = { id: roomId, name: roomName || data.room.name };
+  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button><div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
+  state.communityTimer = setInterval(refreshCommunityRoom, 5000);
+}
+
+async function submitCommunitySettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  try {
+    await api("/api/community/settings", { method: "POST", body: JSON.stringify({ enabled: formData.get("enabled") === "true", displayName: formData.get("displayName") }) });
+    await communityPanel();
+  } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function submitCommunityMessage(event) {
+  event.preventDefault();
+  const form = event.target;
+  const message = new FormData(form).get("message");
+  try {
+    await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    form.reset();
+    await refreshCommunityRoom();
+  } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function communityAction(element, action) {
+  try {
+    if (action === "open-community") return communityPanel();
+    if (action === "join-community-room") {
+      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
+      return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
+    }
+    if (action === "open-community-room") return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
+    if (action === "connect-community") {
+      await api("/api/community/connect", { method: "POST", body: JSON.stringify({ targetUserId: element.dataset.userId }) });
+      toast(t("communityPending"));
+      return communityPanel();
+    }
+    if (action === "accept-connection" || action === "decline-connection") {
+      const decision = action === "accept-connection" ? "accept" : "decline";
+      const result = await api(`/api/community/connections/${encodeURIComponent(element.dataset.connectionId)}/${decision}`, { method: "POST", body: "{}" });
+      if (result.roomId) return openCommunityRoom(result.roomId, t("communityDirect"));
+      return communityPanel();
+    }
+    if (action === "disable-community") {
+      await api("/api/community/settings", { method: "POST", body: JSON.stringify({ enabled: false, displayName: state.user?.name || "Village member" }) });
+      return communityPanel();
+    }
+  } catch (error) { toast(error.message); }
 }
 
 function settingsPanel() {
@@ -814,9 +921,9 @@ function activitiesPanel() {
 
 function aiPanel(topic = "Education") {
   state.currentTopic = topic;
-  const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : "For example: I’m looking for executive-function support for a middle-school student…";
+  const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : topic === "Recreation" ? "For example: I’m looking for a calm, inclusive weekend activity nearby…" : "For example: I’m looking for executive-function support for a middle-school student…";
   openPanel({
-    title: `${t(topic === "Legal" ? "legal" : "education")} · Waffles`,
+    title: `${t(String(topic || "Education").toLowerCase())} · Waffles`,
     eyebrow: t("aiEyebrow"),
     html: `<div class="ai-shell">
       <div class="mori-stage"><div class="mori-character" id="mori-character"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><div><h3>${escapeHtml(t("aiHello"))}</h3><p>${escapeHtml(t("aiExplain"))}</p></div></div>
@@ -881,6 +988,9 @@ function profilePanel() {
 }
 
 function handleBuilding(id) {
+  clearInterval(state.communityTimer);
+  state.communityTimer = null;
+  state.communityRoom = null;
   const building = config.buildings.find((item) => item.id === id);
   if (!building) return;
   if (building.type === "support") supportPanel();
@@ -1105,6 +1215,74 @@ function renderEnvironmentStatus() {
   $("#environment-status button")?.setAttribute("aria-label", t("weatherRefresh"));
 }
 
+function renderMoonPhase(environment) {
+  const moon = $("#environment-moon");
+  if (!moon) return;
+  const { phase, illumination } = moonPhaseForDate(new Date());
+  const hemisphereFlip = environment.hemisphere === "south" ? -1 : 1;
+  const size = 112;
+  const radius = size * .43;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  const pixels = context.createImageData(size, size);
+  const sunX = Math.sin(phase * Math.PI * 2) * hemisphereFlip;
+  const sunZ = -Math.cos(phase * Math.PI * 2);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = (x - size / 2) / radius;
+      const ny = (y - size / 2) / radius;
+      const distance = nx * nx + ny * ny;
+      if (distance > 1) continue;
+      const nz = Math.sqrt(1 - distance);
+      const sunlight = nx * sunX + nz * sunZ;
+      const limb = .58 + nz * .42;
+      const crater = Math.sin(x * .31 + y * .17) * Math.sin(x * .08 - y * .23) * 5;
+      const lit = sunlight > 0;
+      const brightness = lit ? 178 + sunlight * 66 : 23 + nz * 15;
+      const index = (y * size + x) * 4;
+      pixels.data[index] = Math.max(0, brightness * limb + crater + (lit ? 18 : 0));
+      pixels.data[index + 1] = Math.max(0, brightness * limb + crater + (lit ? 19 : 4));
+      pixels.data[index + 2] = Math.max(0, brightness * limb + crater + (lit ? 14 : 9));
+      pixels.data[index + 3] = Math.round(255 * Math.min(1, (1 - distance) * 14));
+    }
+  }
+  context.putImageData(pixels, 0, 0);
+  context.globalCompositeOperation = "screen";
+  const glow = context.createRadialGradient(size * .42, size * .38, 0, size / 2, size / 2, radius);
+  glow.addColorStop(0, "rgba(255,255,245,.16)");
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = glow;
+  context.beginPath();
+  context.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
+  context.fill();
+  moon.style.backgroundImage = `url(${canvas.toDataURL("image/png")})`;
+  moon.classList.add("has-phase");
+  moon.dataset.phase = moonPhaseName(phase);
+  moon.title = `${moonPhaseName(phase)} · ${Math.round(illumination * 100)}% illuminated · ${environment.location?.city || "local sky"}`;
+}
+
+function ensureStarField() {
+  const field = $("#star-field");
+  if (!field || field.childElementCount) return;
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < 110; index += 1) {
+    const star = document.createElement("span");
+    star.className = "star-particle";
+    const depth = index % 6;
+    star.style.setProperty("--star-left", `${(index * 47.37 + index * index * 1.17) % 100}%`);
+    star.style.setProperty("--star-top", `${(index * 29.71 + index * index * .43) % 100}%`);
+    star.style.setProperty("--star-size", `${.55 + depth * .18}px`);
+    star.style.setProperty("--star-depth", `${depth * 16}px`);
+    star.style.setProperty("--star-alpha", String(.28 + depth * .115));
+    star.style.setProperty("--star-delay", `${-(index % 13) * .37}s`);
+    star.style.setProperty("--star-duration", `${2.8 + (index % 7) * .43}s`);
+    fragment.append(star);
+  }
+  field.append(fragment);
+}
+
 function updateCelestialScene() {
   const environment = state.environment;
   const stage = $("#map-stage");
@@ -1114,30 +1292,26 @@ function updateCelestialScene() {
   const sunrise = minutesFromIso(environment.sun?.sunrise, 360);
   const sunset = minutesFromIso(environment.sun?.sunset, 1080);
   const isDay = currentMinutes >= sunrise && currentMinutes <= sunset;
-  let sunX = 50;
-  let sunY = 18;
-  let moonX = 50;
-  let moonY = 18;
+  let sunPosition = { x: 50, y: 13 };
+  let moonPosition = { x: 50, y: 13 };
 
   if (isDay) {
     const progress = Math.max(0, Math.min(1, (currentMinutes - sunrise) / Math.max(1, sunset - sunrise)));
-    sunX = 7 + progress * 86;
-    sunY = 76 - Math.sin(Math.PI * progress) * 61;
+    sunPosition = celestialOrbit(progress);
   } else {
     const nightLength = 1440 - sunset + sunrise;
     const elapsed = currentMinutes >= sunset ? currentMinutes - sunset : 1440 - sunset + currentMinutes;
     const progress = Math.max(0, Math.min(1, elapsed / Math.max(1, nightLength)));
-    moonX = 7 + progress * 86;
-    moonY = 75 - Math.sin(Math.PI * progress) * 59;
+    moonPosition = celestialOrbit(progress);
   }
 
   stage.classList.toggle("time-day", isDay);
   stage.classList.toggle("time-night", !isDay);
   $("#environment-status")?.classList.toggle("night", !isDay);
-  stage.style.setProperty("--celestial-x", `${sunX}%`);
-  stage.style.setProperty("--celestial-y", `${sunY}%`);
-  stage.style.setProperty("--moon-x", `${moonX}%`);
-  stage.style.setProperty("--moon-y", `${moonY}%`);
+  stage.style.setProperty("--celestial-x", `${sunPosition.x}%`);
+  stage.style.setProperty("--celestial-y", `${sunPosition.y}%`);
+  stage.style.setProperty("--moon-x", `${moonPosition.x}%`);
+  stage.style.setProperty("--moon-y", `${moonPosition.y}%`);
   stage.style.setProperty("--sun-visible", isDay ? "1" : "0");
   stage.style.setProperty("--moon-visible", isDay ? "0" : ".9");
   stage.style.setProperty("--night-strength", isDay ? ".03" : ".72");
@@ -1147,6 +1321,7 @@ function updateCelestialScene() {
   state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
   state.audio?.setDay(isDay);
   state.immersive?.setEnvironment({ isDay });
+  renderMoonPhase(environment);
   renderEnvironmentStatus();
 }
 
@@ -1191,6 +1366,7 @@ function hydrateApp() {
   $("#map-image").src = config.map.image;
   $("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
   renderBuildings();
+  ensureStarField();
   state.ecosystem?.init();
   applySettings();
   loadIntegrationStatus();
@@ -1246,6 +1422,7 @@ document.addEventListener("click", (event) => {
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
+  if (["open-community", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "disable-community"].includes(action)) communityAction(actionElement, action);
 });
 
 document.addEventListener("input", (event) => {
@@ -1263,6 +1440,8 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "survey-form") submitSurvey(event);
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
+  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
+  if (event.target.id === "community-message-form") submitCommunityMessage(event);
 });
 
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });

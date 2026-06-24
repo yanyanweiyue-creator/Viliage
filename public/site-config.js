@@ -47,10 +47,10 @@ window.CAPY_CONFIG = {
       ],
       villagePath: [
         { x: 17, y: 44, building: "autism-support" }, { x: 29, y: 27, building: "autism-settings" },
-        { x: 39, y: 45, building: "autism-education" }, { x: 34, y: 64, building: "autism-activity" },
+        { x: 39, y: 45, building: "autism-education" }, { x: 29, y: 50, building: "autism-recreation" }, { x: 34, y: 64, building: "autism-activity" },
         { x: 20, y: 65, building: "autism-legal" }, { x: 39, y: 55 }, { x: 45, y: 53 },
         { x: 50, y: 54, bridge: true }, { x: 55, y: 53 }, { x: 61, y: 55 },
-        { x: 66, y: 54, building: "adhd-education" }, { x: 72, y: 70, building: "adhd-activity" },
+        { x: 66, y: 54, building: "adhd-education" }, { x: 72, y: 43, building: "adhd-recreation" }, { x: 72, y: 70, building: "adhd-activity" },
         { x: 81, y: 62, building: "adhd-legal" }, { x: 81, y: 41, building: "adhd-settings" },
         { x: 66, y: 29, building: "adhd-support" }
       ],
@@ -67,8 +67,8 @@ window.CAPY_CONFIG = {
       { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, flying: true },
       { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, flying: true },
       { id: "walker-one", species: "villager", label: "Village visitor", artVariant: 0, island: "village", route: "villagePath", start: 0, villager: true, home: 1 },
-      { id: "walker-two", species: "villager", label: "Village visitor", artVariant: 1, island: "village", route: "villagePath", start: 7, villager: true, home: 10 },
-      { id: "walker-three", species: "villager", label: "Village visitor", artVariant: 2, island: "village", route: "villagePath", start: 13, villager: true, home: 13 }
+      { id: "walker-two", species: "villager", label: "Village visitor", artVariant: 1, island: "village", route: "villagePath", start: 8, villager: true, home: 11 },
+      { id: "walker-three", species: "villager", label: "Village visitor", artVariant: 2, island: "village", route: "villagePath", start: 15, villager: true, home: 15 }
     ],
     events: {
       dragon: { label: "Azure dawn dragon", probability: 0.12, dawnBeforeMinutes: 20, dawnAfterMinutes: 40 },
@@ -84,6 +84,7 @@ window.CAPY_CONFIG = {
         night: { title: "Starlit Current", tempo: 56, mood: "slow airy bells, water-like ambient pad" }
       },
       samples: {
+        bird: { src: "/audio/sfx/morning-birds.mp3", volume: 0.1, maximumDuration: 3.2 },
         cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
         sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
         deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
@@ -95,11 +96,13 @@ window.CAPY_CONFIG = {
     { id: "autism-support", island: "autism", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 17, y: 42 },
     { id: "autism-settings", island: "autism", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 29, y: 25 },
     { id: "autism-education", island: "autism", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 39, y: 43 },
+    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 29, y: 50 },
     { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 18, y: 64 },
     { id: "autism-activity", island: "autism", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 33, y: 63 },
     { id: "adhd-support", island: "adhd", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 65, y: 27 },
     { id: "adhd-settings", island: "adhd", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 80, y: 39 },
     { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 65, y: 53 },
+    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 72, y: 43 },
     { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 80, y: 61 },
     { id: "adhd-activity", island: "adhd", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 71, y: 71 }
   ]

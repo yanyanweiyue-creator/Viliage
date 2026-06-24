@@ -159,8 +159,8 @@ export class ImmersiveScene {
     this.drawWater(ctx, width, height, palette, time);
     const liftX = this.parallax.x * width * .006;
     const liftY = this.parallax.y * height * .008;
-    this.drawIsland(ctx, width * .275 + liftX, height * .615 + liftY, width * .247, height * .305, palette, 1, "autism");
-    this.drawIsland(ctx, width * .73 + liftX, height * .59 + liftY, width * .255, height * .31, palette, 4, "adhd");
+    this.drawIsland(ctx, width * .255 + liftX, height * .615 + liftY, width * .218, height * .302, palette, 1, "autism");
+    this.drawIsland(ctx, width * .745 + liftX, height * .6 + liftY, width * .218, height * .302, palette, 4, "adhd");
     this.drawBridge(ctx, width, height, palette);
     this.drawAtmosphere(ctx, width, height, palette, time);
     ctx.restore();
@@ -206,17 +206,22 @@ export class ImmersiveScene {
   drawForest(ctx, width, height, palette) {
     const horizon = height * .34;
     ctx.save();
-    ctx.globalAlpha = this.environment.weather === "fog" ? .32 : .48;
-    for (let index = 0; index < 34; index += 1) {
+    ctx.globalAlpha = this.environment.weather === "fog" ? .28 : (this.environment.isDay ? .78 : .68);
+    for (let index = 0; index < 48; index += 1) {
       const x = seededValue(index, 2) * width;
-      const treeHeight = height * (.13 + seededValue(index, 8) * .2);
-      const trunkWidth = Math.max(2, treeHeight * .035);
-      ctx.fillStyle = index % 3 ? "#334d42" : "#48604b";
+      const treeHeight = height * (.07 + seededValue(index, 8) * .115);
+      const trunkWidth = Math.max(1.25, treeHeight * .024);
+      ctx.fillStyle = index % 3 ? "#20352f" : "#34483d";
       ctx.fillRect(x - trunkWidth / 2, horizon - treeHeight, trunkWidth, treeHeight);
-      ctx.fillStyle = palette.leaf;
-      ctx.beginPath();
-      ctx.ellipse(x, horizon - treeHeight * .72, treeHeight * .2, treeHeight * .3, 0, 0, TAU);
-      ctx.fill();
+      const crownY = horizon - treeHeight * .78;
+      ctx.fillStyle = index % 4 ? "#294838" : "#355641";
+      for (let cluster = 0; cluster < 3; cluster += 1) {
+        const offsetX = (cluster - 1) * treeHeight * .105;
+        const offsetY = Math.abs(cluster - 1) * treeHeight * .045;
+        ctx.beginPath();
+        ctx.ellipse(x + offsetX, crownY + offsetY, treeHeight * .12, treeHeight * (.145 - Math.abs(cluster - 1) * .018), 0, 0, TAU);
+        ctx.fill();
+      }
     }
     const mist = ctx.createLinearGradient(0, horizon * .55, 0, horizon * 1.25);
     mist.addColorStop(0, "rgba(235,226,196,0)");
@@ -318,7 +323,7 @@ export class ImmersiveScene {
     ctx.setLineDash([]);
 
     this.drawPond(ctx, island === "autism" ? cx - rx * .66 : cx + rx * .58, island === "autism" ? cy + ry * .05 : cy - ry * .32, rx * .19, ry * .16);
-    this.drawTrees(ctx, cx, cy, rx, ry, palette, island === "autism" ? 3 : 7);
+    this.drawTrees(ctx, cx, cy, rx, ry, palette, island === "autism" ? 3 : 7, island);
     ctx.restore();
     ctx.restore();
   }
@@ -336,8 +341,8 @@ export class ImmersiveScene {
     ctx.stroke();
   }
 
-  drawTrees(ctx, cx, cy, rx, ry, palette, seed) {
-    const treeCount = 18;
+  drawTrees(ctx, cx, cy, rx, ry, palette, seed, island) {
+    const treeCount = island === "autism" ? 17 : 20;
     const trees = Array.from({ length: treeCount }, (_, index) => {
       const angle = seededValue(index, seed) * TAU;
       const radius = .62 + seededValue(index, seed + 1) * .3;
@@ -349,23 +354,87 @@ export class ImmersiveScene {
     }).sort((a, b) => a.y - b.y);
     trees.forEach((tree, index) => {
       const trunkHeight = ry * .19 * tree.scale;
+      if (island === "autism" && index % 3 === 0) {
+        this.drawJujubeTree(ctx, tree.x, tree.y, trunkHeight, palette, index);
+        return;
+      }
+      if (island === "adhd" && index % 4 === 0) {
+        this.drawPineTree(ctx, tree.x, tree.y, trunkHeight, palette);
+        return;
+      }
       ctx.fillStyle = "#5c452f";
       ctx.fillRect(tree.x - 2 * tree.scale, tree.y - trunkHeight, 4 * tree.scale, trunkHeight);
-      const crown = ctx.createRadialGradient(tree.x - 3, tree.y - trunkHeight * 1.1, 2, tree.x, tree.y - trunkHeight, trunkHeight * .72);
-      crown.addColorStop(0, index % 5 === 0 ? palette.accent : "#91ae61");
-      crown.addColorStop(.52, palette.leaf);
-      crown.addColorStop(1, "#294f3c");
-      ctx.fillStyle = crown;
-      ctx.beginPath();
-      ctx.ellipse(tree.x, tree.y - trunkHeight, trunkHeight * .62, trunkHeight * .82, 0, 0, TAU);
-      ctx.fill();
+      ctx.fillStyle = index % 5 === 0 ? palette.accent : palette.leaf;
+      for (let cluster = 0; cluster < 5; cluster += 1) {
+        const angle = cluster / 5 * TAU;
+        ctx.beginPath();
+        ctx.arc(tree.x + Math.cos(angle) * trunkHeight * .28, tree.y - trunkHeight + Math.sin(angle) * trunkHeight * .24, trunkHeight * .34, 0, TAU);
+        ctx.fill();
+      }
     });
+
+    if (island === "adhd") {
+      ctx.fillStyle = "rgba(232,169,75,.72)";
+      for (let index = 0; index < 26; index += 1) {
+        const x = cx + (seededValue(index, 31) - .5) * rx * 1.38;
+        const y = cy + (seededValue(index, 32) - .5) * ry * 1.1;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.2 + seededValue(index, 33) * 1.5, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  drawJujubeTree(ctx, x, y, height, palette, seed) {
+    ctx.strokeStyle = "#654630";
+    ctx.lineWidth = Math.max(1.8, height * .08);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x - height * .12, y - height * .48, x, y - height);
+    ctx.moveTo(x - height * .05, y - height * .58);
+    ctx.lineTo(x - height * .42, y - height * .84);
+    ctx.moveTo(x, y - height * .72);
+    ctx.lineTo(x + height * .4, y - height * .94);
+    ctx.stroke();
+    ctx.fillStyle = palette.leaf;
+    for (let cluster = 0; cluster < 9; cluster += 1) {
+      const angle = cluster / 9 * TAU;
+      const cx = x + Math.cos(angle) * height * (.26 + (cluster % 2) * .1);
+      const cy = y - height * .83 + Math.sin(angle) * height * .3;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, height * .2, height * .13, angle, 0, TAU);
+      ctx.fill();
+      if ((cluster + seed) % 3 === 0) {
+        ctx.fillStyle = "#a33f2f";
+        ctx.beginPath();
+        ctx.arc(cx + height * .05, cy + height * .07, Math.max(1.1, height * .035), 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = palette.leaf;
+      }
+    }
+  }
+
+  drawPineTree(ctx, x, y, height, palette) {
+    ctx.fillStyle = "#5a4432";
+    ctx.fillRect(x - height * .05, y - height, height * .1, height);
+    ctx.fillStyle = "#294f3e";
+    for (let tier = 0; tier < 3; tier += 1) {
+      const top = y - height * (1.18 - tier * .25);
+      const halfWidth = height * (.26 + tier * .11);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x - halfWidth, top + height * .55);
+      ctx.lineTo(x + halfWidth, top + height * .55);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   drawBridge(ctx, width, height) {
     const y = height * .55;
-    const start = width * .46;
-    const end = width * .55;
+    const start = width * .468;
+    const end = width * .532;
     ctx.save();
     ctx.translate(0, this.parallax.y * 2);
     ctx.strokeStyle = "rgba(54,39,25,.55)";

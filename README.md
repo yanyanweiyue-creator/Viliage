@@ -1,13 +1,13 @@
 # It Takes a Village
 
-A full-stack, no-dependency web prototype for a personalized caregiver resource village. Users create an account, complete a first-visit survey, enter an interactive two-island scene, and use Waffles—the animated capybara guide—to find education or legal resources from a Google Sheet.
+A full-stack, no-dependency web prototype for a personalized caregiver resource village. Users create an account, complete a first-visit survey, enter an interactive two-island scene, and use Waffles—the animated capybara guide—to find education, legal, or recreation resources from a Google Sheet.
 
 ## What is included
 
 - Account creation and login with salted `scrypt` password hashes and HTTP-only session cookies
 - First-visit Community Compass survey and personal record
-- Two-island scene with island zoom, ten independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
-- Support/contact, settings, education AI, legal AI, and activity panels
+- Two-island scene with island zoom, twelve independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
+- Support/contact, opt-in community chat, settings, education AI, legal AI, recreation AI, and activity panels
 - Font size, color palette, language, reduced-motion, low-stimulation, and three-channel sound controls
 - Dynamic resource loading from the provided Google Sheet with a local fallback
 - Configurable resource scoring with tag-first matching, issue penalties, AI-assisted synonym expansion, result counts from 3–10, and a visible explanation for every score
@@ -77,17 +77,23 @@ The script finds the header row, updates the same user instead of creating dupli
 
 The village map uses an approximate IP location to choose the user's hemisphere and local time zone. The server sends coordinates to Open-Meteo for current conditions, sunrise, and sunset, then returns only an approximate city, weather, and sky timing to the browser. Raw IP addresses are not returned to the browser, written to the user record, or stored on disk.
 
-The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; moves the sun between the local sunrise and sunset; and shows the moon and stars at night. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
+The scene changes between spring, summer, autumn, and winter; maps WMO weather codes to clouds, fog, rain, snow, and thunderstorms; and moves both sun and moon along a quadratic arc that stays in the upper half of the village. The moon phase is calculated for the local date, flipped for the user's hemisphere, and rendered with its current illumination. Night skies use individually layered, depth-scaled stars and soft nebula glows instead of a repeating texture. Weather is refreshed every 10 minutes. Low-stimulation mode removes precipitation and seasonal particle animation.
 
-Settings also offers an illustrated **2D** mode and an immersive **3D** mode. The 3D renderer is generated locally with Canvas: it adds perspective islands, forest depth, volumetric-looking sunlight, seasonal color grading, reflective animated water, pointer parallax, and interactive water ripples without sending graphics data to another service. Low-stimulation mode pauses its continuous animation. The 2D map remains available as a lightweight fallback and both choices are saved on the device.
+Settings also offers an illustrated **2D** mode and an immersive **3D** mode. The 3D renderer is generated locally with Canvas: it adds two visibly separated perspective islands, reflective animated water, pointer parallax, interactive ripples, forest depth, and island-specific ecology—fruiting jujube trees on Autism Island and pines/wildflowers on ADHD Island—without sending graphics data to another service. Low-stimulation mode pauses its continuous animation. The 2D map remains available as a lightweight fallback and both choices are saved on the device.
 
-Weather ambience and two original fallback scores—daytime **Garden Footsteps** and nighttime **Starlit Current**—are synthesized locally with the browser Web Audio API, and three small licensed animal recordings are served with the site. Clear, cloudy, fog, rain, snow, and storm conditions each use different layered filters, with additional seasonal and day/night textures; 3D mode adds a close shoreline layer. Bird and gull calls use a quieter original airy voice with slow fades and a short echo instead of an abrupt recording. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, background-music, and animal volumes are saved on the device; environment defaults louder than the gentler music and animal channels. Low-stimulation mode reduces every channel.
+Weather ambience and two original fallback scores—daytime **Garden Footsteps** and nighttime **Starlit Current**—are synthesized locally with the browser Web Audio API, alongside replaceable animal recordings. Clear, cloudy, fog, rain, snow, and storm conditions each use different layered filters, with additional seasonal and day/night textures; 3D mode adds a close shoreline layer. Bird and gull calls now use the first 3.2 seconds of the project-provided gentle morning-bird recording, with a low mix level and short fade to prevent an abrupt or unsettling call. Browsers require a user gesture, therefore sound starts only after the user selects **Enable sound** in Settings. Master, weather/environment, background-music, and animal volumes are saved on the device; environment defaults louder than the gentler music and animal channels. Low-stimulation mode reduces every channel.
 
 Each user can replace the day and night score from Settings with an MP3, OGG, WAV, M4A, AAC, or WebM file up to 30 MB. The selected files are stored as bytes in IndexedDB on that browser only: they are never uploaded to the server, never added to the user spreadsheet, and never synchronized across devices. Clearing site data removes them. **Use original** deletes the local copy and immediately restores the procedural score.
 
 The configurable ecosystem keeps land animals on island-specific waypoint routes. Every creature is rendered as original inline SVG artwork—no emoji—and its head, ears, wings, tail, arms, and legs are animated independently for smooth walking, grazing, drinking, flying, and resting. In 3D mode, procedural surface texture, perspective scaling, richer lighting, and ground shadows give the models more depth. Cow and sheep graze every five minutes and visit a pond edge every ten minutes; villagers move among buildings and over the bridge by day and enter buildings at night. Villager routes are sampled along every segment and rejected if any step leaves the two land masks or bridge corridor. Ordinary birds fly only by day, a gull flock departs toward the horizon around sunset, and the azure dragon has one deterministic 12% chance per local date to cross the dawn sky. Routes, actors, event windows, audio files, and optional owned/licensed day/night music are all editable under `ecosystem` in `public/site-config.js`. See `AUDIO_CREDITS.md` before replacing or publishing sound files.
 
 Weather data: [Open-Meteo](https://open-meteo.com/). Approximate IP geolocation: [Really Free GeoIP](https://reallyfreegeoip.org/).
+
+## Village community
+
+The Support building includes three seeded group chats and consent-based private connections. A user must opt in and choose a display name before appearing in recommendations. Waffles' matching algorithm compares only shared interests, age group, journey stage, and broad situation; email addresses, passwords, and private survey notes are excluded and never shown to another user. Connection requests must be accepted before a private room is created.
+
+Cloudflare stores community profiles, memberships, connections, and messages in D1, so conversations survive code updates. The local server uses ignored `data/community.json` for development. Messages are not end-to-end encrypted; the interface states this directly and warns users not to share passwords, addresses, urgent medical details, or use peer chat as emergency/professional support. A public launch should add moderation/reporting workflows, rate limiting, notifications, and a formal safeguarding review.
 
 ## Editable content
 
