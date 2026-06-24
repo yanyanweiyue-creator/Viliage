@@ -31,6 +31,19 @@ project-provided sample above; when it cannot be decoded, they fall back to a
 slow-fading procedural tone. Any voice can be replaced by changing the same
 sample manifest.
 
+## Scheduled ambience
+
+- `public/audio/ambience/summer-insects.mp3` — project-provided
+  ElevenLabs-generated sparse insect ambience. It loops quietly through the
+  environment channel only during the user's local summer from 10:00 to 16:00.
+- `public/audio/ambience/sunrise-farm.mp3` — project-provided
+  ElevenLabs-generated small-farm morning ambience. It loops only from 15
+  minutes before through 45 minutes after the user's local sunrise.
+
+Both schedules use the approximate IP-derived time zone and sunrise supplied by
+the environment API. Replace either file or edit its window under
+`ecosystem.audio.ambience` in `public/site-config.js`.
+
 ## Background music
 
 No commercial song is bundled or published. A local `.mgg` file is a protected

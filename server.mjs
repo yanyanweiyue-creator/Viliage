@@ -495,18 +495,28 @@ async function callOpenAI({ topic, description, profile, matches }) {
   return responseText(data);
 }
 
+async function localChatHistory(userId) {
+  const community = await loadCommunity();
+  return community.messages.filter((message) => message.userId === userId).slice(-100).map((message) => ({
+    room: community.rooms.find((room) => room.id === message.roomId)?.name || "Village chat",
+    message: message.body,
+    at: message.createdAt
+  }));
+}
+
 async function syncUserRecord(user) {
   const webhook = process.env.USER_SHEET_WEBHOOK_URL;
   if (!webhook) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+  const chatHistory = await localChatHistory(user.id);
   const payload = {
     "User name": user.name,
     "Password": "Not stored — secure hash only",
     "response of survey": JSON.stringify(user.profile?.responses || {}),
-    "AI summary the response of surve": user.profile?.summary || "",
     "AI personal record": user.profile?.summary || "",
     "history": JSON.stringify(user.history || []),
     "feedback": user.feedback || "",
-    email: user.email,
+    "Chat History": JSON.stringify(chatHistory),
+    "Email": user.email,
     userId: user.id
   };
   const response = await fetch(webhook, {
@@ -634,7 +644,9 @@ async function handleApi(req, res, url) {
       community.messages.push(message);
       community.messages = community.messages.slice(-5000);
       await saveCommunity(community);
-      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id].displayName, mine: true } });
+      let sync = { synced: false };
+      try { sync = await syncUserRecord(user); } catch (error) { sync = { synced: false, reason: error.message }; }
+      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id].displayName, mine: true }, sync });
     }
   }
 

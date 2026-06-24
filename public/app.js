@@ -1,7 +1,8 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=celestial-community-20260623";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=celestial-community-20260623";
-import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=celestial-community-20260623";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=grounded-audio-20260623";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=grounded-audio-20260623";
+import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=grounded-audio-20260623";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
+import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 
 const config = window.CAPY_CONFIG;
 
@@ -114,6 +115,9 @@ class VillageAudio {
     this.isDay = true;
     this.sceneMode = "2d";
     this.season = "summer";
+    this.currentMinutes = 720;
+    this.sunrise = 360;
+    this.activeAmbienceKey = "";
     this.buffers = new Map();
     this.bufferPromise = null;
     this.customTrackRecords = new Map();
@@ -164,7 +168,8 @@ class VillageAudio {
     if (this.bufferPromise) return this.bufferPromise;
     const sampleEntries = Object.entries(config.ecosystem?.audio?.samples || {}).map(([key, item]) => [key, item.src]);
     const musicEntries = Object.entries(config.ecosystem?.audio?.music || {}).filter(([, url]) => url).map(([key, url]) => [`music-${key}`, url]);
-    this.bufferPromise = Promise.allSettled([...sampleEntries, ...musicEntries].map(async ([key, url]) => {
+    const ambienceEntries = Object.entries(config.ecosystem?.audio?.ambience || {}).filter(([, item]) => item?.src).map(([key, item]) => [`ambience-${key}`, item.src]);
+    this.bufferPromise = Promise.allSettled([...sampleEntries, ...musicEntries, ...ambienceEntries].map(async ([key, url]) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Audio ${key} returned ${response.status}`);
       this.buffers.set(key, await this.context.decodeAudioData(await response.arrayBuffer()));
@@ -305,6 +310,29 @@ class VillageAudio {
     if (this.season === "winter") this.addEnvironmentNoise({ type: "bandpass", frequency: 410, q: 1.6, level: .009, rate: .55, pulse: .04 });
     if (this.weather === "storm") this.addEnvironmentTone({ frequency: 42, level: .032, pulse: .07 });
     if (this.weather === "fog") this.addEnvironmentTone({ frequency: 74, level: .008, pulse: .035 });
+    this.startScheduledAmbience();
+  }
+
+  scheduledAmbience() {
+    return activeAmbientScenes(config.ecosystem?.audio?.ambience, { season: this.season, currentMinutes: this.currentMinutes, sunrise: this.sunrise });
+  }
+
+  startScheduledAmbience() {
+    this.scheduledAmbience().forEach((key) => {
+      const scene = config.ecosystem?.audio?.ambience?.[key];
+      const buffer = this.buffers.get(`ambience-${key}`);
+      if (!scene || !buffer) return;
+      const source = this.context.createBufferSource();
+      const gain = this.context.createGain();
+      const now = this.context.currentTime;
+      source.buffer = buffer;
+      source.loop = true;
+      gain.gain.setValueAtTime(.0001, now);
+      gain.gain.exponentialRampToValueAtTime(Math.max(.0002, Number(scene.volume || .1)), now + 1.8);
+      source.connect(gain).connect(this.environmentGain);
+      source.start();
+      this.environmentNodes.push(source, gain);
+    });
   }
 
   playBuffer(buffer, destination, volume = .3, maximumDuration = null) {
@@ -585,6 +613,15 @@ class VillageAudio {
     this.restartEnvironment();
   }
 
+  setClock({ currentMinutes, sunrise }) {
+    const before = this.scheduledAmbience().join("|");
+    this.currentMinutes = Number(currentMinutes);
+    this.sunrise = Number(sunrise);
+    const after = this.scheduledAmbience().join("|");
+    this.activeAmbienceKey = after;
+    if (before !== after) this.restartEnvironment();
+  }
+
   applySettings() {
     if (!this.context) return;
     const enabled = Boolean(state.settings.soundEnabled);
@@ -723,7 +760,8 @@ function renderBuildings() {
   const layer = $("#building-layer");
   const buildingLabel = (building) => building.type === "ai" ? t(String(building.topic || "Education").toLowerCase()) : t(building.type === "activity" ? "activities" : building.type);
   layer.innerHTML = config.buildings.map((building) => `
-    <button class="building" type="button" style="left:${building.x}%;top:${building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(buildingLabel(building))}" aria-label="${escapeHtml(buildingLabel(building))} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+    <button class="building" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-label="${escapeHtml(buildingLabel(building))}" aria-label="${escapeHtml(buildingLabel(building))} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+      <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");
 }
@@ -1240,23 +1278,18 @@ function renderMoonPhase(environment) {
       const limb = .58 + nz * .42;
       const crater = Math.sin(x * .31 + y * .17) * Math.sin(x * .08 - y * .23) * 5;
       const lit = sunlight > 0;
-      const brightness = lit ? 178 + sunlight * 66 : 23 + nz * 15;
+      if (!lit) continue;
+      const brightness = 178 + sunlight * 66;
       const index = (y * size + x) * 4;
-      pixels.data[index] = Math.max(0, brightness * limb + crater + (lit ? 18 : 0));
-      pixels.data[index + 1] = Math.max(0, brightness * limb + crater + (lit ? 19 : 4));
-      pixels.data[index + 2] = Math.max(0, brightness * limb + crater + (lit ? 14 : 9));
-      pixels.data[index + 3] = Math.round(255 * Math.min(1, (1 - distance) * 14));
+      pixels.data[index] = Math.max(0, brightness * limb + crater + 18);
+      pixels.data[index + 1] = Math.max(0, brightness * limb + crater + 19);
+      pixels.data[index + 2] = Math.max(0, brightness * limb + crater + 14);
+      const limbAlpha = Math.min(1, (1 - distance) * 14);
+      const terminatorAlpha = Math.min(1, sunlight * 34);
+      pixels.data[index + 3] = Math.round(255 * limbAlpha * terminatorAlpha);
     }
   }
   context.putImageData(pixels, 0, 0);
-  context.globalCompositeOperation = "screen";
-  const glow = context.createRadialGradient(size * .42, size * .38, 0, size / 2, size / 2, radius);
-  glow.addColorStop(0, "rgba(255,255,245,.16)");
-  glow.addColorStop(1, "rgba(255,255,255,0)");
-  context.fillStyle = glow;
-  context.beginPath();
-  context.arc(size / 2, size / 2, radius, 0, Math.PI * 2);
-  context.fill();
   moon.style.backgroundImage = `url(${canvas.toDataURL("image/png")})`;
   moon.classList.add("has-phase");
   moon.dataset.phase = moonPhaseName(phase);
@@ -1320,6 +1353,7 @@ function updateCelestialScene() {
   const locationSeed = [environment.location?.city, environment.location?.region, environment.location?.country, environment.location?.timezone].filter(Boolean).join("|") || "village";
   state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
   state.audio?.setDay(isDay);
+  state.audio?.setClock({ currentMinutes, sunrise });
   state.immersive?.setEnvironment({ isDay });
   renderMoonPhase(environment);
   renderEnvironmentStatus();

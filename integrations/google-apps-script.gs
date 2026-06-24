@@ -25,14 +25,15 @@ function doPost(e) {
       headers = sheet.getRange(2, 1, 1, lastColumn).getDisplayValues()[0];
     }
     var headerRow = sheet.getRange(1, 1).getDisplayValue() ? 1 : 2;
-    var userNameIndex = headers.indexOf("User name");
     var userIdIndex = headers.indexOf("userId");
+    var emailIndex = headers.indexOf("Email");
+    var userNameIndex = headers.indexOf("User name");
     var existingRow = -1;
 
     if (sheet.getLastRow() > headerRow) {
-      var identityColumn = userIdIndex >= 0 ? userIdIndex + 1 : userNameIndex + 1;
+      var identityColumn = userIdIndex >= 0 ? userIdIndex + 1 : emailIndex >= 0 ? emailIndex + 1 : userNameIndex + 1;
       if (identityColumn > 0) {
-        var targetIdentity = userIdIndex >= 0 ? data.userId : data["User name"];
+        var targetIdentity = userIdIndex >= 0 ? data.userId : emailIndex >= 0 ? data["Email"] : data["User name"];
         var values = sheet.getRange(headerRow + 1, identityColumn, sheet.getLastRow() - headerRow, 1).getDisplayValues();
         for (var i = 0; i < values.length; i++) {
           if (String(values[i][0]) === String(targetIdentity)) {

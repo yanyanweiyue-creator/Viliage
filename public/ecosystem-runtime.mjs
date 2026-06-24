@@ -1,5 +1,5 @@
 import { nextLivestockAction, shouldLaunchSunsetFlock, shouldShowDragon } from "./ecosystem-logic.mjs";
-import { createCreatureArt } from "./creature-art.mjs?v=celestial-community-20260623";
+import { createCreatureArt } from "./creature-art.mjs?v=grounded-audio-20260623";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);

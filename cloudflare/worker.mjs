@@ -261,17 +261,27 @@ async function aiAnswer(env, { topic, description, profile, matches }) {
   return responseText(await response.json());
 }
 
+async function userChatHistory(env, userId) {
+  const rows = await allRows(env.DB.prepare(`
+    SELECT r.name AS room, m.body AS message, m.created_at AS at
+    FROM chat_messages m JOIN chat_rooms r ON r.id = m.room_id
+    WHERE m.user_id = ? ORDER BY m.created_at DESC LIMIT 100
+  `).bind(userId));
+  return rows.reverse();
+}
+
 async function syncUser(env, user) {
   if (!env.USER_SHEET_WEBHOOK_URL) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+  const chatHistory = await userChatHistory(env, user.id);
   const payload = {
     "User name": user.name,
     "Password": "Not stored — secure hash only",
     "response of survey": JSON.stringify(user.profile?.responses || {}),
-    "AI summary the response of surve": user.profile?.summary || "",
     "AI personal record": user.profile?.summary || "",
     history: JSON.stringify(user.history || []),
     feedback: user.feedback || "",
-    email: user.email,
+    "Chat History": JSON.stringify(chatHistory),
+    "Email": user.email,
     userId: user.id
   };
   const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
@@ -405,7 +415,8 @@ async function api(request, env, ctx) {
       if (!messageBody) return fail("Write a message first.");
       const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
       await env.DB.prepare("INSERT INTO chat_messages (id, room_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)").bind(message.id, roomId, user.id, message.body, message.createdAt).run();
-      return json({ message: { ...message, author: profile.display_name, mine: true } }, 201);
+      ctx.waitUntil(syncUser(env, user).catch(() => {}));
+      return json({ message: { ...message, author: profile.display_name, mine: true }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201);
     }
   }
 

@@ -89,21 +89,25 @@ window.CAPY_CONFIG = {
         sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
         deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
       },
+      ambience: {
+        summerInsects: { src: "/audio/ambience/summer-insects.mp3", volume: 0.12, seasons: ["summer"], startMinute: 600, endMinute: 960 },
+        sunriseFarm: { src: "/audio/ambience/sunrise-farm.mp3", volume: 0.16, sunriseOffsetStart: -15, sunriseOffsetEnd: 45 }
+      },
       replacementNote: "Replace files or URLs in this manifest without changing the audio engine. See AUDIO_CREDITS.md."
     }
   },
   buildings: [
-    { id: "autism-support", island: "autism", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 17, y: 42 },
-    { id: "autism-settings", island: "autism", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 29, y: 25 },
-    { id: "autism-education", island: "autism", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 39, y: 43 },
-    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 29, y: 50 },
-    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 18, y: 64 },
-    { id: "autism-activity", island: "autism", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 33, y: 63 },
-    { id: "adhd-support", island: "adhd", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 65, y: 27 },
-    { id: "adhd-settings", island: "adhd", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 80, y: 39 },
-    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 65, y: 53 },
-    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 72, y: 43 },
-    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 80, y: 61 },
-    { id: "adhd-activity", island: "adhd", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 71, y: 71 }
+    { id: "autism-support", island: "autism", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 17, y: 42, x3d: 18, y3d: 46 },
+    { id: "autism-settings", island: "autism", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 29, y: 25, x3d: 29, y3d: 41 },
+    { id: "autism-education", island: "autism", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 39, y: 43, x3d: 39, y3d: 48 },
+    { id: "autism-recreation", island: "autism", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 29, y: 50, x3d: 30, y3d: 55 },
+    { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 18, y: 64, x3d: 18, y3d: 66 },
+    { id: "autism-activity", island: "autism", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 33, y: 63, x3d: 34, y3d: 68 },
+    { id: "adhd-support", island: "adhd", type: "support", label: "Support & Contact", short: "Support", icon: "❤", x: 65, y: 27, x3d: 66, y3d: 42 },
+    { id: "adhd-settings", island: "adhd", type: "settings", label: "Settings Studio", short: "Settings", icon: "Aa", x: 80, y: 39, x3d: 82, y3d: 46 },
+    { id: "adhd-education", island: "adhd", type: "ai", topic: "Education", label: "Education Exchange", short: "Education", icon: "✦", x: 65, y: 53, x3d: 66, y3d: 57 },
+    { id: "adhd-recreation", island: "adhd", type: "ai", topic: "Recreation", label: "Recreation Grove", short: "Recreation", icon: "◇", x: 72, y: 43, x3d: 74, y3d: 48 },
+    { id: "adhd-legal", island: "adhd", type: "ai", topic: "Legal", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 80, y: 61, x3d: 82, y3d: 64 },
+    { id: "adhd-activity", island: "adhd", type: "activity", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 71, y: 71, x3d: 74, y3d: 72 }
   ]
 };

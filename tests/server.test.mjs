@@ -7,11 +7,13 @@ import { tmpdir } from "node:os";
 
 const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
 const sessionsFile = join(tmpdir(), `capy-village-test-sessions-${process.pid}.json`);
+const communityFile = join(tmpdir(), `capy-village-test-community-${process.pid}.json`);
 process.env.USERS_FILE = usersFile;
 process.env.SESSIONS_FILE = sessionsFile;
+process.env.COMMUNITY_FILE = communityFile;
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
-  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {})]);
+  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {})]);
 });
 
 function httpRequest(url, options = {}) {
@@ -125,6 +127,12 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(register.status, 201);
     assert.equal(received[0]["User name"], "Sheet Test");
     assert.equal(received[0]["Password"], "Not stored — secure hash only");
+    assert.equal(received[0]["Email"], email);
+    assert.equal(received[0]["response of survey"], "{}");
+    assert.equal(received[0]["AI personal record"], "");
+    assert.equal(received[0]["history"], "[]");
+    assert.equal(received[0]["feedback"], "");
+    assert.equal(received[0]["Chat History"], "[]");
 
     const profileBody = JSON.stringify({ responses: { interests: ["Autism"], age: "8–12", journey: "1–3 years", situation: ["Exploring concerns"], note: "IEP support" } });
     const profile = await httpRequest(`http://127.0.0.1:${port}/api/profile`, {
@@ -139,6 +147,24 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(profile.status, 200);
     assert.match(received[1]["response of survey"], /Autism/);
     assert.match(received[1]["AI personal record"], /Exploring Autism/);
+    assert.equal(received[1]["Email"], email);
+    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Email", "Password", "User name", "feedback", "history", "response of survey"].sort());
+
+    const cookie = register.headers["set-cookie"][0].split(";")[0];
+    for (const [path, requestBody] of [
+      ["/api/community/settings", { enabled: true, displayName: "Sheet Test" }],
+      ["/api/community/rooms/group-general/join", {}],
+      ["/api/community/rooms/group-general/messages", { message: "A sheet-synced hello" }]
+    ]) {
+      const communityResponse = await httpRequest(`http://127.0.0.1:${port}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: cookie },
+        body: JSON.stringify(requestBody)
+      });
+      assert.ok([200, 201].includes(communityResponse.status));
+    }
+    assert.match(received[2]["Chat History"], /A sheet-synced hello/);
+    assert.match(received[2]["Chat History"], /Village Commons/);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
     server.closeAllConnections();
