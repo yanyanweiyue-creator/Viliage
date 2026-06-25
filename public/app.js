@@ -62,7 +62,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const i18n = {
   en: {
     begin: "Where would you like to begin?", explore: "Explore at your own pace. There is no wrong door—and Waffles can help make any topic feel more manageable.", choosePath: "Choose your own path",
-    village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Select an island, then choose a building", chooseBuilding: "Choose a building",
+    village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Tap an island, then choose a building", chooseBuilding: "Choose a building",
     quietGardens: "Quiet gardens", momentumTrails: "Momentum trails", autismIsland: "Autism Island", adhdIsland: "ADHD Island",
     resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", guestReady: "Temporary guest visit", guestMatch: "Searches and records are not saved", account: "Account", view: "View", refresh: "Refresh",
     jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
@@ -82,7 +82,7 @@ const i18n = {
   },
   zh: {
     begin: "你想从哪里开始？", explore: "按自己的节奏探索。没有走错的门——Waffles 会帮你把每个主题都变得更容易理解。", choosePath: "选择你自己的路径",
-    village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "先选择一座岛，再选择一栋建筑", chooseBuilding: "选择一栋建筑",
+    village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "点岛进入，再选择建筑", chooseBuilding: "选择一栋建筑",
     quietGardens: "安静花园", momentumTrails: "活力小径", autismIsland: "自闭症岛", adhdIsland: "ADHD 岛",
     resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", guestReady: "临时访客模式", guestMatch: "搜索与个人记录不会被保存", account: "账户", view: "查看", refresh: "刷新",
     jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
@@ -102,7 +102,7 @@ const i18n = {
   },
   es: {
     begin: "¿Por dónde te gustaría empezar?", explore: "Explora a tu propio ritmo. No hay una puerta equivocada; Waffles puede hacer que cada tema sea más manejable.", choosePath: "Elige tu propio camino",
-    village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Elige una isla y luego un edificio", chooseBuilding: "Elige un edificio",
+    village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Toca una isla y luego un edificio", chooseBuilding: "Elige un edificio",
     quietGardens: "Jardines tranquilos", momentumTrails: "Senderos activos", autismIsland: "Isla Autismo", adhdIsland: "Isla TDAH",
     resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", guestReady: "Visita temporal", guestMatch: "Las búsquedas y registros no se guardan", account: "Cuenta", view: "Ver", refresh: "Actualizar",
     jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
@@ -1663,7 +1663,7 @@ function updateCelestialScene() {
   state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
   state.audio?.setDay(isDay);
   state.audio?.setClock({ currentMinutes, sunrise });
-  state.immersive?.setEnvironment({ isDay });
+  state.immersive?.setEnvironment({ isDay, currentMinutes, sunrise, sunset });
   state.surfaceMotion?.setEnvironment({ isDay });
   renderMoonPhase(environment);
   renderEnvironmentStatus();

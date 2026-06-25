@@ -62,8 +62,9 @@ function createPasswordResetCode() {
 }
 
 async function sendPasswordResetEmail(env, email, code) {
-  if (!env.PASSWORD_EMAIL_WEBHOOK_URL) return false;
-  const response = await fetch(env.PASSWORD_EMAIL_WEBHOOK_URL, {
+  const webhook = env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL;
+  if (!webhook) return false;
+  const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
@@ -396,7 +397,7 @@ async function environment(request) {
 
 async function api(request, env, ctx) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   if (request.method === "GET" && url.pathname === "/api/scoring-config") return json(scoreConfig);
   if (request.method === "GET" && url.pathname === "/api/environment") {
     try { return json(await environment(request)); } catch { return fail("Local weather is temporarily unavailable.", 503); }
@@ -410,7 +411,7 @@ async function api(request, env, ctx) {
     const { email = "" } = await body(request);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return fail("Please enter a valid email address.");
-    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (!user) {
       passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET);

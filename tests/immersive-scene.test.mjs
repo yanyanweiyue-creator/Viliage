@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
-import { environmentPalette, waterWaveHeight } from "../public/immersive-scene.mjs";
+import { celestialTrackPoint, environmentPalette, waterSurfaceState, waterWaveHeight } from "../public/immersive-scene.mjs";
 
 test("3D environment palettes react to weather, season, and day state", () => {
   const clear = environmentPalette({ isDay: true, weather: "clear", season: "summer" });
@@ -20,6 +20,26 @@ test("water surface is deterministic at one instant and changes over time", () =
   assert.equal(waterWaveHeight(320, 180, 1000), first);
   assert.notEqual(waterWaveHeight(320, 180, 2200), first);
   assert.ok(Number.isFinite(first));
+});
+
+test("water can switch between mirror calm and whitecap states", () => {
+  const calm = waterSurfaceState({ weather: "clear", windSpeed: 1, isDay: true }, 0);
+  const rough = waterSurfaceState({ weather: "storm", windSpeed: 30, isDay: true }, 0);
+  assert.equal(calm.mode, "mirror");
+  assert.ok(calm.mirror > calm.foam);
+  assert.equal(rough.mode, "whitecaps");
+  assert.ok(rough.foam > rough.mirror);
+  assert.ok(rough.wave > calm.wave);
+});
+
+test("3D celestial track rises through the day and moves horizontally", () => {
+  const sunrise = celestialTrackPoint({ currentMinutes: 360, sunrise: 360, sunset: 1080 }, 100, 100);
+  const noon = celestialTrackPoint({ currentMinutes: 720, sunrise: 360, sunset: 1080 }, 100, 100);
+  const sunset = celestialTrackPoint({ currentMinutes: 1080, sunrise: 360, sunset: 1080 }, 100, 100);
+  assert.ok(sunrise.x < noon.x);
+  assert.ok(noon.x < sunset.x);
+  assert.ok(noon.y < sunrise.y);
+  assert.ok(noon.y < sunset.y);
 });
 
 test("3D buildings render dedicated night lighting", async () => {

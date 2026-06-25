@@ -149,7 +149,7 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
   database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
-  const env = cloudflareEnv(database, { PASSWORD_EMAIL_WEBHOOK_URL: "https://mail.example/reset", PASSWORD_RESET_SECRET: "test-reset-secret", PASSWORD_EMAIL_FROM_ADDRESS: "hello@village.example" });
+  const env = cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync", PASSWORD_RESET_SECRET: "test-reset-secret", PASSWORD_EMAIL_FROM_ADDRESS: "hello@village.example" });
   const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Reset User", email: "reset@example.com", password: "old-password" })
   }), env, ctx);
@@ -157,6 +157,7 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
   let mailedCode = "";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
+    assert.equal(String(_url), "https://sheet.example/sync");
     const payload = JSON.parse(options.body);
     mailedCode = payload.code;
     assert.equal(payload.fromAddress, "hello@village.example");

@@ -2,11 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "../public/celestial-logic.mjs";
 
-test("sun and moon follow an upper-screen quadratic orbit", () => {
-  assert.deepEqual(celestialOrbit(0), { x: 8, y: 43 });
-  assert.deepEqual(celestialOrbit(.5), { x: 50, y: 13 });
-  assert.deepEqual(celestialOrbit(1), { x: 92, y: 43 });
-  for (const progress of [0, .1, .25, .5, .75, .9, 1]) assert.ok(celestialOrbit(progress).y <= 43);
+const approx = (actual, expected, tolerance = .0001) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be close to ${expected}`);
+
+test("sun and moon follow a tilted upper-screen orbit", () => {
+  assert.deepEqual(celestialOrbit(0), { x: 7, y: 47 });
+  approx(celestialOrbit(.5).x, 50);
+  approx(celestialOrbit(.5).y, 12);
+  approx(celestialOrbit(1).x, 93);
+  approx(celestialOrbit(1).y, 47);
+  assert.ok(celestialOrbit(.25).y < celestialOrbit(0).y);
+  assert.ok(celestialOrbit(.75).y < celestialOrbit(1).y);
+  for (const progress of [0, .1, .25, .5, .75, .9, 1]) assert.ok(celestialOrbit(progress).y <= 47);
 });
 
 test("moon phase calculation is stable around a known new moon", () => {

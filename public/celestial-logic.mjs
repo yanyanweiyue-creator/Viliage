@@ -4,12 +4,13 @@ const KNOWN_NEW_MOON = Date.UTC(2000, 0, 6, 18, 14, 0);
 
 const clamp = (value, minimum = 0, maximum = 1) => Math.max(minimum, Math.min(maximum, Number(value) || 0));
 
-/** Keep the celestial body inside the upper half on a true quadratic arc. */
+/** Keep the celestial body inside the upper sky on a gently tilted natural arc. */
 export function celestialOrbit(progress) {
   const normalized = clamp(progress);
+  const arc = Math.sin(normalized * Math.PI);
   return {
-    x: 8 + normalized * 84,
-    y: 43 - 120 * normalized * (1 - normalized)
+    x: 7 + normalized * 86,
+    y: 47 - arc * 35 - Math.sin(normalized * Math.PI * 2) * 4
   };
 }
 

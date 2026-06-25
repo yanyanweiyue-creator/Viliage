@@ -255,7 +255,7 @@ async function savePasswordResets(resets) {
 }
 
 async function sendPasswordResetEmail(email, code) {
-  const webhook = process.env.PASSWORD_EMAIL_WEBHOOK_URL;
+  const webhook = process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL;
   if (!webhook) return false;
   const response = await fetch(webhook, {
     method: "POST",
@@ -629,7 +629,7 @@ async function updateUser(userId, updater) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "GET" && url.pathname === "/api/scoring-config") {
@@ -650,7 +650,7 @@ async function handleApi(req, res, url) {
     const { email = "" } = await readJsonBody(req);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return sendError(res, 400, "Please enter a valid email address.");
-    const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL);
+    const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL);
     const generic = { ok: true, deliveryAvailable, senderAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);
