@@ -1421,11 +1421,15 @@ function profilePanel() {
 }
 
 function handleBuilding(id) {
+  const building = config.buildings.find((item) => item.id === id);
+  if (!building) return;
+  if (state.selectedIsland !== building.island) {
+    selectIsland(building.island);
+    return;
+  }
   clearInterval(state.communityTimer);
   state.communityTimer = null;
   state.communityRoom = null;
-  const building = config.buildings.find((item) => item.id === id);
-  if (!building) return;
   const buildingSpeech = `${building.mapLabel || building.short}. ${building.label}. ${building.type === "support" ? "This opens contact options, community conversations, and support resources." : building.type === "activity" ? "This opens upcoming village activities and volunteer opportunities." : "This opens Waffles resource search for this topic."}`;
   speakVillage(buildingSpeech);
   if (building.type === "support") supportPanel("phone", building.island);
@@ -1633,7 +1637,6 @@ function executeVoiceIntent(intent, originalTranscript = "") {
     const island = intent.island || state.selectedIsland || "autism";
     const building = config.buildings.find((item) => item.island === island && (item.id === intent.buildingId || item.type === intent.buildingType || String(item.topic || "").toLowerCase() === String(intent.topic || "").toLowerCase()));
     if (building) {
-      if (state.selectedIsland !== building.island) applyIslandFocus(building.island);
       handleBuilding(building.id);
       return;
     }

@@ -36,9 +36,10 @@ a { color: inherit; }
 .lede { color: var(--muted); font-size: 1.08rem; max-width: 42rem; }
 .brand-lockup { display: inline-flex; align-items: center; gap: .72rem; font-weight: 700; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 2.35rem; height: 2.35rem; border-radius: 48% 52% 46% 54%; background: var(--ink); color: var(--butter); font-family: "Fraunces", serif; }
-.brand-logo-lockup { position: relative; flex: 0 0 auto; width: clamp(8.2rem, 12vw, 11.5rem); height: 3.6rem; overflow: hidden; }
-.brand-logo-lockup img { position: absolute; left: -26%; top: -98%; display: block; width: auto; max-width: none; height: 297%; }
-.auth-card .brand-logo-lockup { width: 14rem; height: 6.5rem; }
+.brand-logo-lockup { position: relative; flex: 0 0 auto; width: clamp(7.8rem, 10vw, 9.6rem); height: 4.15rem; overflow: hidden; }
+.brand-logo-lockup img { position: absolute; left: -18%; top: -72%; display: block; width: auto; max-width: none; height: 244%; }
+.auth-card .brand-logo-lockup { width: 14rem; height: 7rem; }
+.auth-card .brand-logo-lockup img { left: -16%; top: -68%; height: 236%; }
 
 .primary-button, .secondary-button, .text-button, .pill-button, .nav-button, .icon-button { border: 0; cursor: pointer; }
 .primary-button, .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: .75rem; min-height: 3.2rem; padding: .8rem 1.15rem; border-radius: 999px; font-weight: 700; text-decoration: none; }
@@ -280,7 +281,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .map-stage.season-summer #map-image { filter: saturate(1.16) brightness(1.05) contrast(1.02); }
 .map-stage.season-autumn #map-image { filter: saturate(.92) sepia(.16) hue-rotate(-8deg) contrast(1.03); }
 .map-stage.season-winter #map-image { filter: saturate(.72) brightness(1.08) hue-rotate(7deg); }
-.environment-status { position: absolute; z-index: 7; left: 50%; top: 1rem; transform: translateX(-50%); display: grid; grid-template-columns: auto auto auto; align-items: center; gap: .65rem; max-width: min(32rem, 70%); padding: .56rem .7rem; border: 1px solid rgba(255,255,255,.68); border-radius: 1rem; background: rgba(255,255,255,.88); color: #243a35; box-shadow: 0 9px 24px rgba(31,54,48,.18); backdrop-filter: blur(12px); transition: color .8s ease, background .8s ease; }
+.environment-status { position: absolute; z-index: 7; left: 50%; bottom: 1rem; transform: translateX(-50%); display: grid; grid-template-columns: auto auto auto; align-items: center; gap: .65rem; max-width: min(32rem, 70%); padding: .56rem .7rem; border: 1px solid rgba(255,255,255,.68); border-radius: 1rem; background: rgba(255,255,255,.88); color: #243a35; box-shadow: 0 9px 24px rgba(31,54,48,.18); backdrop-filter: blur(12px); transition: color .8s ease, background .8s ease; }
 .environment-status.night { color: #f4f7f8; background: rgba(13,31,52,.78); border-color: rgba(220,235,247,.32); }
 .environment-icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: .7rem; background: rgba(255,255,255,.58); font-size: 1.15rem; }
 .environment-copy { min-width: 0; }.environment-copy strong, .environment-copy small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.environment-copy strong { font-size: .8rem; }.environment-copy small { color: inherit; opacity: .72; font-size: .62rem; }
@@ -331,7 +332,7 @@ body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3
 body.scene-3d .map-hotspot .building-ground { display: none; }
 .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: 1; filter: none; pointer-events: auto; }
 body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: .68; filter: saturate(.86) contrast(1.03); }
-.map-hint { position: absolute; left: 50%; bottom: 1.2rem; transform: translateX(-50%); z-index: 5; background: rgba(34,58,52,.86); color: white; padding: .5rem .8rem; border-radius: 999px; font-size: .75rem; box-shadow: 0 6px 18px rgba(31,54,48,.16); }
+.map-hint { position: absolute; left: 50%; top: 1.2rem; transform: translateX(-50%); z-index: 7; background: rgba(34,58,52,.86); color: white; padding: .5rem .8rem; border-radius: 999px; font-size: .75rem; box-shadow: 0 6px 18px rgba(31,54,48,.16); }
 .village-footer-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
 .village-footer-cards article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .8rem; background: white; border: 1px solid var(--line); border-radius: 1.1rem; padding: .9rem 1rem; }
 .village-footer-cards article strong, .village-footer-cards article small { display: block; }
@@ -482,7 +483,8 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   .app-header { grid-template-columns: 1fr auto; }.app-header nav { display: none; }.pill-button { width: 2.7rem; height: 2.7rem; justify-content: center; padding: 0; font-size: 0; }.pill-button > span[aria-hidden="true"] { font-size: 1rem; }.pill-button > span[data-i18n] { display: none; }.header-tools { gap: .4rem; }
   .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 62rem; max-width: none; }
   .map-stage.focus-autism { transform: scale(1.28) translate(15%, 0); }.map-stage.focus-adhd { transform: scale(1.28) translate(-15%, 0); }
-  .environment-status { position: sticky; left: 1rem; top: .75rem; transform: none; width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: -3.9rem; }
+  .environment-status { position: absolute; left: 50%; bottom: .75rem; top: auto; transform: translateX(-50%); width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: 0; }
+  .map-hint { top: .75rem; max-width: calc(100vw - 3rem); white-space: nowrap; }
   .island-label.autism, .island-label.adhd { top: 18%; }
   .map-stage.focus-autism .island-label.autism, .map-stage.focus-adhd .island-label.adhd { opacity: 0; pointer-events: none; }
   .village-footer-cards { grid-template-columns: 1fr; }.building::after { font-size: .68rem; }

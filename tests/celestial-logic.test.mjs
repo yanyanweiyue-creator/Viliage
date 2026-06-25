@@ -4,17 +4,17 @@ import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "../public/celes
 
 const approx = (actual, expected, tolerance = .0001) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be close to ${expected}`);
 
-test("sun and moon centers follow the drawn parabolic sky orbit", () => {
-  assert.deepEqual(celestialOrbit(0), { x: 4, y: 31 });
+test("2D sun and moon centers follow the high drawn parabolic sky orbit", () => {
+  assert.deepEqual(celestialOrbit(0), { x: -3, y: 7 });
   approx(celestialOrbit(.5).x, 50);
-  approx(celestialOrbit(.5).y, 13);
-  approx(celestialOrbit(1).x, 96);
-  approx(celestialOrbit(1).y, 31);
+  approx(celestialOrbit(.5).y, 2.75);
+  approx(celestialOrbit(1).x, 103);
+  approx(celestialOrbit(1).y, 8.5);
   assert.ok(celestialOrbit(.25).y < celestialOrbit(0).y);
   assert.ok(celestialOrbit(.75).y < celestialOrbit(1).y);
   for (const progress of [0, .1, .25, .5, .75, .9, 1]) {
-    assert.ok(celestialOrbit(progress).y >= 13);
-    assert.ok(celestialOrbit(progress).y <= 31);
+    assert.ok(celestialOrbit(progress).y >= 2.75);
+    assert.ok(celestialOrbit(progress).y <= 8.5);
   }
 });
 

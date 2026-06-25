@@ -37,6 +37,24 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /map-stage\.focus-adhd/);
 });
 
+test("header logo fits its lockup without the old oversized crop", async () => {
+  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  const lockup = css.match(/\.brand-logo-lockup \{[^}]*width:\s*clamp\(([^;]+);[^}]*height:\s*([^;]+);/);
+  const image = css.match(/\.brand-logo-lockup img \{[^}]*left:\s*(-?\d+)%[^}]*top:\s*(-?\d+)%[^}]*height:\s*(\d+)%/);
+  assert.ok(lockup, "logo lockup should declare explicit dimensions");
+  assert.ok(image, "logo image should declare crop-safe placement");
+  assert.ok(Number(image[1]) >= -20, "logo should not be pushed too far left");
+  assert.ok(Number(image[2]) >= -75, "logo should not be pushed too far above the lockup");
+  assert.ok(Number(image[3]) <= 250, "logo should not use the old oversized 297% crop");
+});
+
+test("weather status and map hint swap top and bottom positions", async () => {
+  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.environment-status \{[^}]*bottom:\s*1rem/);
+  assert.match(css, /\.map-hint \{[^}]*top:\s*1\.2rem/);
+  assert.doesNotMatch(css, /\.environment-status \{[^}]*top:\s*1rem/);
+});
+
 test("single-island focus keeps the whole island in view", async () => {
   const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
   for (const island of ["autism", "adhd"]) {
@@ -90,7 +108,7 @@ test("each island exposes the five approved map destinations", async () => {
   }
 });
 
-test("2D buildings stay directly clickable above island hit areas", async () => {
+test("2D buildings select their island before opening building functions", async () => {
   const [config, css, app, surface] = await Promise.all([
     loadConfig(),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
@@ -101,6 +119,7 @@ test("2D buildings stay directly clickable above island hit areas", async () => 
   assert.ok(autismSupport.hitWidth >= 15, "Autism Village support hotspot should cover the visible building group");
   assert.ok(autismSupport.hitHeight >= 12, "Autism Village support hotspot should be easy to click");
   assert.match(css, /\.map-stage:not\(\.focus-autism\):not\(\.focus-adhd\) \.building[^}]*pointer-events:\s*auto/);
+  assert.match(app, /if \(state\.selectedIsland !== building\.island\) \{\s*selectIsland\(building\.island\);\s*return;\s*\}/);
   assert.ok(app.indexOf("const building = event.target.closest(\"[data-building]\");") < app.indexOf("const islandButton = event.target.closest(\"[data-island]:not(.building)\");"));
   assert.match(surface, /closest\?\.\("\.island-hit-area, \.building, \.map-hotspot"\)/);
 });
