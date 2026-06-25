@@ -5,14 +5,17 @@ import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "../public/celes
 const approx = (actual, expected, tolerance = .0001) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be close to ${expected}`);
 
 test("sun and moon follow a parabolic upper-screen orbit", () => {
-  assert.deepEqual(celestialOrbit(0), { x: 4, y: 50 });
+  assert.deepEqual(celestialOrbit(0), { x: 4, y: 10 });
   approx(celestialOrbit(.5).x, 50);
-  approx(celestialOrbit(.5).y, 11);
+  approx(celestialOrbit(.5).y, 2);
   approx(celestialOrbit(1).x, 96);
-  approx(celestialOrbit(1).y, 50);
+  approx(celestialOrbit(1).y, 10);
   assert.ok(celestialOrbit(.25).y < celestialOrbit(0).y);
   assert.ok(celestialOrbit(.75).y < celestialOrbit(1).y);
-  for (const progress of [0, .1, .25, .5, .75, .9, 1]) assert.ok(celestialOrbit(progress).y <= 50);
+  for (const progress of [0, .1, .25, .5, .75, .9, 1]) {
+    assert.ok(celestialOrbit(progress).y >= 2);
+    assert.ok(celestialOrbit(progress).y <= 10);
+  }
 });
 
 test("moon phase calculation is stable around a known new moon", () => {

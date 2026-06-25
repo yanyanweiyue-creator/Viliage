@@ -156,7 +156,6 @@ body.scene-3d .building::before { filter: drop-shadow(0 .45rem .3rem rgba(34,25,
 body.scene-3d .building:hover { transform: translate(-50%, -58%) scale(1.09) rotateX(3deg); }
 body.scene-3d .building-ground { display: block; }
 body.scene-3d .ecosystem-actor { scale: var(--depth-scale, 1); filter: drop-shadow(0 .55rem .38rem rgba(7,26,22,.42)) saturate(1.14) contrast(1.08); }
-body.scene-3d .ecosystem-actor .model-surface { filter: var(--model-filter); }
 body.scene-3d .ecosystem-actor .actor-art [stroke] { stroke-opacity: .68; }
 body.scene-3d .ecosystem-actor .model-highlight { mix-blend-mode: soft-light; }
 body.scene-3d .model-shadow { opacity: .38; }
@@ -209,7 +208,8 @@ body.scene-2d .habitat-feature { display: none; }
 .ecosystem-actor.state-inside { opacity: 0; }
 .map-stage.focus-autism .ecosystem-actor[data-island="adhd"], .map-stage.focus-adhd .ecosystem-actor[data-island="autism"] { opacity: 0; }
 .map-stage.time-night .ecosystem-actor { filter: brightness(.72) drop-shadow(0 0 .35rem rgba(220,238,255,.42)); }
-body.scene-3d .ecosystem-actor .actor-art { filter: saturate(1.12) contrast(1.06) drop-shadow(0 .18rem .12rem rgba(255,255,255,.16)); }
+body.scene-3d .ecosystem-actor .actor-art { filter: none; }
+body.scene-3d .ecosystem-actor .model-shadow { opacity: .24; }
 body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) scaleX(1.08); }
 .map-stage.time-night .ecosystem-actor[data-flying="true"] { opacity: 0; }
 .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="rabbit"], .map-stage:is(.weather-rain,.weather-storm) .ecosystem-actor[data-species="fox"] { opacity: .22; }
@@ -253,7 +253,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .star-field::before { width: 34%; height: 46%; left: 8%; top: 10%; background: radial-gradient(circle, rgba(95,137,195,.28), transparent 70%); }
 .star-field::after { width: 29%; height: 38%; right: 13%; top: 2%; background: radial-gradient(circle, rgba(197,157,218,.2), transparent 72%); }
 .star-particle { position: absolute; left: var(--star-left); top: var(--star-top); width: var(--star-size); height: var(--star-size); border-radius: 50%; background: #fffdf0; opacity: var(--star-alpha); box-shadow: 0 0 calc(var(--star-size) * 3) rgba(224,239,255,.9), 0 0 calc(var(--star-size) * 7) rgba(148,190,230,.25); transform: translateZ(var(--star-depth)); animation: dimensionalTwinkle var(--star-duration) ease-in-out var(--star-delay) infinite alternate; }
-.celestial { position: absolute; z-index: 3; left: var(--celestial-x, 50%); top: var(--celestial-y, 18%); width: clamp(2.6rem, 5vw, 5.2rem); aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); transition: left 55s linear, top 55s linear, opacity 1.5s ease; }
+.celestial { position: absolute; z-index: 3; left: var(--celestial-x, 50%); top: var(--celestial-y, 10%); width: clamp(2.6rem, 5vw, 5.2rem); aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); transition: left 55s linear, top 55s linear, opacity 1.5s ease; }
 .celestial.sun { opacity: var(--sun-visible, 1); background: radial-gradient(circle at 38% 35%, #fff9c9 0 8%, #ffd86f 34%, #f4a93e 72%); box-shadow: 0 0 1.5rem .45rem rgba(255,210,100,.72), 0 0 5rem 1.7rem rgba(255,225,137,.38); }
 .celestial.moon { left: var(--moon-x, 70%); top: var(--moon-y, 17%); opacity: var(--moon-visible, 0); background: radial-gradient(circle at 35% 30%, #fff 0 15%, #dfe9ec 48%, #aebdc5 100%); background-position: center; background-size: 100% 100%; background-repeat: no-repeat; box-shadow: 0 0 2.4rem .6rem rgba(220,239,255,.52), 0 0 6rem 1.3rem rgba(126,170,210,.2); }
 .celestial.moon.has-phase { box-shadow: none; filter: drop-shadow(0 0 .7rem rgba(226,241,255,.68)) drop-shadow(0 0 2.2rem rgba(126,170,210,.28)); }
@@ -295,8 +295,8 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 @keyframes lightning { 0%, 91%, 94%, 100% { opacity: 0; } 92%, 95% { opacity: .68; } 93% { opacity: .14; } }
 @keyframes weatherSpin { to { transform: rotate(360deg); } }
 .island-hit-area { position: absolute; z-index: 4; border: 0; padding: 0; background: transparent; box-shadow: none; color: transparent; cursor: pointer; }
-.island-hit-area.autism { left: 5.6%; top: 29%; width: 40%; height: 59%; border-radius: 43% 47% 50% 48%; transform: rotate(-6deg); clip-path: polygon(10% 26%, 23% 8%, 55% 7%, 86% 22%, 98% 53%, 85% 84%, 58% 97%, 24% 92%, 6% 68%, 0 43%); }
-.island-hit-area.adhd { right: 5.1%; top: 28%; width: 40.5%; height: 60%; border-radius: 45% 49% 47% 43%; transform: rotate(5deg); clip-path: polygon(4% 32%, 20% 10%, 55% 6%, 86% 17%, 99% 47%, 91% 76%, 65% 96%, 29% 93%, 7% 72%, 0 49%); }
+.island-hit-area.autism { left: 0; top: 0; width: 100%; height: 100%; border-radius: 0; transform: none; clip-path: polygon(3.8% 52.4%, 5.8% 42.8%, 9.8% 34.2%, 14.2% 27.8%, 21.8% 23%, 29% 22.6%, 35.4% 28.2%, 39.8% 38.4%, 43.8% 50.8%, 47% 64%, 44% 75%, 36.8% 82.4%, 26.2% 85.4%, 16.4% 82.8%, 8.6% 74.8%, 4.6% 64.4%); }
+.island-hit-area.adhd { right: auto; left: 0; top: 0; width: 100%; height: 100%; border-radius: 0; transform: none; clip-path: polygon(49.2% 58.2%, 51.2% 46.8%, 57% 34%, 64% 26%, 75.2% 22.8%, 87% 24.8%, 94% 38.6%, 98.8% 55%, 97.8% 70%, 91% 81%, 80.8% 86.6%, 69.2% 85.8%, 58.6% 80%, 51.4% 70.4%); }
 .island-hit-area:focus-visible { outline: 3px solid rgba(245,215,125,.95); outline-offset: -.6rem; }
 .island-label { position: absolute; z-index: 5; display: none; grid-template-columns: auto 1fr auto; align-items: center; gap: .7rem; min-width: 13.5rem; padding: .72rem .9rem; border: 0; border-radius: 1rem; background: rgba(255,255,255,.94); color: var(--ink); text-align: left; box-shadow: 0 11px 26px rgba(38,69,60,.17); cursor: pointer; transition: transform .2s ease, opacity .3s; }
 .island-label:hover { transform: translateY(-4px); }
@@ -322,11 +322,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .map-stage.focus-autism .island-label, .map-stage.focus-adhd .island-label,
 .map-stage.focus-autism .island-hit-area, .map-stage.focus-adhd .island-hit-area { opacity: 0; pointer-events: none; }
 .map-hotspot, .map-hotspot:hover, .map-hotspot:active, .map-hotspot:focus, body.scene-3d .map-hotspot, body.scene-3d .map-hotspot:hover { border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; filter: none !important; }
-.map-hotspot[data-map-label="School"] { clip-path: polygon(4% 22%, 26% 22%, 31% 5%, 69% 5%, 75% 22%, 96% 22%, 96% 96%, 4% 96%); }
-.map-hotspot[data-map-label="Courthouse"] { clip-path: polygon(50% 0, 96% 22%, 88% 30%, 88% 88%, 96% 88%, 96% 100%, 4% 100%, 4% 88%, 12% 88%, 12% 30%, 4% 22%); }
-.map-hotspot[data-map-label="Village"] { clip-path: polygon(5% 31%, 19% 18%, 35% 31%, 50% 10%, 67% 28%, 80% 17%, 96% 33%, 96% 98%, 4% 98%); }
-.map-hotspot[data-map-label="Woods"] { clip-path: polygon(8% 25%, 18% 7%, 34% 22%, 48% 2%, 61% 23%, 79% 8%, 95% 31%, 88% 93%, 12% 96%); }
-.map-hotspot[data-map-label="Park"] { clip-path: polygon(6% 18%, 28% 8%, 52% 18%, 73% 4%, 96% 20%, 91% 94%, 7% 94%); }
+.map-hotspot { clip-path: var(--hit-polygon, polygon(0 0, 100% 0, 100% 100%, 0 100%)); }
 .map-hotspot::after { top: calc(100% + .2rem); opacity: 0; transition: opacity .2s, transform .2s; }
 .map-hotspot:hover, .map-hotspot:focus-visible { background: transparent; filter: none; }
 .map-hotspot:hover::after, .map-hotspot:focus-visible::after { opacity: 1; }

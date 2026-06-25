@@ -21,6 +21,13 @@ test("every configured ecosystem species has original SVG artwork", async () => 
   }
 });
 
+test("creature artwork avoids animated raster noise filters", () => {
+  for (const species of creatureSpecies) {
+    const markup = getCreatureMarkup(species);
+    assert.doesNotMatch(markup, /feTurbulence|fractalNoise|model-surface/i, `${species} should not render mosaic-like SVG texture noise`);
+  }
+});
+
 test("ecosystem configuration no longer stores emoji glyphs", async () => {
   const source = await readFile(new URL("../public/site-config.js", import.meta.url), "utf8");
   const context = { window: {} };

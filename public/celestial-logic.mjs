@@ -10,7 +10,7 @@ export function celestialOrbit(progress) {
   const arc = 4 * normalized * (1 - normalized);
   return {
     x: 4 + normalized * 92,
-    y: 50 - arc * 39
+    y: 10 - arc * 8
   };
 }
 

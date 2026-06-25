@@ -40,6 +40,7 @@ test("3D celestial track rises through the day and moves horizontally", () => {
   assert.ok(noon.x < sunset.x);
   assert.ok(noon.y < sunrise.y);
   assert.ok(noon.y < sunset.y);
+  for (const point of [sunrise, noon, sunset]) assert.ok(point.y <= 12);
 });
 
 test("3D buildings render dedicated night lighting", async () => {

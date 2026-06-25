@@ -1,3 +1,5 @@
+import { LAND_POLYGONS, pointIsWalkable } from "./island-geometry.mjs?v=land-map-20260624";
+
 const TAU = Math.PI * 2;
 
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -12,10 +14,7 @@ function waterWave(x, y, time, wind) {
 }
 
 export function pointIsOpenWater(x, y) {
-  const leftLand = ((x - .25) / .245) ** 2 + ((y - .52) / .345) ** 2 <= 1;
-  const rightLand = ((x - .75) / .255) ** 2 + ((y - .51) / .35) ** 2 <= 1;
-  const bridge = x >= .46 && x <= .54 && y >= .45 && y <= .61;
-  return !leftLand && !rightLand && !bridge;
+  return !pointIsWalkable({ x: Number(x) * 100, y: Number(y) * 100 });
 }
 
 export class SurfaceMotion {
@@ -188,19 +187,24 @@ export class SurfaceMotion {
   drawShoreFoam(ctx, time, wind) {
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.strokeStyle = `rgba(224,249,244,${.12 + Math.min(.16, wind / 140)})`;
-    ctx.lineWidth = 1.6;
-    const drift = Math.sin(time * (.0007 + wind * .00001)) * .035;
-    for (const island of [
-      [.25, .52, .247, .347, .08 + drift, .42 + drift],
-      [.25, .52, .247, .347, .57 + drift, .83 + drift],
-      [.25, .52, .247, .347, 1.38 + drift, 1.66 + drift],
-      [.75, .51, .257, .352, .04 - drift, .33 - drift],
-      [.75, .51, .257, .352, .53 - drift, .78 - drift],
-      [.75, .51, .257, .352, 1.28 - drift, 1.58 - drift]
-    ]) {
+    ctx.strokeStyle = `rgba(224,249,244,${.1 + Math.min(.14, wind / 160)})`;
+    ctx.lineWidth = 1.25;
+    const phase = time * (.002 + wind * .000025);
+    const shoreSegments = [
+      [LAND_POLYGONS.autism, 9, 14],
+      [LAND_POLYGONS.autism, 0, 4],
+      [LAND_POLYGONS.adhd, 8, 13],
+      [LAND_POLYGONS.adhd, 0, 4]
+    ];
+    for (const [polygon, start, end] of shoreSegments) {
       ctx.beginPath();
-      ctx.ellipse(this.width * island[0], this.height * island[1], this.width * island[2], this.height * island[3], 0, island[4] * TAU, island[5] * TAU);
+      for (let index = start; index <= end; index += 1) {
+        const [px, py] = polygon[index % polygon.length];
+        const x = this.width * px / 100;
+        const y = this.height * py / 100 + Math.sin(phase + index) * 2;
+        if (index === start) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
       ctx.stroke();
     }
     ctx.restore();

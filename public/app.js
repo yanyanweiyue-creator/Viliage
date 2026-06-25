@@ -1,7 +1,7 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=island-ecology-20260624";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=island-ecology-20260624";
-import { SurfaceMotion } from "./surface-motion.mjs?v=island-ecology-20260624";
-import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=island-ecology-20260624";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=land-map-20260624";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=land-map-20260624";
+import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
+import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=land-map-20260624";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 
@@ -876,8 +876,11 @@ function renderAccountStatus() {
 function renderBuildings() {
   const layer = $("#building-layer");
   const buildingLabel = (building) => building.type === "ai" ? t(String(building.topic || "Education").toLowerCase()) : t(building.type === "activity" ? "activities" : building.type);
+  const hitPolygon = (building) => Array.isArray(building.hitPolygon)
+    ? `polygon(${building.hitPolygon.map(([x, y]) => `${Number(x)}% ${Number(y)}%`).join(", ")})`
+    : "polygon(0 0, 100% 0, 100% 100%, 0 100%)";
   layer.innerHTML = config.buildings.map((building) => `
-    <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%;--hotspot-width:${building.hitWidth || 14}%;--hotspot-height:${building.hitHeight || 18}%" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-map-label="${escapeHtml(building.mapLabel || building.short)}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+    <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%;--hotspot-width:${building.hitWidth || 14}%;--hotspot-height:${building.hitHeight || 18}%;--hit-polygon:${hitPolygon(building)}" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-map-label="${escapeHtml(building.mapLabel || building.short)}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
       <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");

@@ -1,3 +1,5 @@
+import { pointIsLand, pointIsWalkable } from "./island-geometry.mjs?v=land-map-20260624";
+
 const MINUTES_PER_DAY = 24 * 60;
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const TEN_MINUTES_MS = 10 * 60 * 1000;
@@ -159,6 +161,7 @@ export function routeIsConfined(route, island) {
   return points.every((point) => {
     if (!point || !Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) return false;
     if (Number(point.x) < 0 || Number(point.x) > 100 || Number(point.y) < 0 || Number(point.y) > 100) return false;
+    if (!pointIsLand({ x: Number(point.x), y: Number(point.y) }, island)) return false;
     return Array.isArray(route) ? point.island === island : point.island == null || point.island === island;
   });
 }
@@ -166,13 +169,7 @@ export function routeIsConfined(route, island) {
 /** Sample every route segment so a villager cannot cut across open water. */
 export function villagerRouteIsWalkable(points = []) {
   if (!Array.isArray(points) || points.length < 2) return false;
-  const onWalkableSurface = ({ x, y }) => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const leftLand = ((x - 25) / 24) ** 2 + ((y - 52) / 33) ** 2 <= 1;
-    const rightLand = ((x - 75) / 25) ** 2 + ((y - 51) / 34) ** 2 <= 1;
-    const bridge = x >= 43 && x <= 57 && y >= 48 && y <= 59;
-    return leftLand || rightLand || bridge;
-  };
+  const onWalkableSurface = ({ x, y }) => pointIsWalkable({ x, y });
 
   for (let index = 1; index < points.length; index += 1) {
     const from = points[index - 1];

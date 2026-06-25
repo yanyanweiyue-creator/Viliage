@@ -144,7 +144,7 @@ test("configured livestock targets stay on their island and villagers sleep in b
 });
 
 test("villager route validation rejects shortcuts across open water", () => {
-  assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }, { x: 50, y: 54 }, { x: 75, y: 50 }]), true);
+  assert.equal(villagerRouteIsWalkable([{ x: 38, y: 59 }, { x: 44, y: 57 }, { x: 50, y: 55 }, { x: 56, y: 58 }, { x: 62, y: 58 }]), true);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 65 }, { x: 75, y: 70 }]), false);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }]), false);
 });
