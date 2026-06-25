@@ -195,6 +195,7 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(received[0]["history"], "[]");
     assert.equal(received[0]["feedback"], "");
     assert.equal(received[0]["Chat History"], "[]");
+    assert.equal(received[0]["Like resource"], "[]");
 
     const onboarding = await httpRequest(`http://127.0.0.1:${port}/api/onboarding/complete`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: register.headers["set-cookie"][0].split(";")[0] }, body: "{}" });
     assert.equal(onboarding.status, 200);
@@ -214,7 +215,7 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.match(received[1]["response of survey"], /Autism/);
     assert.match(received[1]["AI personal record"], /Exploring Autism/);
     assert.equal(received[1]["Email"], email);
-    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Email", "Password", "User name", "feedback", "history", "response of survey"].sort());
+    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Email", "Like resource", "Password", "User name", "feedback", "history", "response of survey"].sort());
 
     const feedbackBody = JSON.stringify({ feedback: "Please keep the calmer map controls." });
     const feedback = await httpRequest(`http://127.0.0.1:${port}/api/feedback`, {
@@ -225,6 +226,17 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(feedback.status, 200);
     assert.equal(JSON.parse(feedback.text).sync.synced, true);
     assert.equal(received[2].feedback, "Please keep the calmer map controls.");
+
+    const likeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource", description: "A calm support listing.", topic: "Education", score: 42 }, liked: true });
+    const like = await httpRequest(`http://127.0.0.1:${port}/api/resources/like`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(likeBody), Cookie: register.headers["set-cookie"][0].split(";")[0] },
+      body: likeBody
+    });
+    assert.equal(like.status, 200);
+    const likeResult = JSON.parse(like.text);
+    assert.equal(likeResult.likedResources[0].name, "Inclusive Resource");
+    assert.match(received[3]["Like resource"], /Inclusive Resource/);
 
     const cookie = register.headers["set-cookie"][0].split(";")[0];
     for (const [path, requestBody] of [
@@ -239,8 +251,9 @@ test("registration and survey automatically send the expected Google Sheet field
       });
       assert.ok([200, 201].includes(communityResponse.status));
     }
-    assert.match(received[3]["Chat History"], /A sheet-synced hello/);
-    assert.match(received[3]["Chat History"], /Village Commons/);
+    const latestSheetWrite = received.at(-1);
+    assert.match(latestSheetWrite["Chat History"], /A sheet-synced hello/);
+    assert.match(latestSheetWrite["Chat History"], /Village Commons/);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
     server.closeAllConnections();

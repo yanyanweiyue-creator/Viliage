@@ -92,17 +92,18 @@ function dbUser(row) {
     profile: parseJson(row.profile_json, null),
     history: parseJson(row.history_json, []),
     feedback: row.feedback || "",
+    likedResources: parseJson(row.liked_resources_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
 function safeUser(user) {
-  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "" };
+  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "", likedResources: Array.isArray(user.likedResources) ? user.likedResources : [] };
 }
 
 function guestUser() {
-  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "" };
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [] };
 }
 
 async function allRows(statement) {
@@ -356,6 +357,7 @@ async function syncUser(env, user) {
     history: JSON.stringify(user.history || []),
     feedback: user.feedback || "",
     "Chat History": JSON.stringify(chatHistory),
+    "Like resource": JSON.stringify(user.likedResources || []),
     "Email": user.email,
     userId: user.id
   };
@@ -465,8 +467,8 @@ async function api(request, env, ctx) {
     const normalizedEmail = String(email).toLowerCase();
     if (await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first()) return fail("An account with this email already exists.", 409);
     const now = new Date().toISOString();
-    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", createdAt: now, updatedAt: now };
-    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
+    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], createdAt: now, updatedAt: now };
+    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, liked_resources_json, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', '[]', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": await createSession(env, user.id) });
   }
@@ -814,6 +816,31 @@ async function api(request, env, ctx) {
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
     try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
     return json({ ok: true, sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/resources/like") {
+    if (user.guest) return fail("Create an account to save liked resources.", 403);
+    const { resource = {}, liked = true } = await body(request);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return fail("Choose a resource before saving it.");
+    const savedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const current = Array.isArray(user.likedResources) ? user.likedResources : [];
+    const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    user.likedResources = liked ? [savedResource, ...filtered].slice(0, 100) : filtered;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, likedResources: user.likedResources, sync });
   }
 
   return fail("API route not found.", 404);

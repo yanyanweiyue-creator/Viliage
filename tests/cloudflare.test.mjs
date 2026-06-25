@@ -31,6 +31,7 @@ const ctx = { waitUntil(promise) { promise.catch(() => {}); } };
 async function applyAccountSchema(database) {
   database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
 }
 
 test("Cloudflare D1 migration creates durable account and session tables", async () => {
@@ -38,8 +39,9 @@ test("Cloudflare D1 migration creates durable account and session tables", async
   await applyAccountSchema(database);
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'sessions', 'app_meta') ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["app_meta", "sessions", "users"]);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "6");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "7");
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'onboarding_completed'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'liked_resources_json'").get().count, 1);
   database.close();
 });
 
@@ -51,12 +53,13 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "6");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "7");
   database.close();
 });
 
@@ -139,6 +142,14 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(result.sync.row, 7);
     assert.equal(sheetPayload.feedback, "The island guide was helpful.");
     assert.equal(sheetPayload.Email, "feedback@example.com");
+
+    const likeResponse = await worker.fetch(new Request("https://village.example/api/resources/like", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, liked: true })
+    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync" }), ctx);
+    assert.equal(likeResponse.status, 200);
+    const likeResult = await likeResponse.json();
+    assert.equal(likeResult.likedResources[0].name, "Saved Resource");
+    assert.match(sheetPayload["Like resource"], /Saved Resource/);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -227,7 +238,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);

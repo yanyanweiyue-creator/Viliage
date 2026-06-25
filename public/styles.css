@@ -386,6 +386,10 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .sound-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }.sound-status { color: var(--sage-dark); font-size: .75rem; font-weight: 700; }
 .sound-toggle { justify-self: start; min-height: 2.7rem; }
 .volume-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .15rem .8rem; font-size: .82rem; font-weight: 700; }.volume-control output { color: var(--muted); font-variant-numeric: tabular-nums; }.volume-control input { grid-column: 1 / -1; padding: 0; accent-color: var(--sage-dark); }
+.voice-settings { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: color-mix(in srgb, var(--butter) 28%, white); }
+.voice-toggle-grid { display: flex; flex-wrap: wrap; gap: .5rem; }
+.voice-listen { justify-self: start; min-height: 2.6rem; }
+.voice-listen:disabled { opacity: .45; cursor: not-allowed; }
 .local-music-settings { display: grid; gap: .7rem; margin-top: .25rem; padding-top: .9rem; border-top: 1px solid var(--line); }
 .local-music-settings > strong { font-size: .9rem; }
 .local-music-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .55rem .7rem; padding: .72rem; border: 1px solid color-mix(in srgb, var(--line) 80%, var(--sage)); border-radius: .85rem; background: rgba(255,255,255,.78); }
@@ -416,9 +420,19 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .result-count { display: grid; grid-template-columns: 1fr 5rem; align-items: center; gap: .7rem; font-weight: 700; }.result-count select { padding: .65rem .75rem; }
 .ai-response { padding: 1rem; border-left: 4px solid var(--sage); background: #f4f8f4; border-radius: 0 1rem 1rem 0; white-space: pre-wrap; }
 .keyword-expansion { margin: .8rem 0; color: var(--muted); font-size: .78rem; }
-.resource-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }.score-badge { flex: 0 0 auto; padding: .25rem .5rem; border-radius: 999px; background: var(--sage-soft); color: var(--sage-dark); font-size: .7rem; font-weight: 800; }
+.resource-card { position: relative; overflow: hidden; border-color: color-mix(in srgb, var(--sage) 24%, var(--line)); background: linear-gradient(145deg, rgba(255,255,255,.96), #f7fbf4 54%, #fff8e8); box-shadow: 0 .65rem 1.7rem rgba(35,64,55,.09); }
+.resource-card::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .45; background-image: radial-gradient(circle at 1px 1px, rgba(74,103,86,.12) 1px, transparent 0); background-size: 12px 12px; mix-blend-mode: multiply; }
+.resource-card > * { position: relative; }
+.resource-card.liked { border-color: color-mix(in srgb, var(--butter) 70%, var(--sage)); box-shadow: 0 .8rem 1.9rem rgba(125,95,38,.13); }
+.resource-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+.resource-heading small { display: block; margin-bottom: .25rem; color: var(--sage-dark); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.score-badge { flex: 0 0 auto; padding: .25rem .5rem; border-radius: 999px; background: var(--sage-soft); color: var(--sage-dark); font-size: .7rem; font-weight: 800; }
 .score-details { margin-top: .8rem; border-top: 1px solid var(--line); padding-top: .65rem; }.score-details summary { cursor: pointer; color: var(--sage-dark); font-size: .78rem; font-weight: 800; }.score-details ul { margin: .55rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: .73rem; }.score-details li { margin: .32rem 0; }.score-details b { display: inline-block; min-width: 2rem; }.score-details .positive { color: #237047; }.score-details .negative { color: #a83d3d; }
-.resource-card a { display: inline-flex; margin-top: .7rem; color: var(--sage-dark); font-weight: 700; }
+.resource-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: .85rem; }
+.resource-actions .secondary-button { min-height: 2.3rem; padding: .52rem .7rem; font-size: .74rem; }
+.resource-like-button.active { background: var(--ink); color: white; }
+.resource-card a { display: inline-flex; color: var(--sage-dark); font-weight: 700; }
+.resource-explanation { margin-top: .8rem; padding: .85rem; border: 1px solid color-mix(in srgb, var(--sage) 32%, var(--line)); border-radius: .9rem; background: rgba(255,255,255,.72); color: var(--ink); font-size: .84rem; line-height: 1.45; }
 .resource-meta { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .65rem; }
 .resource-meta span { background: #eef3ee; border-radius: 999px; padding: .28rem .5rem; font-size: .7rem; }
 .filter-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .55rem; }

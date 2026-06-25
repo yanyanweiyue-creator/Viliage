@@ -47,6 +47,18 @@ function doPost(e) {
     }
 
     var dataKeys = Object.keys(data);
+    var writableKeys = dataKeys.filter(function(key) {
+      return String(key).trim().toLowerCase() !== "userid";
+    });
+    var missingHeaders = writableKeys.filter(function(key) {
+      return normalizedHeaders.indexOf(String(key).trim().toLowerCase()) < 0;
+    });
+    if (missingHeaders.length) {
+      var startColumn = headers.length + 1;
+      sheet.getRange(headerRow, startColumn, 1, missingHeaders.length).setValues([missingHeaders]);
+      headers = headers.concat(missingHeaders);
+      normalizedHeaders = headers.map(function(header) { return String(header).trim().toLowerCase(); });
+    }
     var row = headers.map(function(header) {
       var normalizedHeader = String(header).trim().toLowerCase();
       if (normalizedHeader === "password") return "Not stored — secure hash only";
@@ -60,7 +72,7 @@ function doPost(e) {
     sheet.setRowHeight(targetRow, 72);
     for (var column = 1; column <= row.length; column++) {
       var header = String(headers[column - 1]).toLowerCase();
-      var width = /history|survey|summary|personal record|feedback/.test(header) ? 280 : /user name|email/.test(header) ? 170 : 150;
+      var width = /history|survey|summary|personal record|feedback|like resource/.test(header) ? 280 : /user name|email/.test(header) ? 170 : 150;
       sheet.setColumnWidth(column, width);
     }
 

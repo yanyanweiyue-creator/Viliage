@@ -278,12 +278,13 @@ function safeUser(user) {
     onboardingCompleted: user.onboardingCompleted === undefined ? true : Boolean(user.onboardingCompleted),
     profile: user.profile || null,
     history: user.history || [],
-    feedback: user.feedback || ""
+    feedback: user.feedback || "",
+    likedResources: Array.isArray(user.likedResources) ? user.likedResources : []
   };
 }
 
 function guestUser() {
-  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "" };
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [] };
 }
 
 function parseCookies(req) {
@@ -603,6 +604,7 @@ async function syncUserRecord(user) {
     "history": JSON.stringify(user.history || []),
     "feedback": user.feedback || "",
     "Chat History": JSON.stringify(chatHistory),
+    "Like resource": JSON.stringify(user.likedResources || []),
     "Email": user.email,
     userId: user.id
   };
@@ -707,7 +709,7 @@ async function handleApi(req, res, url) {
     if (String(password || "").length < 8) return sendError(res, 400, "Password must be at least 8 characters.");
     const users = await loadUsers();
     if (users.some((user) => user.email.toLowerCase() === email.toLowerCase())) return sendError(res, 409, "An account with this email already exists.");
-    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", createdAt: new Date().toISOString() };
+    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], createdAt: new Date().toISOString() };
     users.push(user);
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
@@ -1051,6 +1053,31 @@ async function handleApi(req, res, url) {
     let sync = { synced: false };
     try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
     return sendJson(res, 200, { ok: true, sync });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/resources/like") {
+    if (user.guest) return sendError(res, 403, "Create an account to save liked resources.");
+    const { resource = {}, liked = true } = await readJsonBody(req);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return sendError(res, 400, "Choose a resource before saving it.");
+    const savedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const saved = await updateUser(user.id, (item) => {
+      const current = Array.isArray(item.likedResources) ? item.likedResources : [];
+      const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+      return { ...item, likedResources: liked ? [savedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
+    });
+    let sync = { synced: false };
+    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], sync });
   }
 
   sendError(res, 404, "API route not found.");
