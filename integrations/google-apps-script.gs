@@ -81,9 +81,8 @@ function sendPasswordResetCode_(data) {
   var minutes = Math.max(1, Math.min(30, Number(data.expiresInMinutes || 10)));
   var requestedFrom = String(data.fromAddress || "").trim().toLowerCase();
   var senderName = String(data.fromName || "It Takes a Village").trim() || "It Takes a Village";
-  var accountAddress = String(Session.getEffectiveUser().getEmail() || "").trim().toLowerCase();
   var aliases = GmailApp.getAliases().map(function(alias) { return String(alias).toLowerCase(); });
-  var senderAddress = aliases.indexOf(requestedFrom) >= 0 ? requestedFrom : accountAddress;
+  var senderAddress = aliases.indexOf(requestedFrom) >= 0 ? requestedFrom : senderName;
   var subject = "Your It Takes a Village verification code";
   var plainText = "Your verification code is " + code + ". It expires in " + minutes + " minutes. If you did not request a password reset, you can ignore this email.";
   var html = '<div style="font-family:Arial,sans-serif;color:#243a35;max-width:520px;padding:24px">' +
