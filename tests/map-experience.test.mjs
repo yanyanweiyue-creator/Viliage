@@ -23,13 +23,14 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=village-labels-20260625/);
-  assert.match(html, /app\.js\?v=village-labels-20260625/);
+  assert.match(html, /styles\.css\?v=village-hit-shapes-20260625/);
+  assert.match(html, /app\.js\?v=village-hit-shapes-20260625/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\][^}]*border:\s*1\.5px dashed/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\][^}]*border:\s*1\.5px dashed/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\][^}]*clip-path:\s*var\(--hit-polygon\)/);
   assert.match(css, /\.building::after \{[^}]*opacity:\s*0/);
   assert.doesNotMatch(css, /\.map-hotspot:hover::after,\s*\.map-hotspot:focus-visible::after\s*\{[^}]*opacity:\s*1/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]:hover::after/);
@@ -97,6 +98,15 @@ test("the ocean motion mask keeps animation off islands and the bridge", async (
 
 test("each island exposes the five approved map destinations", async () => {
   const config = await loadConfig();
+  const expectedHotspots = new Map([
+    ["autism-support", { x: 29.5, y: 18, hitWidth: 16, hitHeight: 12 }],
+    ["autism-education", { x: 21.5, y: 35, hitWidth: 13, hitHeight: 14 }],
+    ["autism-legal", { x: 21, y: 60, hitWidth: 10, hitHeight: 25 }],
+    ["adhd-support", { x: 80, y: 60, hitWidth: 12.5, hitHeight: 20 }],
+    ["adhd-education", { x: 66, y: 40, hitWidth: 12.5, hitHeight: 16.5 }],
+    ["adhd-legal", { x: 61, y: 62, hitWidth: 8, hitHeight: 18 }],
+    ["adhd-activity", { x: 70, y: 20, hitWidth: 10.5, hitHeight: 10.5 }]
+  ]);
   const expected = new Map([
     ["Village", "support"],
     ["School", "ai"],
@@ -114,6 +124,12 @@ test("each island exposes the five approved map destinations", async () => {
       assert.ok(building.hitWidth <= 16.5, `${building.id} hotspot should stay close to the drawing`);
       assert.ok(Number.isFinite(building.x) && Number.isFinite(building.y), `${building.id} needs a center point for its 2D hotspot`);
       assert.ok(Array.isArray(building.hitPolygon), `${building.id} needs an explicit hit polygon`);
+      if (expectedHotspots.has(building.id)) {
+        assert.deepEqual(
+          { x: building.x, y: building.y, hitWidth: building.hitWidth, hitHeight: building.hitHeight },
+          expectedHotspots.get(building.id)
+        );
+      }
     }
     assert.equal(buildings.find((item) => item.mapLabel === "School").topic, "Education");
     assert.equal(buildings.find((item) => item.mapLabel === "Courthouse").topic, "Legal");
