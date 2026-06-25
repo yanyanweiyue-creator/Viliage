@@ -56,7 +56,7 @@ Use Node.js 20 or newer.
    npm run cloudflare:deploy
    ```
 
-Cloudflare will return a `workers.dev` URL. A custom domain can be added from **Workers & Pages → it-takes-a-village → Settings → Domains & Routes**.
+Cloudflare will return the `https://villageresources.yanyanweiyue.workers.dev/` URL from the Worker name in `wrangler.jsonc`. A custom domain can be added from **Workers & Pages → villageresources → Settings → Domains & Routes**.
 
 ## Continue changing the website
 

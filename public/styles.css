@@ -136,12 +136,12 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .settings-icon-button { display: grid; place-items: center; width: 2.7rem; height: 2.7rem; padding: .64rem; border: 1px solid var(--line); border-radius: .85rem; background: rgba(255,255,255,.92); color: var(--sage-dark); cursor: pointer; transition: transform .2s ease, background .2s ease, box-shadow .2s ease; }
 .settings-icon-button:hover { transform: rotate(8deg) translateY(-1px); background: var(--sage-soft); box-shadow: 0 .45rem 1.1rem rgba(42,79,67,.13); }
 .settings-icon-button svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.village-main { width: min(93rem, 94vw); margin: 0 auto; padding: clamp(2.8rem, 5vw, 5rem) 0 10rem; }
+.village-main { width: min(110rem, 96vw); margin: 0 auto; padding: clamp(2.4rem, 4vw, 4.4rem) 0 10rem; }
 .hero-copy { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; margin: 0 2.5vw 2.1rem; }
 .hero-copy h1 { max-width: 64rem; margin-bottom: .7rem; }
 .hero-copy p:not(.eyebrow) { max-width: 46rem; color: var(--muted); font-size: 1.05rem; }
-.village-map { position: relative; background: #d6efed; border: 1px solid #c8e2df; border-radius: 2.2rem; overflow: hidden; box-shadow: 0 28px 70px rgba(60,105,94,.14); }
-.map-stage { position: relative; aspect-ratio: 24 / 13; transform-origin: center; transition: transform .9s cubic-bezier(.2,.8,.2,1); overflow: hidden; }
+.village-map { position: relative; background: #0797bd; border: 1px solid #b7d9da; border-radius: 2.2rem; overflow: hidden; box-shadow: 0 28px 70px rgba(60,105,94,.14); }
+.map-stage { position: relative; aspect-ratio: 30 / 13; transform-origin: center; transition: transform .9s cubic-bezier(.2,.8,.2,1); overflow: hidden; }
 .map-stage::after { content: ""; position: absolute; z-index: 2; inset: 0; background: linear-gradient(to bottom, rgba(255,255,255,.1), transparent 20%, transparent 80%, rgba(29,66,56,.06)); pointer-events: none; }
 #map-image { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; transition: filter 1.2s ease; }
 .surface-motion { position: absolute; z-index: 2; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; opacity: .0; mix-blend-mode: screen; transition: opacity .8s ease; }
@@ -317,8 +317,8 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .building[data-topic="recreation"] { --roof: #5c8fa0; background: linear-gradient(145deg,#f0f7f5 0 62%,#79a9a6 63%); }
 .building[data-type="activity"] { --roof: #8d83b6; }
 .building[data-type="support"] { --roof: #c96762; }
-.map-stage.focus-autism { transform: scale(1.28) translate(15%, 0); }
-.map-stage.focus-adhd { transform: scale(1.28) translate(-15%, 0); }
+.map-stage.focus-autism { transform: scale(1.34) translate(9.5%, 0); }
+.map-stage.focus-adhd { transform: scale(1.34) translate(-9.5%, 0); }
 .map-stage.focus-autism .building[data-island="adhd"], .map-stage.focus-adhd .building[data-island="autism"],
 .map-stage.focus-autism .island-label, .map-stage.focus-adhd .island-label,
 .map-stage.focus-autism .island-hit-area, .map-stage.focus-adhd .island-hit-area { opacity: 0; pointer-events: none; }
@@ -498,8 +498,8 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   .auth-shell { grid-template-columns: 1fr; }.auth-art { display: none; }.auth-card { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
   .survey-grid { grid-template-columns: 1fr; }.wide-field, .form-actions, .survey-grid > .form-error { grid-column: 1; }
   .app-header { grid-template-columns: 1fr auto; }.app-header nav { display: none; }.pill-button { width: 2.7rem; height: 2.7rem; justify-content: center; padding: 0; font-size: 0; }.pill-button > span[aria-hidden="true"] { font-size: 1rem; }.pill-button > span[data-i18n] { display: none; }.header-tools { gap: .4rem; }
-  .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 62rem; max-width: none; }
-  .map-stage.focus-autism { transform: scale(1.28) translate(15%, 0); }.map-stage.focus-adhd { transform: scale(1.28) translate(-15%, 0); }
+  .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 70rem; max-width: none; }
+  .map-stage.focus-autism { transform: scale(1.34) translate(9.5%, 0); }.map-stage.focus-adhd { transform: scale(1.34) translate(-9.5%, 0); }
   .environment-status { position: absolute; left: 50%; bottom: .75rem; top: auto; transform: translateX(-50%); width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: 0; }
   .map-hint { top: .75rem; max-width: calc(100vw - 3rem); white-space: nowrap; }
   .island-label.autism, .island-label.adhd { top: 18%; }

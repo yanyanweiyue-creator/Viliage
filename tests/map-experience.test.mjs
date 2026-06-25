@@ -57,11 +57,13 @@ test("weather status and map hint swap top and bottom positions", async () => {
 
 test("single-island focus keeps the whole island in view", async () => {
   const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.map-stage \{[^}]*aspect-ratio:\s*30\s*\/\s*13/);
+  assert.match(css, /\.village-map \{[^}]*background:\s*#0797bd/);
   for (const island of ["autism", "adhd"]) {
     const rule = css.match(new RegExp(`\\.map-stage\\.focus-${island} \\{[^}]*transform:\\s*scale\\(([^)]+)\\) translate\\(([-0-9.]+)%`));
     assert.ok(rule, `${island} focus needs an explicit scale and translate`);
     assert.ok(Number(rule[1]) <= 1.35, `${island} focus should not crop the island`);
-    assert.ok(Math.abs(Number(rule[2])) <= 16, `${island} focus should keep island edges visible`);
+    assert.ok(Math.abs(Number(rule[2])) <= 10, `${island} focus should not expose the map container edge`);
   }
 });
 
