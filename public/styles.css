@@ -308,7 +308,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .adhd .island-dot { background: #f7e7b4; }
 .building { position: absolute; z-index: 6; left: var(--building-x); top: var(--building-y); width: var(--hotspot-width); height: var(--hotspot-height); transform: translate(-50%, -50%); border: 0; padding: 0; background: transparent; cursor: pointer; transition: left .45s ease, top .45s ease, transform .2s ease, opacity .35s, filter .35s; }
 .building::before { content: none; }
-.building::after { content: attr(data-label); position: absolute; left: 50%; top: calc(100% + .55rem); transform: translateX(-50%); width: max-content; max-width: 9rem; padding: .45rem .65rem; border-radius: .7rem; background: rgba(255,255,255,.96); box-shadow: 0 7px 16px rgba(50,75,66,.16); font-size: clamp(.58rem, .8vw, .76rem); font-weight: 800; }
+.building::after { content: attr(data-label); position: absolute; left: 50%; top: calc(100% + .55rem); transform: translateX(-50%) translateY(.12rem); width: max-content; max-width: 9rem; padding: .45rem .65rem; border-radius: .7rem; background: rgba(255,255,255,.96); box-shadow: 0 7px 16px rgba(50,75,66,.16); font-size: clamp(.58rem, .8vw, .76rem); font-weight: 800; opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
 .building:hover { transform: translate(-50%, -52%) scale(1.025); }
 .building .building-icon { position: relative; z-index: 1; font-family: "Fraunces", serif; font-weight: 800; font-size: clamp(1rem, 1.7vw, 1.55rem); }
 .building-ground { display: none; position: absolute; z-index: 0; left: 50%; bottom: -.34rem; width: 78%; height: 20%; border-radius: 50%; transform: translateX(-50%); background: radial-gradient(ellipse, rgba(18,49,38,.42), rgba(18,49,38,0) 72%); filter: blur(2px); }
@@ -331,8 +331,11 @@ body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover,
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { border-color: rgba(255,236,151,.95) !important; outline-color: rgba(37,82,70,.72); background: rgba(255,255,255,.08) !important; }
-.map-hotspot::after { top: calc(100% + .2rem); opacity: 0; transition: opacity .2s, transform .2s; }
-.map-hotspot:hover::after, .map-hotspot:focus-visible::after { opacity: 1; }
+.map-hotspot::after { top: calc(100% + .2rem); }
+body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover::after,
+body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible::after,
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover::after,
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
 .map-hotspot .building-icon, .map-hotspot .building-ground { display: none; }
 body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3d); width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .72); border: 0 !important; outline: 0; background: transparent; box-shadow: none; }
 body.scene-3d .map-hotspot .building-ground { display: none; }
