@@ -43,7 +43,8 @@
           <button type="button" class="auth-link back-link" data-action="close-password-reset">← Back to login</button>
           <p class="eyebrow">Secure account recovery</p>
           <h2 id="password-reset-title">Reset your password</h2>
-          <p class="lede">Enter your account email. We’ll send a six-digit verification code that expires in 10 minutes.</p>
+          <p class="lede">Enter your account email. We’ll send a six-digit verification code that expires in 10 minutes. If it does not appear, check Spam or Junk.</p>
+          <p id="password-email-sender" class="email-sender-note">The message will come from the It Takes a Village Gmail account. It may land in Spam or Junk.</p>
           <form id="password-request-form" class="stack-form">
             <label>Email address<input name="email" type="email" autocomplete="email" required /></label>
             <button class="primary-button" type="submit">Send verification code →</button>
@@ -121,6 +122,15 @@
 
     <section id="app-screen" class="screen app-shell hidden">
       <div id="island-transition" class="island-transition hidden" aria-hidden="true"><div class="auspicious-cloud cloud-a"></div><div class="auspicious-cloud cloud-b"></div><div class="auspicious-cloud cloud-c"></div><div class="transition-copy"><small>It Takes a Village</small><strong id="transition-island-name">Entering the island…</strong></div></div>
+      <section id="waffles-intro" class="waffles-intro hidden" role="dialog" aria-modal="true" aria-labelledby="waffles-intro-title">
+        <div class="waffles-intro-card">
+          <button type="button" class="intro-skip" data-action="intro-skip">Skip introduction</button>
+          <div class="intro-capy" aria-hidden="true"><span class="capy-avatar"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></span><span class="intro-spark spark-one">✦</span><span class="intro-spark spark-two">✧</span></div>
+          <div class="intro-copy"><p id="waffles-intro-eyebrow" class="eyebrow">Meet your village guide</p><h2 id="waffles-intro-title">Hi, I’m Waffles.</h2><p id="waffles-intro-text"></p><div id="waffles-intro-building" class="intro-building-badge hidden"></div></div>
+          <div class="intro-progress"><span id="waffles-intro-count">1 of 6</span><div id="waffles-intro-dots" class="intro-dots" aria-hidden="true"></div></div>
+          <div class="intro-actions"><button type="button" id="intro-back" class="secondary-button" data-action="intro-back">← Back</button><button type="button" id="intro-next" class="primary-button" data-action="intro-next">Next →</button></div>
+        </div>
+      </section>
       <header class="app-header">
         <a class="brand-lockup brand-logo-lockup" href="#" data-action="home"><img src="/assets/it-takes-a-village-logo.svg" alt="It Takes a Village" /></a>
         <nav aria-label="Main navigation"><button data-action="home" class="nav-button active" data-i18n="village">Village</button><button data-action="open-profile" class="nav-button" data-i18n="myRecord">My record</button></nav>
@@ -164,11 +174,13 @@
               <div id="creature-layer" class="creature-layer"></div>
               <div id="sky-creature-layer" class="sky-creature-layer"></div>
             </div>
-            <button class="island-label autism" data-island="autism"><span class="island-dot"></span><span><small data-i18n="quietGardens">Quiet gardens</small><strong data-i18n="autismIsland">Autism Island</strong></span><span aria-hidden="true">→</span></button>
-            <button class="island-label adhd" data-island="adhd"><span class="island-dot"></span><span><small data-i18n="momentumTrails">Momentum trails</small><strong data-i18n="adhdIsland">ADHD Island</strong></span><span aria-hidden="true">→</span></button>
+            <button class="island-hit-area autism" type="button" data-island="autism" aria-label="Enter Autism Island"></button>
+            <button class="island-hit-area adhd" type="button" data-island="adhd" aria-label="Enter ADHD Island"></button>
+            <button class="island-label autism" type="button" data-island="autism"><span class="island-dot"></span><span><small data-i18n="quietGardens">Quiet gardens</small><strong data-i18n="autismIsland">Autism Island</strong></span><span aria-hidden="true">→</span></button>
+            <button class="island-label adhd" type="button" data-island="adhd"><span class="island-dot"></span><span><small data-i18n="momentumTrails">Momentum trails</small><strong data-i18n="adhdIsland">ADHD Island</strong></span><span aria-hidden="true">→</span></button>
             <div id="building-layer"></div>
           </div>
-          <div class="map-hint"><span aria-hidden="true">↖</span> <span data-i18n="selectIsland">Select an island, then choose a building</span></div>
+          <div class="map-hint"><span aria-hidden="true">↖</span> <span data-i18n="selectIsland">Tap an island, then choose a building</span></div>
         </section>
 
         <section class="village-footer-cards" aria-label="Village status">
@@ -190,7 +202,7 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>
 
-    <script src="/site-config.js?v=village-motion-20260624"></script>
-    <script type="module" src="/app.js?v=village-motion-20260624"></script>
+    <script src="/site-config.js?v=land-map-20260624"></script>
+    <script type="module" src="/app.js?v=land-map-20260624"></script>
   </body>
 </html>

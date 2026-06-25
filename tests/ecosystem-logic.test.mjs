@@ -12,6 +12,22 @@ import {
   shouldAnimalRest,
   villagerRouteIsWalkable
 } from "../public/ecosystem-logic.mjs";
+import { projectActorPoint } from "../public/ecosystem-runtime.mjs";
+
+test("land actors project safely inside their island in both scene modes", () => {
+  const islands = {
+    autism: { "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 }, "3d": { x: 25.5, y: 61.5, rx: 19.6, ry: 25.2 } },
+    adhd: { "2d": { x: 75, y: 51, rx: 23, ry: 31 }, "3d": { x: 74.5, y: 60, rx: 19.6, ry: 25.2 } }
+  };
+  for (const island of Object.keys(islands)) {
+    for (const mode of ["2d", "3d"]) {
+      const projected = projectActorPoint({ x: island === "autism" ? -20 : 130, y: -40 }, island, mode, { x: .2, y: -.1 });
+      const bounds = islands[island][mode];
+      const normalized = ((projected.x - bounds.x) / bounds.rx) ** 2 + ((projected.y - bounds.y) / bounds.ry) ** 2;
+      assert.ok(normalized < 1, `${island} ${mode} actor must stay inside land`);
+    }
+  }
+});
 
 test("stableDailyChance is deterministic, date-sensitive, and honors probability boundaries", () => {
   const first = stableDailyChance("dragon:37.3,-122.0", "2026-06-23", 0.42);
@@ -128,7 +144,7 @@ test("configured livestock targets stay on their island and villagers sleep in b
 });
 
 test("villager route validation rejects shortcuts across open water", () => {
-  assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }, { x: 50, y: 54 }, { x: 75, y: 50 }]), true);
+  assert.equal(villagerRouteIsWalkable([{ x: 38, y: 59 }, { x: 44, y: 57 }, { x: 50, y: 55 }, { x: 56, y: 58 }, { x: 62, y: 58 }]), true);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 65 }, { x: 75, y: 70 }]), false);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 50 }]), false);
 });

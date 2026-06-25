@@ -41,11 +41,14 @@ Use Node.js 20 or newer.
    ```bash
    npx wrangler@4 secret put OPENAI_API_KEY
    npx wrangler@4 secret put USER_SHEET_WEBHOOK_URL
+   npx wrangler@4 secret put ERROR_SHEET_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_EMAIL_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_RESET_SECRET
    ```
 
-   `PASSWORD_EMAIL_WEBHOOK_URL` may use the same Google Apps Script `/exec` URL after the updated `integrations/google-apps-script.gs` has been saved and deployed as a new version. Apps Script sends the six-digit code through the Google account's Gmail service. Use a long random value for `PASSWORD_RESET_SECRET`; codes are stored only as salted hashes in D1 and expire after 10 minutes.
+   `PASSWORD_EMAIL_WEBHOOK_URL` may use the same Google Apps Script `/exec` URL after the updated `integrations/google-apps-script.gs` has been saved and deployed as a new version. If this secret is omitted, the Worker automatically falls back to `USER_SHEET_WEBHOOK_URL` for reset email delivery. Apps Script sends the six-digit code through the Google account's Gmail service. Use a long random value for `PASSWORD_RESET_SECRET`; codes are stored only as salted hashes in D1 and expire after 10 minutes.
+
+   `ERROR_SHEET_WEBHOOK_URL` may reuse the same Apps Script `/exec` URL as the user sheet, as long as that Apps Script deployment runs under an account with access to the Error database spreadsheet. The Worker sends `ERROR_SHEET_ID` and `ERROR_SHEET_GID`, appends one row per resource shortage, high-score shortage, or disliked-resource event, and always writes `No` to the `helpful` column.
 
 6. Deploy:
 

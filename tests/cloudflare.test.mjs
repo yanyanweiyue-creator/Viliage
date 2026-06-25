@@ -28,12 +28,22 @@ function cloudflareEnv(database, extra = {}) {
 
 const ctx = { waitUntil(promise) { promise.catch(() => {}); } };
 
+async function applyAccountSchema(database) {
+  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
+}
+
 test("Cloudflare D1 migration creates durable account and session tables", async () => {
   const database = new DatabaseSync(":memory:");
-  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  await applyAccountSchema(database);
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'sessions', 'app_meta') ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["app_meta", "sessions", "users"]);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "1");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "8");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'onboarding_completed'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'liked_resources_json'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'disliked_resources_json'").get().count, 1);
   database.close();
 });
 
@@ -44,12 +54,15 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "5");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "8");
   database.close();
 });
 
@@ -59,6 +72,49 @@ test("Cloudflare Worker exposes D1-backed health status", async () => {
   const health = await response.json();
   assert.equal(health.ok, true);
   assert.equal(health.storage, "cloudflare-d1");
+});
+
+test("Cloudflare voice narration asks OpenAI for a calm Waffles storyteller voice", async () => {
+  const database = new DatabaseSync(":memory:");
+  const originalFetch = globalThis.fetch;
+  let speechRequest;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(String(url), "https://api.openai.com/v1/audio/speech");
+    speechRequest = JSON.parse(options.body);
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "audio/mpeg" } });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/voice/narrate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "Welcome to Waffles.", language: "en" })
+    }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "audio/mpeg");
+    assert.equal(speechRequest.model, "gpt-4o-mini-tts");
+    assert.equal(speechRequest.voice, "marin");
+    assert.match(speechRequest.instructions, /quiet nighttime storyteller/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Cloudflare voice command parser returns a structured navigation intent", async () => {
+  const database = new DatabaseSync(":memory:");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ action: "open_waffles", island: null, buildingId: null, buildingType: null, topic: "Education", direction: null, followUpQuestion: null, speech: "Opening Waffles.", confidence: 0.92 }) }] }] });
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/voice/command", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: "show me Waffles", context: { selectedIsland: "autism" } })
+    }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
+    assert.equal(response.status, 200);
+    const intent = await response.json();
+    assert.equal(intent.action, "open_waffles");
+    assert.equal(intent.topic, "Education");
+    assert.equal(intent.confidence, 0.92);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
 });
 
 test("guest sessions can explore but cannot open Village Community", async () => {
@@ -76,7 +132,7 @@ test("guest sessions can explore but cannot open Village Community", async () =>
 
 test("Cloudflare account and hashed session remain usable independently of code deployment", async () => {
   const database = new DatabaseSync(":memory:");
-  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  await applyAccountSchema(database);
   const env = cloudflareEnv(database);
   const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
     method: "POST",
@@ -87,11 +143,17 @@ test("Cloudflare account and hashed session remain usable independently of code 
   const cookie = register.headers.get("set-cookie").split(";")[0];
   const rawToken = cookie.split("=")[1];
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM users").get().count, 1);
+  assert.equal((await register.clone().json()).user.onboardingCompleted, false);
   assert.notEqual(database.prepare("SELECT token_hash FROM sessions").get().token_hash, rawToken);
 
   const me = await worker.fetch(new Request("https://village.example/api/auth/me", { headers: { Cookie: cookie } }), cloudflareEnv(database), ctx);
   assert.equal(me.status, 200);
   assert.equal((await me.json()).user.email, "cloud@example.com");
+
+  const completedIntro = await worker.fetch(new Request("https://village.example/api/onboarding/complete", { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: "{}" }), env, ctx);
+  assert.equal(completedIntro.status, 200);
+  assert.equal((await completedIntro.json()).user.onboardingCompleted, true);
+  assert.equal(database.prepare("SELECT onboarding_completed FROM users WHERE email = 'cloud@example.com'").get().onboarding_completed, 1);
 
   const login = await worker.fetch(new Request("https://village.example/api/auth/login", {
     method: "POST",
@@ -102,11 +164,72 @@ test("Cloudflare account and hashed session remain usable independently of code 
   database.close();
 });
 
+test("Cloudflare feedback waits for and verifies the User data sheet update", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Feedback User", email: "feedback@example.com", password: "safe-password" })
+  }), cloudflareEnv(database), ctx);
+  const cookie = register.headers.get("set-cookie").split(";")[0];
+  const originalFetch = globalThis.fetch;
+  let sheetPayload;
+  const errorPayloads = [];
+  globalThis.fetch = async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (String(url).includes("error.example")) {
+      errorPayloads.push(payload);
+    } else {
+      sheetPayload = payload;
+    }
+    return Response.json({ ok: true, row: 7 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ feedback: "The island guide was helpful." })
+    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync" }), ctx);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.sync.synced, true);
+    assert.equal(result.sync.row, 7);
+    assert.equal(sheetPayload.feedback, "The island guide was helpful.");
+    assert.equal(sheetPayload.Email, "feedback@example.com");
+
+    const likeResponse = await worker.fetch(new Request("https://village.example/api/resources/like", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, liked: true })
+    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync" }), ctx);
+    assert.equal(likeResponse.status, 200);
+    const likeResult = await likeResponse.json();
+    assert.equal(likeResult.likedResources[0].name, "Saved Resource");
+    assert.match(sheetPayload["Save resource"], /Saved Resource/);
+    assert.match(sheetPayload["Like resource"], /Saved Resource/);
+    assert.equal(sheetPayload["Dislike resource"], "[]");
+
+    const dislikeResponse = await worker.fetch(new Request("https://village.example/api/resources/dislike", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, disliked: true })
+    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync", ERROR_SHEET_WEBHOOK_URL: "https://error.example/sync", ERROR_SHEET_GID: "1952899933" }), ctx);
+    assert.equal(dislikeResponse.status, 200);
+    const dislikeResult = await dislikeResponse.json();
+    assert.equal(dislikeResult.likedResources.length, 0);
+    assert.equal(dislikeResult.dislikedResources[0].name, "Saved Resource");
+    assert.equal(sheetPayload["Save resource"], "[]");
+    assert.match(sheetPayload["Dislike resource"], /Saved Resource/);
+    assert.equal(errorPayloads[0].Event, "resource_disliked");
+    assert.equal(errorPayloads[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
+    assert.equal(errorPayloads[0].sheetGid, "1952899933");
+    assert.equal(errorPayloads[0].Helpful, "No");
+    assert.equal(errorPayloads[0]["Resource name"], "Saved Resource");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("Cloudflare password reset emails a six-digit code and replaces the password", async () => {
   const database = new DatabaseSync(":memory:");
-  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  await applyAccountSchema(database);
   database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
-  const env = cloudflareEnv(database, { PASSWORD_EMAIL_WEBHOOK_URL: "https://mail.example/reset", PASSWORD_RESET_SECRET: "test-reset-secret" });
+  const env = cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync", PASSWORD_RESET_SECRET: "test-reset-secret", PASSWORD_EMAIL_FROM_ADDRESS: "hello@village.example" });
   const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Reset User", email: "reset@example.com", password: "old-password" })
   }), env, ctx);
@@ -114,8 +237,10 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
   let mailedCode = "";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
+    assert.equal(String(_url), "https://sheet.example/sync");
     const payload = JSON.parse(options.body);
     mailedCode = payload.code;
+    assert.equal(payload.fromAddress, "hello@village.example");
     return Response.json({ ok: true, delivered: true });
   };
   try {
@@ -145,7 +270,7 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
 
 test("opted-in users can connect, accept, and exchange a private D1 message", async () => {
   const database = new DatabaseSync(":memory:");
-  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  await applyAccountSchema(database);
   database.exec(await readFile(new URL("../migrations/0002_community_chat.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
@@ -182,7 +307,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -265,7 +390,7 @@ test("community controls isolate history, restrict moments to friends, and enfor
 
 test("recommendation API applies diagnosis and category before scoring database rows", async () => {
   const database = new DatabaseSync(":memory:");
-  database.exec(await readFile(new URL("../migrations/0001_persistent_accounts.sql", import.meta.url), "utf8"));
+  await applyAccountSchema(database);
   const env = cloudflareEnv(database);
   const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
     method: "POST",

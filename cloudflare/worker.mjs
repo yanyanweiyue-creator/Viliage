@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -62,11 +62,12 @@ function createPasswordResetCode() {
 }
 
 async function sendPasswordResetEmail(env, email, code) {
-  if (!env.PASSWORD_EMAIL_WEBHOOK_URL) return false;
-  const response = await fetch(env.PASSWORD_EMAIL_WEBHOOK_URL, {
+  const webhook = env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL;
+  if (!webhook) return false;
+  const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10 }),
+    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -87,20 +88,23 @@ function dbUser(row) {
     email: row.email,
     passwordHash: row.password_hash,
     surveyCompleted: Boolean(row.survey_completed),
+    onboardingCompleted: Boolean(row.onboarding_completed),
     profile: parseJson(row.profile_json, null),
     history: parseJson(row.history_json, []),
     feedback: row.feedback || "",
+    likedResources: parseJson(row.liked_resources_json, []),
+    dislikedResources: parseJson(row.disliked_resources_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
 function safeUser(user) {
-  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), profile: user.profile || null, history: user.history || [] };
+  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "", likedResources: Array.isArray(user.likedResources) ? user.likedResources : [], dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : [] };
 }
 
 function guestUser() {
-  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "" };
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [] };
 }
 
 async function allRows(statement) {
@@ -253,6 +257,8 @@ function normalizeSheetRows(table) {
       diagnosis: valueAt(values, "Diagnosis", 2) || "Both",
       categories: categories.length ? categories : ["Education"],
       age: valueAt(values, "Age", 5) || "All ages",
+      ageRange: valueAt(values, "Age Range") || valueAt(values, "Age range") || valueAt(values, "Age", 5) || "All ages",
+      lifeStage: valueAt(values, "Life Stage") || valueAt(values, "Life stage") || "",
       tags,
       issues,
       location: locations[0] || "See website",
@@ -282,9 +288,24 @@ function profileSummary(responses = {}) {
   return `Exploring ${interests}. Age group: ${responses.age || "not specified"}. Journey: ${responses.journey || "not specified"}. Current situation: ${situation}. ${responses.note ? `Priority: ${responses.note}` : ""}`.trim();
 }
 
-function deterministicAnswer(topic, description, matches) {
-  if (!matches.length) return `Waffles did not find a ${String(topic).toLowerCase()} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
-  return `Waffles found ${matches.length} promising ${String(topic).toLowerCase()} resources for “${description}”. Start with ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+function deterministicAnswer(topic, description, matches, language = "en") {
+  const topicText = String(topic).toLowerCase();
+  if (language === "zh") {
+    if (!matches.length) return `Waffles 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；诊断类型与建筑分类仍会作为硬性筛选保留。`;
+    return `Waffles 找到了 ${matches.length} 个可能合适的${topicText}资源，匹配你的需求：“${description}”。可以先看：${matches.slice(0, 3).map((item) => item.name).join("、")}。每个结果都会先按标签评分，再参考描述和潜在冲突项。请直接向服务机构确认资格、费用和当前可用性。`;
+  }
+  if (language === "es") {
+    if (!matches.length) return `Waffles no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; el diagnóstico y la categoría del edificio seguirán protegidos como filtros.`;
+    return `Waffles encontró ${matches.length} recursos prometedores de ${topicText} para “${description}”. Empieza con ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Cada resultado se puntuó primero por etiquetas, luego por descripción y posibles conflictos. Confirma requisitos, costo y disponibilidad directamente con cada proveedor.`;
+  }
+  if (!matches.length) return `Waffles did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
+  return `Waffles found ${matches.length} promising ${topicText} resources for “${description}”. Start with ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+}
+
+function responseLanguageName(language = "en") {
+  if (language === "zh") return "Simplified Chinese";
+  if (language === "es") return "Spanish";
+  return "English";
 }
 
 function responseText(data) {
@@ -313,7 +334,7 @@ async function expandKeywords(env, { topic, description, profile, directKeywords
   } catch { return { keywords: [], ai: false }; }
 }
 
-async function aiAnswer(env, { topic, description, profile, matches }) {
+async function aiAnswer(env, { topic, description, profile, matches, language = "en" }) {
   if (!env.OPENAI_API_KEY) return null;
   const candidateResources = matches.map(({ name, description: detail, url, age, location, price, tags, score, explanation }) => ({ name, detail, url, age, location, price, tags, score, explanation }));
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -323,13 +344,64 @@ async function aiAnswer(env, { topic, description, profile, matches }) {
       model: env.OPENAI_MODEL || "gpt-5.5",
       reasoning: { effort: "low" },
       text: { verbosity: "low" },
-      instructions: "You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit in under 180 words.",
+      instructions: `You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit in under 180 words. Respond in ${responseLanguageName(language)}.`,
       input: JSON.stringify({ topic, userDescription: description, personalRecord: profile?.summary || "", candidateResources })
     }),
     signal: AbortSignal.timeout(30000)
   });
   if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
   return responseText(await response.json());
+}
+
+const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: a quiet nighttime storyteller speaking to a friend. Calm, warm, patient, and natural. Use a lower, softer pitch with clean articulation. Speak slowly and clearly without dragging. Leave small pauses between sentences. Keep the tone gentle and grounded, never sharp, gloomy, formal, news-like, or advertising-like.";
+
+async function wafflesSpeech(env, { text, language }) {
+  if (!env.OPENAI_API_KEY) return null;
+  const input = String(text || "").trim().slice(0, 700);
+  if (!input) return null;
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      voice: env.OPENAI_TTS_VOICE || "marin",
+      input,
+      instructions: `${WAFFLES_VOICE_INSTRUCTIONS} Speak in ${language === "zh" ? "Mandarin Chinese when the text is Chinese, otherwise natural English" : language === "es" ? "natural Spanish when the text is Spanish, otherwise natural English" : "natural English"}.`,
+      response_format: "mp3"
+    }),
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) throw new Error(`OpenAI speech request failed (${response.status}).`);
+  return response.arrayBuffer();
+}
+
+async function voiceIntent(env, { transcript, context }) {
+  if (!env.OPENAI_API_KEY) return null;
+  const schema = { type: "object", properties: {
+    action: { type: "string", enum: ["select_island", "open_building", "open_waffles", "search_resources", "open_settings", "open_record", "close_panel", "home", "next", "back", "scroll", "ask_followup"] },
+    island: { type: ["string", "null"], enum: ["autism", "adhd", null] },
+    buildingId: { type: ["string", "null"] },
+    buildingType: { type: ["string", "null"], enum: ["support", "activity", "ai", null] },
+    topic: { type: ["string", "null"], enum: ["Education", "Legal", "Recreation", "Caregiver Support", null] },
+    direction: { type: ["string", "null"], enum: ["up", "down", null] },
+    followUpQuestion: { type: ["string", "null"] },
+    speech: { type: "string" },
+    confidence: { type: "number" }
+  }, required: ["action", "island", "buildingId", "buildingType", "topic", "direction", "followUpQuestion", "speech", "confidence"], additionalProperties: false };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: env.OPENAI_MODEL || "gpt-5.5",
+      reasoning: { effort: "low" },
+      text: { verbosity: "low", format: { type: "json_schema", name: "voice_navigation_intent", strict: true, schema } },
+      instructions: "Map natural voice requests to website navigation for an accessibility assistant. Accept loose phrases like 'show me the next part', 'open Waffles', 'take me to school help', or 'I need legal stuff'. Use ask_followup only when the target is genuinely unclear. Do not invent unsupported actions. Keep speech short, warm, and plain.",
+      input: JSON.stringify({ transcript: String(transcript || "").slice(0, 500), context })
+    }),
+    signal: AbortSignal.timeout(12000)
+  });
+  if (!response.ok) throw new Error(`OpenAI voice intent returned ${response.status}.`);
+  return JSON.parse(responseText(await response.json()) || "{}");
 }
 
 async function userChatHistory(env, userId) {
@@ -352,12 +424,64 @@ async function syncUser(env, user) {
     history: JSON.stringify(user.history || []),
     feedback: user.feedback || "",
     "Chat History": JSON.stringify(chatHistory),
+    "Save resource": JSON.stringify(user.likedResources || []),
+    "Like resource": JSON.stringify(user.likedResources || []),
+    "Dislike resource": JSON.stringify(user.dislikedResources || []),
     "Email": user.email,
     userId: user.id
   };
   const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
-  return { synced: true };
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "User sheet rejected the update.");
+  return { synced: true, row: result.row || null };
+}
+
+function errorLogPayload(env, { event, reason, user, topic = "", diagnosis = "", description = "", requestedCount = "", providedCount = "", highScoreCount = "", source = "", resource = null }) {
+  const at = new Date().toISOString();
+  return {
+    action: "log-resource-error",
+    spreadsheetId: env.ERROR_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
+    sheetGid: env.ERROR_SHEET_GID || "",
+    Timestamp: at,
+    At: at,
+    Event: event,
+    Reason: reason,
+    "User name": user?.name || "",
+    Email: user?.email || "",
+    userId: user?.id || "",
+    Topic: topic || resource?.topic || "",
+    Diagnosis: diagnosis,
+    "Search description": description,
+    "Requested resources": requestedCount,
+    "Provided resources": providedCount,
+    "High score resources": highScoreCount,
+    "Resource name": resource?.name || "",
+    "Resource URL": resource?.url || "",
+    "Resource score": resource?.score ?? "",
+    "Resource description": resource?.description || "",
+    Source: source,
+    Helpful: "No",
+    helpful: "No"
+  };
+}
+
+async function logErrorRecord(env, details) {
+  if (!env.ERROR_SHEET_WEBHOOK_URL) return { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
+  const response = await fetch(env.ERROR_SHEET_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(errorLogPayload(env, details)),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Error sheet webhook returned ${response.status}.`);
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "Error sheet rejected the update.");
+  return { synced: true, row: result.row || null };
 }
 
 async function environment(request) {
@@ -391,7 +515,19 @@ async function environment(request) {
 
 async function api(request, env, ctx) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL) });
+  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+  if (request.method === "POST" && url.pathname === "/api/voice/narrate") {
+    const audio = await wafflesSpeech(env, await body(request));
+    if (!audio) return fail("Waffles voice is not configured.", 503);
+    return new Response(audio, { headers: { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" } });
+  }
+  if (request.method === "POST" && url.pathname === "/api/voice/command") {
+    const payload = await body(request);
+    if (!String(payload.transcript || "").trim()) return fail("Voice command is empty.");
+    const intent = await voiceIntent(env, payload);
+    if (!intent) return fail("Voice command AI is not configured.", 503);
+    return json(intent);
+  }
   if (request.method === "GET" && url.pathname === "/api/scoring-config") return json(scoreConfig);
   if (request.method === "GET" && url.pathname === "/api/environment") {
     try { return json(await environment(request)); } catch { return fail("Local weather is temporarily unavailable.", 503); }
@@ -405,7 +541,7 @@ async function api(request, env, ctx) {
     const { email = "" } = await body(request);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return fail("Please enter a valid email address.");
-    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL), message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (!user) {
       passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET);
@@ -457,8 +593,8 @@ async function api(request, env, ctx) {
     const normalizedEmail = String(email).toLowerCase();
     if (await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first()) return fail("An account with this email already exists.", 409);
     const now = new Date().toISOString();
-    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, profile: null, history: [], feedback: "", createdAt: now, updatedAt: now };
-    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, profile_json, history_json, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, 0, NULL, '[]', '', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
+    const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], createdAt: now, updatedAt: now };
+    await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, liked_resources_json, disliked_resources_json, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', '[]', '[]', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": await createSession(env, user.id) });
   }
@@ -759,8 +895,16 @@ async function api(request, env, ctx) {
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
+    if (user.guest) return fail("Create an account to save onboarding progress.", 403);
+    user.onboardingCompleted = true;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET onboarding_completed = 1, updated_at = ? WHERE id = ?").bind(user.updatedAt, user.id).run();
+    return json({ user: safeUser(user) });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await body(request);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en" } = await body(request);
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return fail("Choose an island before searching for resources.");
     const questions = clarificationQuestions({ topic, description, maxQuestions: scoreConfig.limits.maximumFollowUpQuestions });
@@ -769,9 +913,11 @@ async function api(request, env, ctx) {
     const primaryKeywords = extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
+    const profileAge = user.profile?.responses?.age || "";
+    const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
     const requestedCount = normalizeResultCount(count, scoreConfig);
-    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, count: requestedCount, config: scoreConfig };
+    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig };
     let expanded = { ai: false, keywords: [] };
     let matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: [] });
     if (matches.length < requestedCount) {
@@ -779,22 +925,130 @@ async function api(request, env, ctx) {
       matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: expanded.keywords });
     }
     let answer = null;
-    try { answer = await aiAnswer(env, { topic, description, profile: user.profile, matches }); } catch {}
-    if (!answer) answer = deterministicAnswer(topic, description, matches);
+    try { answer = await aiAnswer(env, { topic, description, profile: user.profile, matches, language }); } catch {}
+    if (!answer) answer = deterministicAnswer(topic, description, matches, language);
+    const highScoreCount = matches.filter((match) => Number(match.score || 0) >= 20).length;
+    const errorLogs = [];
+    if (matches.length < requestedCount) {
+      errorLogs.push({
+        event: "insufficient_resources",
+        reason: `Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`,
+        user,
+        topic,
+        diagnosis,
+        description,
+        requestedCount,
+        providedCount: matches.length,
+        highScoreCount,
+        source: data.source
+      });
+    }
+    if (requestedCount > 3 && highScoreCount < 3) {
+      errorLogs.push({
+        event: "insufficient_high_score_resources",
+        reason: `Requested ${requestedCount} resources, but only ${highScoreCount} database resources scored at least 20.`,
+        user,
+        topic,
+        diagnosis,
+        description,
+        requestedCount,
+        providedCount: matches.length,
+        highScoreCount,
+        source: data.source
+      });
+    }
     if (!user.guest) {
       user.history = [...(user.history || []), { topic, description, at: new Date().toISOString() }].slice(-50);
       await env.DB.prepare("UPDATE users SET history_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.history), new Date().toISOString(), user.id).run();
       ctx.waitUntil(syncUser(env, user).catch(() => {}));
     }
-    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    const errorSync = [];
+    for (const details of errorLogs) {
+      try {
+        errorSync.push(await logErrorRecord(env, details));
+      } catch (error) {
+        errorSync.push({ synced: false, reason: error.message });
+      }
+    }
+    return json({ answer, resources: matches, source: data.source, ai: Boolean(env.OPENAI_API_KEY), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/feedback") {
     if (user.guest) return fail("Create an account to save feedback.", 403);
     user.feedback = String((await body(request)).feedback || "").slice(0, 2000);
     await env.DB.prepare("UPDATE users SET feedback = ?, updated_at = ? WHERE id = ?").bind(user.feedback, new Date().toISOString(), user.id).run();
-    ctx.waitUntil(syncUser(env, user).catch(() => {}));
-    return json({ ok: true, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/resources/like") {
+    if (user.guest) return fail("Create an account to save liked resources.", 403);
+    const { resource = {}, liked = true } = await body(request);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return fail("Choose a resource before saving it.");
+    const savedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const current = Array.isArray(user.likedResources) ? user.likedResources : [];
+    const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
+    user.likedResources = liked ? [savedResource, ...filtered].slice(0, 100) : filtered;
+    user.dislikedResources = liked ? currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentDisliked;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/resources/dislike") {
+    if (user.guest) return fail("Create an account to mark disliked resources.", 403);
+    const { resource = {}, disliked = true } = await body(request);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return fail("Choose a resource before marking it.");
+    const dislikedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
+    const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
+    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
+    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    let errorSync = { synced: false };
+    if (disliked) {
+      try {
+        errorSync = await logErrorRecord(env, {
+          event: "resource_disliked",
+          reason: "User marked a resource as disliked.",
+          user,
+          topic: dislikedResource.topic,
+          resource: dislikedResource,
+          source: "resource-card"
+        });
+      } catch (error) {
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
   }
 
   return fail("API route not found.", 404);

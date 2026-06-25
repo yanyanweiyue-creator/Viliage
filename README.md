@@ -75,7 +75,9 @@ Use `integrations/google-apps-script.gs`:
 
 The script finds the header row, updates the same user instead of creating duplicates, wraps long text, sizes columns appropriately, and deliberately writes only a safety marker in `Password`. Passwords and password hashes must never be stored in a spreadsheet.
 
-The same script now handles `send-password-reset` requests with `GmailApp.sendEmail`. After replacing the script, create a **new Apps Script deployment version**, then set its `/exec` URL as `PASSWORD_EMAIL_WEBHOOK_URL`. Users can request a six-digit code from the Login screen; only a hash is stored, requests are rate-limited, codes expire after 10 minutes, and a successful reset invalidates existing sessions.
+The same script now handles `send-password-reset` requests with `GmailApp.sendEmail`. After replacing the script, create a **new Apps Script deployment version**, then set its `/exec` URL as `PASSWORD_EMAIL_WEBHOOK_URL`; if that secret is omitted, the app automatically reuses `USER_SHEET_WEBHOOK_URL` for password email delivery. Users can request a six-digit code from the Login screen; only a hash is stored, requests are rate-limited, codes expire after 10 minutes, and a successful reset invalidates existing sessions.
+
+The script also handles `log-resource-error` requests for the Error database spreadsheet. Set the deployment `/exec` URL as `ERROR_SHEET_WEBHOOK_URL`, keep `ERROR_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0`, and keep `ERROR_SHEET_GID=1952899933`. Resource shortage events, high-score shortage events, and user-disliked resources are appended as new rows by matching the sheet's row-1 headers. Any `helpful`/`Helpful` column is always written as `No`.
 
 The supplied user sheet currently has eight row-1 headers: `User name`, `Password`, `response of survey`, `AI personal record`, `history`, `feedback`, `Chat History`, and `Email`. The server sends all eight exact keys whenever the account, survey, resource-search history, feedback, or community-message history changes. The Apps Script identifies an existing row by `userId` when available, otherwise by `Email`, and only falls back to `User name`; therefore repeated updates keep one account on one row. The `Password` cell contains only the safety marker “Not stored — secure hash only.” After changing `integrations/google-apps-script.gs`, create a new Apps Script deployment version so the existing `/exec` URL uses the update.
 
@@ -122,7 +124,7 @@ Cloudflare deployment is now supported with Workers, Static Assets, and a D1 dat
 
 The local Node server also persists SHA-256-hashed session tokens in `data/sessions.json` and atomically updates user data. Both data files are ignored by Git, so pulling new source code does not replace local accounts.
 
-For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, and `USER_SHEET_WEBHOOK_URL` as server configuration and mount the `data/` directory on durable storage.
+For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, `USER_SHEET_WEBHOOK_URL`, `ERROR_SHEET_WEBHOOK_URL`, and `ERROR_SHEET_GID` as server configuration and mount the `data/` directory on durable storage.
 
 Before a real public launch, add email verification/password reset, rate limiting, abuse monitoring, and a privacy/security review for the data you collect. Cloudflare provides HTTPS for the deployed Worker and D1 supplies the durable account store.
 

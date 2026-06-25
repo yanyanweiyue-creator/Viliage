@@ -1,3 +1,5 @@
+import { LAND_POLYGONS, pointIsWalkable } from "./island-geometry.mjs?v=land-map-20260624";
+
 const TAU = Math.PI * 2;
 
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, Number(value) || 0));
@@ -12,10 +14,19 @@ function waterWave(x, y, time, wind) {
 }
 
 export function pointIsOpenWater(x, y) {
-  const leftLand = ((x - .25) / .245) ** 2 + ((y - .52) / .345) ** 2 <= 1;
-  const rightLand = ((x - .75) / .255) ** 2 + ((y - .51) / .35) ** 2 <= 1;
-  const bridge = x >= .46 && x <= .54 && y >= .45 && y <= .61;
-  return !leftLand && !rightLand && !bridge;
+  return !pointIsWalkable({ x: Number(x) * 100, y: Number(y) * 100 });
+}
+
+export function normalizedStagePoint(event, stage) {
+  const rect = stage?.getBoundingClientRect?.();
+  const width = Number(stage?.clientWidth) || rect?.width || 1;
+  const height = Number(stage?.clientHeight) || rect?.height || 1;
+  if (!rect || !width || !height) return { x: 0, y: 0 };
+  const scaleX = rect.width / width || 1;
+  const scaleY = rect.height / height || 1;
+  const localX = width / 2 + (Number(event?.clientX) - (rect.left + rect.width / 2)) / scaleX;
+  const localY = height / 2 + (Number(event?.clientY) - (rect.top + rect.height / 2)) / scaleY;
+  return { x: localX / width, y: localY / height };
 }
 
 export class SurfaceMotion {
@@ -73,9 +84,8 @@ export class SurfaceMotion {
 
   addRipple(event) {
     if (!this.enabled || this.reducedMotion) return;
-    const rect = this.stage.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.height;
+    if (event.target?.closest?.(".island-hit-area, .building, .map-hotspot")) return;
+    const { x, y } = normalizedStagePoint(event, this.stage);
     if (!pointIsOpenWater(x, y)) return;
     this.ripples.push({ x: x * this.width, y: y * this.height, born: performance.now() });
     if (this.ripples.length > 16) this.ripples.shift();
@@ -150,6 +160,7 @@ export class SurfaceMotion {
       ctx.quadraticCurveTo(x + length * .5, y - waterWave(x, y, time, wind), x + length, y + 1.5);
       ctx.stroke();
     }
+    this.drawCurrentField(ctx, time, wind);
     ctx.restore();
 
     this.drawShoreFoam(ctx, time, wind);
@@ -157,16 +168,54 @@ export class SurfaceMotion {
     this.drawAirflow(ctx, time, wind);
   }
 
+  drawCurrentField(ctx, time, wind) {
+    const drift = time * (.012 + wind * .0007);
+    ctx.save();
+    ctx.lineCap = "round";
+    for (let lane = 0; lane < 8; lane += 1) {
+      const baseY = this.height * (.14 + lane * .105);
+      const shift = (drift + lane * 83) % (this.width * .34);
+      ctx.strokeStyle = `rgba(188,239,240,${.035 + (lane % 3) * .018})`;
+      ctx.lineWidth = 5 + lane * .55;
+      ctx.beginPath();
+      ctx.moveTo(-this.width * .2 + shift, baseY);
+      ctx.bezierCurveTo(this.width * .18 + shift, baseY - 34, this.width * .42 + shift, baseY + 28, this.width * .72 + shift, baseY - 7);
+      ctx.stroke();
+    }
+    for (let cell = 0; cell < 28; cell += 1) {
+      const x = ((cell * 149 + drift * 2.1) % (this.width + 120)) - 60;
+      const y = this.height * (.13 + ((cell * 47) % 79) / 100);
+      const pulse = .5 + Math.sin(time * .0014 + cell * 1.7) * .5;
+      ctx.strokeStyle = `rgba(233,255,248,${.035 + pulse * .055})`;
+      ctx.lineWidth = .7;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 9 + pulse * 7, 3 + pulse * 2, -.18, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   drawShoreFoam(ctx, time, wind) {
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.strokeStyle = `rgba(224,249,244,${.26 + Math.min(.2, wind / 100)})`;
-    ctx.lineWidth = 2.1;
-    ctx.setLineDash([10, 16, 4, 20]);
-    ctx.lineDashOffset = -time * (.006 + wind * .00015);
-    for (const island of [[.25, .52, .247, .347], [.75, .51, .257, .352]]) {
+    ctx.strokeStyle = `rgba(224,249,244,${.1 + Math.min(.14, wind / 160)})`;
+    ctx.lineWidth = 1.25;
+    const phase = time * (.002 + wind * .000025);
+    const shoreSegments = [
+      [LAND_POLYGONS.autism, 9, 14],
+      [LAND_POLYGONS.autism, 0, 4],
+      [LAND_POLYGONS.adhd, 8, 13],
+      [LAND_POLYGONS.adhd, 0, 4]
+    ];
+    for (const [polygon, start, end] of shoreSegments) {
       ctx.beginPath();
-      ctx.ellipse(this.width * island[0], this.height * island[1], this.width * island[2], this.height * island[3], 0, 0, TAU);
+      for (let index = start; index <= end; index += 1) {
+        const [px, py] = polygon[index % polygon.length];
+        const x = this.width * px / 100;
+        const y = this.height * py / 100 + Math.sin(phase + index) * 2;
+        if (index === start) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
       ctx.stroke();
     }
     ctx.restore();
@@ -192,18 +241,15 @@ export class SurfaceMotion {
     const speed = .004 + wind * .00022;
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.setLineDash([18, 28]);
-    ctx.lineDashOffset = -time * speed;
     for (let lane = 0; lane < 7; lane += 1) {
       const y = this.height * (.12 + lane * .12) + Math.sin(time * .00025 + lane) * 8;
-      ctx.strokeStyle = `rgba(244,252,242,${.035 + (lane % 3) * .016})`;
-      ctx.lineWidth = 1 + (lane % 3) * .65;
+      ctx.strokeStyle = `rgba(244,252,242,${.018 + (lane % 3) * .01})`;
+      ctx.lineWidth = .7 + (lane % 3) * .45;
       ctx.beginPath();
       ctx.moveTo(-40, y);
-      ctx.bezierCurveTo(this.width * .28, y - 28, this.width * .63, y + 34, this.width + 40, y - 9);
+      ctx.bezierCurveTo(this.width * .28, y - 18, this.width * .63, y + 22, this.width + 40, y - 7);
       ctx.stroke();
     }
-    ctx.setLineDash([]);
     for (let particle = 0; particle < 14; particle += 1) {
       const x = ((particle * 97 + time * (.012 + wind * .001)) % (this.width + 80)) - 40;
       const y = this.height * (.13 + ((particle * 37) % 71) / 100) + Math.sin(time * .001 + particle) * 9;
