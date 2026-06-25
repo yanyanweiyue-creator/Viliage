@@ -1,5 +1,5 @@
 {
-  "version": "2.1",
+  "version": "3.0",
   "weights": {
     "primaryExactTag": 25,
     "primarySimilarTag": 15,
@@ -28,6 +28,6 @@
     "maximumPrimaryKeywords": 20,
     "maximumSecondaryKeywords": 12,
     "maximumPredictedKeywords": 12,
-    "maximumFollowUpQuestions": 2
+    "maximumFollowUpQuestions": 3
   }
 }

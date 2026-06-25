@@ -1,9 +1,9 @@
 import { nextLivestockAction, shouldAnimalRest, shouldLaunchSunsetFlock, shouldShowDragon } from "./ecosystem-logic.mjs";
-import { createCreatureArt } from "./creature-art.mjs?v=grounded-audio-20260623";
+import { createCreatureArt } from "./creature-art.mjs?v=island-ecology-20260624";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
-const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, cow: .62, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
 const ISLAND_PROJECTIONS = Object.freeze({
   autism: {
     "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 },
@@ -28,7 +28,7 @@ export function projectActorPoint(point, island, sceneMode = "2d", offset = { x:
   let nx = (Number(point.x) - source.x) / source.rx;
   let ny = (Number(point.y) - source.y) / source.ry;
   const radius = Math.hypot(nx, ny);
-  const safeRadius = .86;
+  const safeRadius = .78;
   if (radius > safeRadius) {
     nx *= safeRadius / radius;
     ny *= safeRadius / radius;

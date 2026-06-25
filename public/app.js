@@ -1,7 +1,7 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=village-motion-20260624";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=village-motion-20260624";
-import { SurfaceMotion } from "./surface-motion.mjs?v=village-motion-20260624";
-import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=grounded-audio-20260623";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=island-ecology-20260624";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=island-ecology-20260624";
+import { SurfaceMotion } from "./surface-motion.mjs?v=island-ecology-20260624";
+import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=island-ecology-20260624";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 

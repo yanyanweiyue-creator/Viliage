@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, descriptionGateEvidence, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources, scoreResource } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, descriptionGateEvidence, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources, scoreResource } from "../scoring-engine.mjs";
 
 const resource = (overrides = {}) => ({
   name: "Resource",
@@ -24,6 +24,18 @@ test("diagnosis and category are permanent hard filters", () => {
   });
   assert.deepEqual(ranked.map((item) => item.name), ["Allowed", "Both is allowed"]);
   assert.ok(ranked.every((item) => item.passedFilters.length === 3));
+});
+
+test("life stage is a permanent hard filter when provided", () => {
+  const ranked = rankResources([
+    resource({ name: "Middle school", age: "13-18", tags: ["IEP"] }),
+    resource({ name: "Elementary", age: "8-12", tags: ["IEP"] }),
+    resource({ name: "All ages", age: "All ages", tags: ["IEP"] })
+  ], {
+    diagnosis: "Autism", category: "Legal", lifeStage: "middle school", gateKeywords: ["IEP"], primaryKeywords: ["IEP"], count: 10
+  });
+  assert.deepEqual(new Set(ranked.map((item) => item.name)), new Set(["Middle school", "All ages"]));
+  assert.ok(ranked.every((item) => item.passedFilters.some((filter) => filter.startsWith("Life stage:"))));
 });
 
 test("description gate excludes irrelevant resources before scoring", () => {
@@ -78,6 +90,17 @@ test("expansion runs only to fill missing slots and never outranks tier 1", () =
   assert.equal(ranked[1].tier, 4);
 });
 
+test("category broadening is the lowest-priority expansion tier", () => {
+  const ranked = rankResources([
+    resource({ name: "Direct", tags: ["lawyer"], description: "Lawyer support" }),
+    resource({ name: "Broad", tags: ["advocacy"], description: "Advocacy clinic" })
+  ], {
+    diagnosis: "Autism", category: "Legal", gateKeywords: ["lawyer"], primaryKeywords: ["lawyer"], expansionKeywords: [], count: 5
+  });
+  assert.equal(ranked[0].tier, 1);
+  assert.equal(ranked[1].tier, 6);
+});
+
 test("rejected keywords never enter filtering or scoring", () => {
   const ranked = rankResources([resource()], {
     diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["Medicaid"], rejectedKeywords: ["Medicaid"], count: 5
@@ -85,14 +108,16 @@ test("rejected keywords never enter filtering or scoring", () => {
   assert.equal(ranked.length, 0);
 });
 
-test("keyword helpers enforce a small gate set and clarification never exceeds two questions", () => {
+test("keyword helpers enforce a small gate set and clarification asks one to three questions", () => {
   const primary = extractKeywords(["local quiet sports activities for a child with autism and small group attention"], 20);
   const gate = extractGateKeywords(primary, DEFAULT_SCORE_CONFIG);
   assert.ok(gate.length <= Math.max(1, Math.floor(primary.length * 0.2)));
   assert.ok(heuristicKeywordExpansion(["sports"], 10).includes("recreation"));
   assert.ok(inferIssuePreferences(["affordable and soon"]).includes("long waitlist"));
-  assert.ok(clarificationQuestions({ topic: "Legal", description: "Find a lawyer" }).length <= 2);
+  const questions = clarificationQuestions({ topic: "Legal", description: "Find a lawyer" });
+  assert.ok(questions.length >= 1 && questions.length <= 3);
   assert.deepEqual(extractKeywords(["Find me a lawyer"], 10), ["lawyer"]);
+  assert.deepEqual(extractLifeStages(["middle school student"]), ["13-18"]);
 });
 
 test("description gate evidence preserves primary authority over confirmed secondary terms", () => {

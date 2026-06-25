@@ -7,8 +7,8 @@ const commonSvg = (species, body) => `
         <stop offset="1" stop-color="#14251f" stop-opacity=".18"/>
       </linearGradient>
       <filter id="model-surface-${species}" x="-20%" y="-25%" width="140%" height="155%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency=".5" numOctaves="3" seed="7" result="texture"/>
-        <feColorMatrix in="texture" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .13 0" result="softTexture"/>
+        <feTurbulence type="fractalNoise" baseFrequency=".72 .36" numOctaves="4" seed="7" result="texture"/>
+        <feColorMatrix in="texture" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 .18 0" result="softTexture"/>
         <feBlend in="SourceGraphic" in2="softTexture" mode="soft-light"/>
       </filter>
     </defs>

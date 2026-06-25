@@ -47,9 +47,9 @@ export function waterSurfaceState({ weather = "clear", windSpeed = 8, isDay = tr
 export function celestialTrackPoint({ currentMinutes = 720, sunrise = 360, sunset = 1080 } = {}, width = 100, height = 100) {
   const dayLength = Math.max(1, Number(sunset) - Number(sunrise));
   const progress = clamp((Number(currentMinutes) - Number(sunrise)) / dayLength, 0, 1);
-  const arc = Math.sin(progress * Math.PI);
-  const x = width * (.08 + progress * .84);
-  const y = height * (.35 - arc * .26 - Math.sin(progress * Math.PI * 2) * .035);
+  const arc = 4 * progress * (1 - progress);
+  const x = width * (.04 + progress * .92);
+  const y = height * (.44 - arc * .34);
   return { x, y, progress, elevation: arc };
 }
 
@@ -534,6 +534,7 @@ export class ImmersiveScene {
     ctx.ellipse(0, 7, 34, 10, 0, 0, TAU);
     ctx.fill();
     ctx.shadowColor = "transparent";
+    this.drawGroundingPad(ctx, building, time);
     const label = String(building.mapLabel || "Village");
     const isNight = !this.environment.isDay;
     if (isNight) {
@@ -551,6 +552,47 @@ export class ImmersiveScene {
     else if (label === "Village") this.drawVillage(ctx, isNight, time);
     else if (label === "Park") this.drawPark(ctx, palette, time, isNight);
     else this.drawWoodsBuilding(ctx, palette, isNight, time);
+    ctx.restore();
+  }
+
+  drawGroundingPad(ctx, building, time) {
+    const stone = building.mapLabel === "Courthouse";
+    const base = ctx.createRadialGradient(-12, 8, 4, 0, 8, 44);
+    base.addColorStop(0, stone ? "rgba(190,184,164,.92)" : "rgba(134,106,67,.82)");
+    base.addColorStop(.58, stone ? "rgba(137,133,118,.46)" : "rgba(92,78,45,.36)");
+    base.addColorStop(1, "rgba(39,64,37,0)");
+    ctx.fillStyle = base;
+    ctx.beginPath();
+    ctx.ellipse(0, 10, 42, 13, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = stone ? "rgba(83,86,78,.42)" : "rgba(79,66,38,.32)";
+    for (let pebble = 0; pebble < 9; pebble += 1) {
+      const angle = pebble / 9 * TAU + time * .00003;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(angle) * (20 + pebble % 3 * 5), 9 + Math.sin(angle) * 5, 2.8, 1.4, angle, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  drawWallTexture(ctx, x, y, width, height, tone = "rgba(87,66,45,.2)") {
+    ctx.save();
+    ctx.strokeStyle = tone;
+    ctx.lineWidth = .8;
+    for (let row = 0; row < 4; row += 1) {
+      const yy = y + height * (.2 + row * .19);
+      ctx.beginPath();
+      ctx.moveTo(x + 3, yy);
+      ctx.lineTo(x + width - 3, yy + (row % 2 ? 1 : -1));
+      ctx.stroke();
+    }
+    for (let mark = 0; mark < 12; mark += 1) {
+      const xx = x + 4 + seededValue(mark, 401) * (width - 8);
+      const yy = y + 4 + seededValue(mark, 402) * (height - 8);
+      ctx.beginPath();
+      ctx.moveTo(xx, yy);
+      ctx.lineTo(xx + 2 + seededValue(mark, 403) * 4, yy + .6);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -579,6 +621,7 @@ export class ImmersiveScene {
     wall.addColorStop(1, "#b87845");
     ctx.fillStyle = wall;
     ctx.fillRect(-36, -27, 72, 34);
+    this.drawWallTexture(ctx, -36, -27, 72, 34, "rgba(95,62,39,.18)");
     ctx.fillStyle = "#914f38";
     ctx.beginPath(); ctx.moveTo(-43, -27); ctx.lineTo(0, -49); ctx.lineTo(43, -27); ctx.closePath(); ctx.fill();
     for (const [index, wx] of [-25, -12, 13, 26].entries()) this.drawLitWindow(ctx, wx - 4, -18, 8, 9, isNight, time, index);
@@ -590,6 +633,7 @@ export class ImmersiveScene {
   drawCourthouse(ctx, isNight, time) {
     ctx.fillStyle = "#e9e2ce";
     ctx.fillRect(-29, -29, 58, 36);
+    this.drawWallTexture(ctx, -29, -29, 58, 36, "rgba(92,92,82,.2)");
     ctx.fillStyle = "#cbc3ad";
     ctx.beginPath(); ctx.moveTo(-36, -29); ctx.lineTo(0, -52); ctx.lineTo(36, -29); ctx.closePath(); ctx.fill();
     ctx.fillStyle = "#f5efdc";
@@ -604,6 +648,7 @@ export class ImmersiveScene {
     for (const [index, home] of [{ x: -26, y: -2, s: .8, c: "#d79b63" }, { x: 0, y: -10, s: 1, c: "#c78655" }, { x: 28, y: 1, s: .72, c: "#e0ad70" }].entries()) {
       ctx.save(); ctx.translate(home.x, home.y); ctx.scale(home.s, home.s);
       ctx.fillStyle = home.c; ctx.fillRect(-14, -25, 28, 27);
+      this.drawWallTexture(ctx, -14, -25, 28, 27, "rgba(88,59,38,.18)");
       ctx.fillStyle = "#7e4b36"; ctx.beginPath(); ctx.moveTo(-18, -25); ctx.lineTo(0, -39); ctx.lineTo(18, -25); ctx.closePath(); ctx.fill();
       this.drawLitWindow(ctx, -9, -17, 6, 7, isNight, time, index); this.drawLitWindow(ctx, 4, -17, 6, 7, isNight, time, index + .7);
       ctx.fillStyle = "#69503c"; ctx.fillRect(-3, -10, 7, 12);
@@ -687,6 +732,25 @@ export class ImmersiveScene {
 
   drawTerrainFeatures(ctx, cx, cy, rx, ry, palette, island, phase) {
     ctx.save();
+    ctx.strokeStyle = "rgba(63,91,48,.12)";
+    ctx.lineWidth = Math.max(.8, rx * .004);
+    for (let blade = 0; blade < 92; blade += 1) {
+      const x = cx + (seededValue(blade, 321) - .5) * rx * 1.7;
+      const y = cy + (seededValue(blade, 322) - .5) * ry * 1.28;
+      const lean = (seededValue(blade, 323) - .5) * rx * .018;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + lean, y - ry * .018, x + lean * 1.7, y - ry * .035);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(93,77,52,.18)";
+    for (let pebble = 0; pebble < 28; pebble += 1) {
+      const x = cx + (seededValue(pebble, 331) - .5) * rx * 1.55;
+      const y = cy + (seededValue(pebble, 332) - .5) * ry * 1.15;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * (.006 + seededValue(pebble, 333) * .01), ry * .005, seededValue(pebble, 334) * Math.PI, 0, TAU);
+      ctx.fill();
+    }
     if (island === "autism") {
       const meadow = ctx.createRadialGradient(cx - rx * .35, cy + ry * .08, 2, cx - rx * .32, cy + ry * .08, rx * .72);
       meadow.addColorStop(0, "rgba(188,215,142,.32)");
@@ -702,8 +766,8 @@ export class ImmersiveScene {
         ctx.ellipse(cx - rx * .18, cy + ry * (.12 + ring * .035), rx * (.18 + ring * .045), ry * (.055 + ring * .018), -.12, 0, TAU);
         ctx.stroke();
       }
-      ctx.fillStyle = "rgba(231,238,179,.28)";
-      for (let stone = 0; stone < 15; stone += 1) {
+      ctx.fillStyle = "rgba(231,238,179,.32)";
+      for (let stone = 0; stone < 24; stone += 1) {
         ctx.beginPath();
         ctx.ellipse(cx + (seededValue(stone, 141) - .5) * rx * 1.42, cy + (seededValue(stone, 142) - .5) * ry * 1.18, rx * (.008 + seededValue(stone, 143) * .012), ry * .006, seededValue(stone, 144) * Math.PI, 0, TAU);
         ctx.fill();
@@ -727,7 +791,7 @@ export class ImmersiveScene {
         ctx.stroke();
       }
       ctx.fillStyle = palette.accent;
-      for (let flower = 0; flower < 36; flower += 1) {
+      for (let flower = 0; flower < 52; flower += 1) {
         const x = cx + (seededValue(flower, 151) - .5) * rx * 1.45;
         const y = cy + (seededValue(flower, 152) - .5) * ry * 1.12;
         ctx.beginPath();
@@ -752,7 +816,7 @@ export class ImmersiveScene {
   }
 
   drawTrees(ctx, cx, cy, rx, ry, palette, seed, island) {
-    const treeCount = island === "autism" ? 17 : 20;
+    const treeCount = island === "autism" ? 24 : 29;
     const trees = Array.from({ length: treeCount }, (_, index) => {
       const angle = seededValue(index, seed) * TAU;
       const radius = .62 + seededValue(index, seed + 1) * .3;
@@ -774,6 +838,14 @@ export class ImmersiveScene {
       }
       ctx.fillStyle = "#5c452f";
       ctx.fillRect(tree.x - 2 * tree.scale, tree.y - trunkHeight, 4 * tree.scale, trunkHeight);
+      ctx.strokeStyle = "rgba(55,34,22,.38)";
+      ctx.lineWidth = Math.max(.8, tree.scale);
+      ctx.beginPath();
+      ctx.moveTo(tree.x - tree.scale, tree.y - trunkHeight * .9);
+      ctx.lineTo(tree.x - tree.scale * .45, tree.y - trunkHeight * .18);
+      ctx.moveTo(tree.x + tree.scale, tree.y - trunkHeight * .82);
+      ctx.lineTo(tree.x + tree.scale * .35, tree.y - trunkHeight * .08);
+      ctx.stroke();
       ctx.fillStyle = index % 5 === 0 ? palette.accent : palette.leaf;
       for (let cluster = 0; cluster < 5; cluster += 1) {
         const angle = cluster / 5 * TAU;
@@ -807,6 +879,12 @@ export class ImmersiveScene {
     ctx.moveTo(x, y - height * .72);
     ctx.lineTo(x + height * .4, y - height * .94);
     ctx.stroke();
+    ctx.strokeStyle = "rgba(38,25,17,.28)";
+    ctx.lineWidth = Math.max(.8, height * .025);
+    ctx.beginPath();
+    ctx.moveTo(x + height * .04, y - height * .08);
+    ctx.quadraticCurveTo(x - height * .08, y - height * .44, x + height * .03, y - height * .88);
+    ctx.stroke();
     ctx.fillStyle = palette.leaf;
     for (let cluster = 0; cluster < 9; cluster += 1) {
       const angle = cluster / 9 * TAU;
@@ -828,6 +906,12 @@ export class ImmersiveScene {
   drawPineTree(ctx, x, y, height, palette) {
     ctx.fillStyle = "#5a4432";
     ctx.fillRect(x - height * .05, y - height, height * .1, height);
+    ctx.strokeStyle = "rgba(35,25,18,.32)";
+    ctx.lineWidth = Math.max(.8, height * .025);
+    ctx.beginPath();
+    ctx.moveTo(x, y - height * .95);
+    ctx.lineTo(x + height * .015, y - height * .12);
+    ctx.stroke();
     ctx.fillStyle = "#294f3e";
     for (let tier = 0; tier < 3; tier += 1) {
       const top = y - height * (1.18 - tier * .25);

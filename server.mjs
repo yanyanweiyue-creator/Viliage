@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -371,6 +371,8 @@ export function normalizeSheetRows(table) {
         diagnosis,
         categories: categories.length ? categories : ["Education"],
         age: valueAt(values, "Age", 5) || "All ages",
+        ageRange: valueAt(values, "Age Range") || valueAt(values, "Age range") || valueAt(values, "Age", 5) || "All ages",
+        lifeStage: valueAt(values, "Life Stage") || valueAt(values, "Life stage") || "",
         tags,
         issues,
         location: locations[0] || "See website",
@@ -995,7 +997,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await readJsonBody(req);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "" } = await readJsonBody(req);
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
@@ -1005,9 +1007,11 @@ async function handleApi(req, res, url) {
     const primaryKeywords = extractKeywords([description], config.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], config);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], config.limits.maximumSecondaryKeywords);
+    const profileAge = user.profile?.responses?.age || "";
+    const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
     const requestedCount = normalizeResultCount(count, config);
-    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, count: requestedCount, config };
+    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config };
     let expanded = { ai: false, keywords: [] };
     let matches = rankResources(rows, { ...rankingInput, predictedKeywords: [] });
     if (matches.length < requestedCount) {

@@ -19,7 +19,7 @@ const SYNONYMS = {
 };
 
 export const DEFAULT_SCORE_CONFIG = {
-  version: "2.1",
+  version: "3.0",
   weights: {
     primaryExactTag: 25,
     primarySimilarTag: 15,
@@ -48,9 +48,18 @@ export const DEFAULT_SCORE_CONFIG = {
     maximumPrimaryKeywords: 20,
     maximumSecondaryKeywords: 12,
     maximumPredictedKeywords: 12,
-    maximumFollowUpQuestions: 2
+    maximumFollowUpQuestions: 3
   }
 };
+
+const LIFE_STAGE_ALIASES = Object.freeze({
+  "0-3": ["0 3", "0-3", "birth to 3", "early intervention", "infant", "toddler"],
+  "4-7": ["4 7", "4-7", "preschool", "kindergarten", "early elementary"],
+  "8-12": ["8 12", "8-12", "elementary", "primary school", "childhood"],
+  "13-18": ["13 18", "13-18", "teen", "teenager", "middle school", "high school", "adolescent"],
+  adult: ["adult", "young adult", "transition age", "college", "workforce"],
+  "all ages": ["all age", "all ages", "any age", "children and adult", "family"]
+});
 
 export function normalizeText(value = "") {
   return String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9+]+/g, " ").trim().replace(/\s+/g, " ");
@@ -84,6 +93,18 @@ export function extractKeywords(values, limit = 20) {
     concepts.push(...normalized.split(" ").filter((word) => word.length > 2));
   }
   return uniqueNormalized(concepts, limit);
+}
+
+export function extractLifeStages(values, limit = 4) {
+  const text = normalizeText(values.flat(Infinity).filter(Boolean).join(" "));
+  const matches = [];
+  for (const [stage, aliases] of Object.entries(LIFE_STAGE_ALIASES)) {
+    if (aliases.some((alias) => {
+      const normalized = normalizeText(alias);
+      return normalized && (` ${text} `.includes(` ${normalized} `) || text.includes(normalized));
+    })) matches.push(stage);
+  }
+  return [...new Set(matches)].slice(0, limit);
 }
 
 export function extractGateKeywords(values, config = DEFAULT_SCORE_CONFIG) {
@@ -165,8 +186,29 @@ function categoryMatches(resourceCategories, requiredCategory) {
   return normalizedList(resourceCategories).includes(required);
 }
 
-export function filterResources(resources, { diagnosis, category } = {}) {
-  return resources.filter((resource) => diagnosisMatches(resource.diagnosis, diagnosis) && categoryMatches(resource.categories, category));
+function resourceLifeStages(resource) {
+  return extractLifeStages([
+    resource.age,
+    resource.ageRange,
+    resource.age_range,
+    resource.lifeStage,
+    resource.life_stage,
+    resource.tags,
+    resource.description
+  ], 8);
+}
+
+function lifeStageMatches(resource, requiredStages = []) {
+  const required = extractLifeStages(requiredStages, 8);
+  if (!required.length) return true;
+  const stages = resourceLifeStages(resource);
+  if (!stages.length || stages.includes("all ages")) return true;
+  return required.some((stage) => stages.includes(stage));
+}
+
+export function filterResources(resources, { diagnosis, category, age, lifeStage, lifeStages = [] } = {}) {
+  const requiredStages = extractLifeStages([age, lifeStage, lifeStages], 8);
+  return resources.filter((resource) => diagnosisMatches(resource.diagnosis, diagnosis) && categoryMatches(resource.categories, category) && lifeStageMatches(resource, requiredStages));
 }
 
 export function passesDescriptionGate(resource, gateKeywords = []) {
@@ -256,10 +298,22 @@ function scorePool(resources, options, tier, keywordOptions) {
     scored.passedFilters = [
       `Diagnosis: ${options.diagnosis}`,
       `Category: ${options.category}`,
+      ...(options.lifeStages?.length ? [`Life stage: ${options.lifeStages.join(", ")}`] : []),
       "Description gate"
     ];
     return { ...resource, ...scored };
   });
+}
+
+function categoryBroadeningKeywords(category, keywords = [], limit = 12) {
+  const categoryKey = normalizeText(category);
+  const broad = {
+    education: ["school", "learning", "academic", "student", "accommodation", "iep", "504"],
+    legal: ["rights", "advocacy", "lawyer", "attorney", "disability rights", "regional center"],
+    recreation: ["activity", "social", "community", "sports", "camp", "sensory friendly"],
+    support: ["family", "caregiver", "support group", "navigation", "case management"]
+  };
+  return uniqueNormalized([categoryKey, ...(broad[categoryKey] || []), ...keywords], limit);
 }
 
 export function rankResources(resources, options = {}) {
@@ -269,36 +323,51 @@ export function rankResources(resources, options = {}) {
   const rejected = new Set(uniqueNormalized(options.rejectedKeywords || [], 50));
   const primary = uniqueNormalized(options.primaryKeywords || options.directKeywords || [], limits.maximumPrimaryKeywords).filter((item) => !rejected.has(item));
   const secondary = uniqueNormalized(options.confirmedSecondaryKeywords || [], limits.maximumSecondaryKeywords).filter((item) => !rejected.has(item));
+  const lifeStages = extractLifeStages([options.age, options.lifeStage, options.lifeStages], 8);
   const primaryGateKeywords = extractGateKeywords(primary, config).filter((item) => !rejected.has(item));
   const secondaryGateKeywords = extractGateKeywords(secondary, config).filter((item) => !rejected.has(item));
   const gateKeywords = uniqueNormalized(options.gateKeywords?.length ? options.gateKeywords : [...primaryGateKeywords, ...secondaryGateKeywords], 30).filter((item) => !rejected.has(item));
-  const hardFiltered = filterResources(resources, options);
+  const scoringOptions = { ...options, lifeStages, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary };
+  const hardFiltered = filterResources(resources, scoringOptions);
   const basePool = hardFiltered.filter((resource) => passesDescriptionGate(resource, gateKeywords));
-  const collected = scorePool(basePool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 1, { predictedKeywords: [] }).map((resource) => ({ ...resource, gateEvidence: descriptionGateEvidence(resource, { primaryGateKeywords, secondaryGateKeywords, fallbackGateKeywords: gateKeywords }) }));
+  const collected = scorePool(basePool, scoringOptions, 1, { predictedKeywords: [] }).map((resource) => ({ ...resource, gateEvidence: descriptionGateEvidence(resource, { primaryGateKeywords, secondaryGateKeywords, fallbackGateKeywords: gateKeywords }) }));
   const seen = new Set(collected.map((resource) => resource.url || resource.name));
 
-  if (collected.length < count) {
+  if (collected.length < count && (primary.length || secondary.length || uniqueNormalized(options.predictedKeywords || [], 4).length)) {
     const expansion = uniqueNormalized(options.expansionKeywords || heuristicKeywordExpansion([...primary, ...secondary], limits.maximumSecondaryKeywords), limits.maximumSecondaryKeywords).filter((item) => !rejected.has(item));
     const expansionPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, expansion));
-    for (const resource of scorePool(expansionPool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 4, { predictedKeywords: expansion })) {
+    for (const resource of scorePool(expansionPool, scoringOptions, 4, { predictedKeywords: expansion })) {
       collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: expansion }) }); seen.add(resource.url || resource.name);
     }
   }
 
-  if (collected.length < count) {
+  if (collected.length < count && (primary.length || secondary.length || uniqueNormalized(options.predictedKeywords || [], 4).length)) {
     const predicted = uniqueNormalized(options.predictedKeywords || [], limits.maximumPredictedKeywords).filter((item) => !rejected.has(item));
     const predictedPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, predicted));
-    for (const resource of scorePool(predictedPool, { ...options, config, primaryKeywords: primary, confirmedSecondaryKeywords: secondary }, 5, { predictedKeywords: predicted })) collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: predicted }) });
+    for (const resource of scorePool(predictedPool, scoringOptions, 5, { predictedKeywords: predicted })) {
+      collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: predicted }) });
+      seen.add(resource.url || resource.name);
+    }
+  }
+
+  if (collected.length < count && (primary.length || secondary.length || uniqueNormalized(options.predictedKeywords || [], 4).length)) {
+    const broad = categoryBroadeningKeywords(options.category, [...primary, ...secondary], limits.maximumPredictedKeywords).filter((item) => !rejected.has(item));
+    const broadPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, broad));
+    for (const resource of scorePool(broadPool, scoringOptions, 6, { predictedKeywords: broad })) {
+      collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: broad }) });
+      seen.add(resource.url || resource.name);
+    }
   }
 
   return collected.filter((resource) => resource.score >= limits.minimumScore).sort((a, b) => a.tier - b.tier || b.score - a.score || Number(b.gateEvidence?.confidence || 0) - Number(a.gateEvidence?.confidence || 0) || String(a.name).localeCompare(String(b.name))).slice(0, count);
 }
 
-export function clarificationQuestions({ topic = "", description = "", maxQuestions = 2 } = {}) {
+export function clarificationQuestions({ topic = "", description = "", maxQuestions = 3 } = {}) {
   const text = normalizeText(description);
+  const topicKey = normalizeText(topic);
   const questions = [];
   const legalSpecific = /\b(iep|idea|504|medicaid|discrimination|conservatorship|guardianship|regional center)\b/.test(text);
-  if (normalizeText(topic) === "legal" && !legalSpecific && text.split(" ").length < 14) {
+  if (topicKey === "legal" && !legalSpecific && text.split(" ").length < 14) {
     questions.push({
       id: "legal_issue",
       question: "Which legal issue is most important for this search?",
@@ -308,5 +377,11 @@ export function clarificationQuestions({ topic = "", description = "", maxQuesti
   if (/\b(sport|activity|program|support)\b/.test(text) && !/\b(online|in person|small group|1 on 1|individual|sensory|quiet)\b/.test(text)) {
     questions.push({ id: "format", question: "Do you prefer small-group, 1-on-1, sensory-friendly, online, or in-person support?", options: ["Small group", "1-on-1", "Sensory-friendly", "Online", "In person"] });
   }
-  return questions.slice(0, Math.max(0, Math.min(2, maxQuestions)));
+  if (!extractLifeStages([text]).length) {
+    questions.push({ id: "life_stage", question: "Which age or life stage should Waffles prioritize?", options: ["0-3", "4-7", "8-12", "13-18", "Adult", "All ages"] });
+  }
+  if (!questions.length) {
+    questions.push({ id: "priority", question: "Which detail should Waffles prioritize for this search?", options: ["Most relevant match", "Low cost", "Available soon", "Local/in-person", "Online"] });
+  }
+  return questions.slice(0, Math.max(1, Math.min(3, maxQuestions)));
 }

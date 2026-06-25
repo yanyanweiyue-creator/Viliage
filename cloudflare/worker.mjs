@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -255,6 +255,8 @@ function normalizeSheetRows(table) {
       diagnosis: valueAt(values, "Diagnosis", 2) || "Both",
       categories: categories.length ? categories : ["Education"],
       age: valueAt(values, "Age", 5) || "All ages",
+      ageRange: valueAt(values, "Age Range") || valueAt(values, "Age range") || valueAt(values, "Age", 5) || "All ages",
+      lifeStage: valueAt(values, "Life Stage") || valueAt(values, "Life stage") || "",
       tags,
       issues,
       location: locations[0] || "See website",
@@ -774,7 +776,7 @@ async function api(request, env, ctx) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [] } = await body(request);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "" } = await body(request);
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return fail("Choose an island before searching for resources.");
     const questions = clarificationQuestions({ topic, description, maxQuestions: scoreConfig.limits.maximumFollowUpQuestions });
@@ -783,9 +785,11 @@ async function api(request, env, ctx) {
     const primaryKeywords = extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
+    const profileAge = user.profile?.responses?.age || "";
+    const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
     const requestedCount = normalizeResultCount(count, scoreConfig);
-    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, count: requestedCount, config: scoreConfig };
+    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig };
     let expanded = { ai: false, keywords: [] };
     let matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: [] });
     if (matches.length < requestedCount) {

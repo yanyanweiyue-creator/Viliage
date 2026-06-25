@@ -188,13 +188,19 @@ export class SurfaceMotion {
   drawShoreFoam(ctx, time, wind) {
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.strokeStyle = `rgba(224,249,244,${.26 + Math.min(.2, wind / 100)})`;
-    ctx.lineWidth = 2.1;
-    ctx.setLineDash([10, 16, 4, 20]);
-    ctx.lineDashOffset = -time * (.006 + wind * .00015);
-    for (const island of [[.25, .52, .247, .347], [.75, .51, .257, .352]]) {
+    ctx.strokeStyle = `rgba(224,249,244,${.12 + Math.min(.16, wind / 140)})`;
+    ctx.lineWidth = 1.6;
+    const drift = Math.sin(time * (.0007 + wind * .00001)) * .035;
+    for (const island of [
+      [.25, .52, .247, .347, .08 + drift, .42 + drift],
+      [.25, .52, .247, .347, .57 + drift, .83 + drift],
+      [.25, .52, .247, .347, 1.38 + drift, 1.66 + drift],
+      [.75, .51, .257, .352, .04 - drift, .33 - drift],
+      [.75, .51, .257, .352, .53 - drift, .78 - drift],
+      [.75, .51, .257, .352, 1.28 - drift, 1.58 - drift]
+    ]) {
       ctx.beginPath();
-      ctx.ellipse(this.width * island[0], this.height * island[1], this.width * island[2], this.height * island[3], 0, 0, TAU);
+      ctx.ellipse(this.width * island[0], this.height * island[1], this.width * island[2], this.height * island[3], 0, island[4] * TAU, island[5] * TAU);
       ctx.stroke();
     }
     ctx.restore();
@@ -220,18 +226,15 @@ export class SurfaceMotion {
     const speed = .004 + wind * .00022;
     ctx.save();
     ctx.globalCompositeOperation = "screen";
-    ctx.setLineDash([18, 28]);
-    ctx.lineDashOffset = -time * speed;
     for (let lane = 0; lane < 7; lane += 1) {
       const y = this.height * (.12 + lane * .12) + Math.sin(time * .00025 + lane) * 8;
-      ctx.strokeStyle = `rgba(244,252,242,${.035 + (lane % 3) * .016})`;
-      ctx.lineWidth = 1 + (lane % 3) * .65;
+      ctx.strokeStyle = `rgba(244,252,242,${.018 + (lane % 3) * .01})`;
+      ctx.lineWidth = .7 + (lane % 3) * .45;
       ctx.beginPath();
       ctx.moveTo(-40, y);
-      ctx.bezierCurveTo(this.width * .28, y - 28, this.width * .63, y + 34, this.width + 40, y - 9);
+      ctx.bezierCurveTo(this.width * .28, y - 18, this.width * .63, y + 22, this.width + 40, y - 7);
       ctx.stroke();
     }
-    ctx.setLineDash([]);
     for (let particle = 0; particle < 14; particle += 1) {
       const x = ((particle * 97 + time * (.012 + wind * .001)) % (this.width + 80)) - 40;
       const y = this.height * (.13 + ((particle * 37) % 71) / 100) + Math.sin(time * .001 + particle) * 9;
