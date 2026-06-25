@@ -52,7 +52,7 @@ window.CAPY_CONFIG = {
       ],
       autismVillagePath: [
         { x: 18, y: 42, building: "autism-education" }, { x: 26, y: 33 },
-        { x: 32, y: 42, building: "autism-support" }, { x: 33, y: 52, building: "autism-recreation" },
+        { x: 29.5, y: 28.8, building: "autism-support" }, { x: 33, y: 52, building: "autism-recreation" },
         { x: 37, y: 63, building: "autism-activity" }, { x: 20, y: 66, building: "autism-legal" }, { x: 18, y: 42, building: "autism-education" }
       ],
       adhdVillagePath: [
@@ -104,7 +104,7 @@ window.CAPY_CONFIG = {
     }
   },
   buildings: [
-    { id: "autism-support", island: "autism", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 31.5, y: 33.8, hitWidth: 16, hitHeight: 13, hitPolygon: [[5, 38], [16, 18], [30, 34], [44, 12], [62, 28], [78, 10], [96, 31], [92, 92], [6, 94]], x3d: 18, y3d: 46 },
+    { id: "autism-support", island: "autism", type: "support", mapLabel: "Village", label: "Support & Contact", short: "Support", icon: "❤", x: 29.5, y: 28.8, hitWidth: 16, hitHeight: 12, hitPolygon: [[5, 48], [16, 24], [29, 39], [44, 12], [62, 29], [79, 8], [96, 34], [92, 92], [7, 94]], x3d: 18, y3d: 46 },
     { id: "autism-education", island: "autism", type: "ai", topic: "Education", mapLabel: "School", label: "Education Exchange", short: "Education", icon: "✦", x: 15, y: 39, hitWidth: 15, hitHeight: 14, hitPolygon: [[3, 28], [26, 28], [33, 8], [67, 8], [74, 28], [97, 28], [97, 96], [3, 96]], x3d: 39, y3d: 48 },
     { id: "autism-recreation", island: "autism", type: "activity", mapLabel: "Woods", label: "Volunteer & Activity", short: "Activities", icon: "☀", x: 32, y: 48, hitWidth: 10.5, hitHeight: 13, hitPolygon: [[10, 20], [25, 6], [42, 20], [58, 3], [76, 20], [94, 15], [88, 92], [12, 96]], x3d: 30, y3d: 55 },
     { id: "autism-legal", island: "autism", type: "ai", topic: "Legal", mapLabel: "Courthouse", label: "Rights & Advocacy", short: "Legal", icon: "§", x: 13, y: 67, hitWidth: 11.5, hitHeight: 19.5, hitPolygon: [[50, 0], [96, 22], [86, 31], [86, 83], [98, 83], [98, 100], [2, 100], [2, 83], [14, 83], [14, 31], [4, 22]], x3d: 18, y3d: 66 },
