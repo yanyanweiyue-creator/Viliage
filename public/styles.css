@@ -329,7 +329,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .map-hotspot .building-icon, .map-hotspot .building-ground { display: none; }
 body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3d); width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .72); border: 0; background: transparent; box-shadow: none; }
 body.scene-3d .map-hotspot .building-ground { display: none; }
-.map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: .32; filter: saturate(.5); pointer-events: none; }
+.map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: 1; filter: none; pointer-events: auto; }
 body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: .68; filter: saturate(.86) contrast(1.03); }
 .map-hint { position: absolute; left: 50%; bottom: 1.2rem; transform: translateX(-50%); z-index: 5; background: rgba(34,58,52,.86); color: white; padding: .5rem .8rem; border-radius: 999px; font-size: .75rem; box-shadow: 0 6px 18px rgba(31,54,48,.16); }
 .village-footer-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }

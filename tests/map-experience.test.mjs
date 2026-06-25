@@ -48,13 +48,20 @@ test("single-island focus keeps the whole island in view", async () => {
 });
 
 test("the ocean motion mask keeps animation off islands and the bridge", async () => {
-  const { pointIsOpenWater } = await import("../public/surface-motion.mjs");
+  const { normalizedStagePoint, pointIsOpenWater } = await import("../public/surface-motion.mjs");
   assert.equal(pointIsOpenWater(0.03, 0.04), true);
   assert.equal(pointIsOpenWater(0.5, 0.08), true);
   assert.equal(pointIsOpenWater(0.255, 0.615), false);
   assert.equal(pointIsOpenWater(0.745, 0.6), false);
   assert.equal(pointIsOpenWater(0.49, 0.5), true);
   assert.equal(pointIsOpenWater(0.5, 0.55), false);
+
+  const transformedStage = {
+    clientWidth: 1000,
+    clientHeight: 500,
+    getBoundingClientRect: () => ({ left: 100, top: 80, width: 1280, height: 640 })
+  };
+  assert.deepEqual(normalizedStagePoint({ clientX: 740, clientY: 400 }, transformedStage), { x: .5, y: .5 });
 });
 
 test("each island exposes the five approved map destinations", async () => {
@@ -81,4 +88,19 @@ test("each island exposes the five approved map destinations", async () => {
     assert.equal(buildings.find((item) => item.mapLabel === "Park").topic, "Recreation");
     assert.equal(buildings.find((item) => item.mapLabel === "Woods").topic, undefined);
   }
+});
+
+test("2D buildings stay directly clickable above island hit areas", async () => {
+  const [config, css, app, surface] = await Promise.all([
+    loadConfig(),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/surface-motion.mjs", import.meta.url), "utf8")
+  ]);
+  const autismSupport = config.buildings.find((building) => building.id === "autism-support");
+  assert.ok(autismSupport.hitWidth >= 15, "Autism Village support hotspot should cover the visible building group");
+  assert.ok(autismSupport.hitHeight >= 12, "Autism Village support hotspot should be easy to click");
+  assert.match(css, /\.map-stage:not\(\.focus-autism\):not\(\.focus-adhd\) \.building[^}]*pointer-events:\s*auto/);
+  assert.ok(app.indexOf("const building = event.target.closest(\"[data-building]\");") < app.indexOf("const islandButton = event.target.closest(\"[data-island]:not(.building)\");"));
+  assert.match(surface, /closest\?\.\("\.island-hit-area, \.building, \.map-hotspot"\)/);
 });

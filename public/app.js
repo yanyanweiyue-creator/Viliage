@@ -1799,10 +1799,10 @@ async function submitFeedback(event) {
 document.addEventListener("click", (event) => {
   const authButton = event.target.closest("[data-auth-mode]");
   if (authButton) return setAuthMode(authButton.dataset.authMode);
-  const islandButton = event.target.closest("[data-island]:not(.building)");
-  if (islandButton) return selectIsland(islandButton.dataset.island);
   const building = event.target.closest("[data-building]");
   if (building) return handleBuilding(building.dataset.building);
+  const islandButton = event.target.closest("[data-island]:not(.building)");
+  if (islandButton) return selectIsland(islandButton.dataset.island);
   const setting = event.target.closest("[data-setting]");
   if (setting) return updateSetting(setting.dataset.setting, setting.dataset.value);
   const actionElement = event.target.closest("[data-action]");

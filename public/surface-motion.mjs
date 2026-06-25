@@ -17,6 +17,18 @@ export function pointIsOpenWater(x, y) {
   return !pointIsWalkable({ x: Number(x) * 100, y: Number(y) * 100 });
 }
 
+export function normalizedStagePoint(event, stage) {
+  const rect = stage?.getBoundingClientRect?.();
+  const width = Number(stage?.clientWidth) || rect?.width || 1;
+  const height = Number(stage?.clientHeight) || rect?.height || 1;
+  if (!rect || !width || !height) return { x: 0, y: 0 };
+  const scaleX = rect.width / width || 1;
+  const scaleY = rect.height / height || 1;
+  const localX = width / 2 + (Number(event?.clientX) - (rect.left + rect.width / 2)) / scaleX;
+  const localY = height / 2 + (Number(event?.clientY) - (rect.top + rect.height / 2)) / scaleY;
+  return { x: localX / width, y: localY / height };
+}
+
 export class SurfaceMotion {
   constructor({ canvas, stage }) {
     this.canvas = canvas;
@@ -72,9 +84,8 @@ export class SurfaceMotion {
 
   addRipple(event) {
     if (!this.enabled || this.reducedMotion) return;
-    const rect = this.stage.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.height;
+    if (event.target?.closest?.(".island-hit-area, .building, .map-hotspot")) return;
+    const { x, y } = normalizedStagePoint(event, this.stage);
     if (!pointIsOpenWater(x, y)) return;
     this.ripples.push({ x: x * this.width, y: y * this.height, born: performance.now() });
     if (this.ripples.length > 16) this.ripples.shift();
