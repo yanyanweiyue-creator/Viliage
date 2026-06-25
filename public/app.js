@@ -761,8 +761,8 @@ async function submitPasswordRequest(event) {
       return;
     }
     $("#password-email-sender").textContent = response.senderAddress
-      ? `The verification email will come from ${response.senderAddress}.`
-      : "The verification email will come from the It Takes a Village Gmail account. Check spam if it does not appear.";
+      ? `The verification email will come from ${response.senderAddress}. If it does not appear, check Spam or Junk.`
+      : "The verification email will come from the It Takes a Village Gmail account. If it does not appear, check Spam or Junk.";
     state.passwordResetEmail = email;
     $("#password-reset-email").textContent = email;
     $("#password-request-form").classList.add("hidden");
