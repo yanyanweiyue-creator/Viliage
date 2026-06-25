@@ -195,7 +195,9 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(received[0]["history"], "[]");
     assert.equal(received[0]["feedback"], "");
     assert.equal(received[0]["Chat History"], "[]");
+    assert.equal(received[0]["Save resource"], "[]");
     assert.equal(received[0]["Like resource"], "[]");
+    assert.equal(received[0]["Dislike resource"], "[]");
 
     const onboarding = await httpRequest(`http://127.0.0.1:${port}/api/onboarding/complete`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: register.headers["set-cookie"][0].split(";")[0] }, body: "{}" });
     assert.equal(onboarding.status, 200);
@@ -215,7 +217,7 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.match(received[1]["response of survey"], /Autism/);
     assert.match(received[1]["AI personal record"], /Exploring Autism/);
     assert.equal(received[1]["Email"], email);
-    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Email", "Like resource", "Password", "User name", "feedback", "history", "response of survey"].sort());
+    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Dislike resource", "Email", "Like resource", "Password", "Save resource", "User name", "feedback", "history", "response of survey"].sort());
 
     const feedbackBody = JSON.stringify({ feedback: "Please keep the calmer map controls." });
     const feedback = await httpRequest(`http://127.0.0.1:${port}/api/feedback`, {
@@ -236,7 +238,32 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(like.status, 200);
     const likeResult = JSON.parse(like.text);
     assert.equal(likeResult.likedResources[0].name, "Inclusive Resource");
+    assert.match(received[3]["Save resource"], /Inclusive Resource/);
     assert.match(received[3]["Like resource"], /Inclusive Resource/);
+    assert.equal(received[3]["Dislike resource"], "[]");
+
+    const unlikeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource" }, liked: false });
+    const unlike = await httpRequest(`http://127.0.0.1:${port}/api/resources/like`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(unlikeBody), Cookie: register.headers["set-cookie"][0].split(";")[0] },
+      body: unlikeBody
+    });
+    assert.equal(unlike.status, 200);
+    assert.equal(JSON.parse(unlike.text).likedResources.length, 0);
+    assert.equal(received[4]["Save resource"], "[]");
+
+    const dislikeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource", description: "A calm support listing.", topic: "Education", score: 42 }, disliked: true });
+    const dislike = await httpRequest(`http://127.0.0.1:${port}/api/resources/dislike`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(dislikeBody), Cookie: register.headers["set-cookie"][0].split(";")[0] },
+      body: dislikeBody
+    });
+    assert.equal(dislike.status, 200);
+    const dislikeResult = JSON.parse(dislike.text);
+    assert.equal(dislikeResult.likedResources.length, 0);
+    assert.equal(dislikeResult.dislikedResources[0].name, "Inclusive Resource");
+    assert.equal(received[5]["Save resource"], "[]");
+    assert.match(received[5]["Dislike resource"], /Inclusive Resource/);
 
     const cookie = register.headers["set-cookie"][0].split(";")[0];
     for (const [path, requestBody] of [
@@ -256,6 +283,86 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.match(latestSheetWrite["Chat History"], /Village Commons/);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
+    server.closeAllConnections();
+    webhook.closeAllConnections();
+    await Promise.all([
+      new Promise((resolve) => server.close(resolve)),
+      new Promise((resolve) => webhook.close(resolve))
+    ]);
+  }
+});
+
+test("resource shortages and dislikes are appended to the Error database webhook", async () => {
+  const errorRows = [];
+  const webhook = createHttpServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    errorRows.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, row: errorRows.length + 1 }));
+  });
+  await new Promise((resolve) => webhook.listen(0, "127.0.0.1", resolve));
+  process.env.ERROR_SHEET_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
+  process.env.ERROR_SHEET_GID = "1952899933";
+
+  const originalFetch = globalThis.fetch;
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1"];
+  const row = (url, description, diagnosis, category, tag) => ({ c: [url, description, diagnosis, category, "", "All ages", tag].map((v) => ({ v })) });
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    row("https://example.com/wrong-diagnosis", "Medicaid legal assistance", "ADHD", "Legal", "Medicaid"),
+    row("https://example.com/wrong-category", "Medicaid legal assistance", "Autism", "Education", "Medicaid")
+  ] } };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("docs.google.com/spreadsheets")) {
+      return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+    }
+    return originalFetch(url, options);
+  };
+
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const registerBody = JSON.stringify({ name: "Error Logger", email: `error-${Date.now()}@example.com`, password: "safe-password" });
+    const register = await httpRequest(`http://127.0.0.1:${port}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(registerBody) },
+      body: registerBody
+    });
+    assert.equal(register.status, 201);
+    const cookie = register.headers["set-cookie"][0].split(";")[0];
+
+    const recommendBody = JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, clarificationHandled: true });
+    const recommend = await httpRequest(`http://127.0.0.1:${port}/api/ai/recommend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(recommendBody), Cookie: cookie },
+      body: recommendBody
+    });
+    assert.equal(recommend.status, 200);
+    const result = JSON.parse(recommend.text);
+    assert.equal(result.resources.length, 0);
+    assert.deepEqual(errorRows.slice(0, 2).map((entry) => entry.Event), ["insufficient_resources", "insufficient_high_score_resources"]);
+    assert.equal(errorRows[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
+    assert.equal(errorRows[0].sheetGid, "1952899933");
+    assert.equal(errorRows[0].Helpful, "No");
+    assert.equal(errorRows[0].helpful, "No");
+    assert.equal(errorRows[1]["Requested resources"], 5);
+    assert.equal(errorRows[1]["High score resources"], 0);
+
+    const dislikeBody = JSON.stringify({ resource: { name: "Not Useful Resource", url: "https://example.org/not-useful", description: "Not the right fit.", topic: "Education", score: 12 }, disliked: true });
+    const dislike = await httpRequest(`http://127.0.0.1:${port}/api/resources/dislike`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(dislikeBody), Cookie: cookie },
+      body: dislikeBody
+    });
+    assert.equal(dislike.status, 200);
+    assert.equal(errorRows[2].Event, "resource_disliked");
+    assert.equal(errorRows[2]["Resource name"], "Not Useful Resource");
+    assert.equal(errorRows[2].Helpful, "No");
+  } finally {
+    delete process.env.ERROR_SHEET_WEBHOOK_URL;
+    delete process.env.ERROR_SHEET_GID;
+    globalThis.fetch = originalFetch;
     server.closeAllConnections();
     webhook.closeAllConnections();
     await Promise.all([

@@ -385,3 +385,72 @@ export function clarificationQuestions({ topic = "", description = "", maxQuesti
   }
   return questions.slice(0, Math.max(1, Math.min(3, maxQuestions)));
 }
+
+export const CLARIFICATION_TRANSLATIONS = Object.freeze({
+  en: {
+    legal_issue: "Which legal issue is most important for this search?",
+    format: "Do you prefer small-group, 1-on-1, sensory-friendly, online, or in-person support?",
+    life_stage: "Which age or life stage should Waffles prioritize?",
+    priority: "Which detail should Waffles prioritize for this search?",
+    "Disability rights": "Disability rights",
+    Medicaid: "Medicaid",
+    Conservatorship: "Conservatorship",
+    Guardianship: "Guardianship",
+    "Regional Center support": "Regional Center support",
+    "Small group": "Small group",
+    "1-on-1": "1-on-1",
+    "Sensory-friendly": "Sensory-friendly",
+    Online: "Online",
+    "In person": "In person",
+    Adult: "Adult",
+    "All ages": "All ages",
+    "Most relevant match": "Most relevant match",
+    "Low cost": "Low cost",
+    "Available soon": "Available soon",
+    "Local/in-person": "Local/in-person"
+  },
+  zh: {
+    legal_issue: "这次搜索最重要的法律议题是什么？",
+    format: "你更偏好小组、1 对 1、低感官刺激、线上，还是线下支持？",
+    life_stage: "Waffles 应该优先考虑哪个年龄或人生阶段？",
+    priority: "这次搜索最应该优先考虑哪一项？",
+    "Disability rights": "残障权益",
+    Medicaid: "Medicaid / 医疗补助",
+    Conservatorship: "监护/保佐相关",
+    Guardianship: "监护权相关",
+    "Regional Center support": "区域中心支持",
+    "Small group": "小组",
+    "1-on-1": "1 对 1",
+    "Sensory-friendly": "低感官刺激",
+    Online: "线上",
+    "In person": "线下",
+    Adult: "成人",
+    "All ages": "所有年龄",
+    "Most relevant match": "最相关",
+    "Low cost": "低费用",
+    "Available soon": "近期可用",
+    "Local/in-person": "本地/线下"
+  },
+  es: {
+    legal_issue: "¿Qué tema legal es más importante para esta búsqueda?",
+    format: "¿Prefieres apoyo en grupo pequeño, 1 a 1, sensorialmente amable, en línea o presencial?",
+    life_stage: "¿Qué edad o etapa debe priorizar Waffles?",
+    priority: "¿Qué detalle debe priorizar Waffles en esta búsqueda?",
+    "Disability rights": "Derechos de discapacidad",
+    Medicaid: "Medicaid",
+    Conservatorship: "Curatela",
+    Guardianship: "Tutela",
+    "Regional Center support": "Apoyo del Regional Center",
+    "Small group": "Grupo pequeño",
+    "1-on-1": "1 a 1",
+    "Sensory-friendly": "Sensorialmente amable",
+    Online: "En línea",
+    "In person": "Presencial",
+    Adult: "Adulto",
+    "All ages": "Todas las edades",
+    "Most relevant match": "Coincidencia más relevante",
+    "Low cost": "Bajo costo",
+    "Available soon": "Disponible pronto",
+    "Local/in-person": "Local/presencial"
+  }
+});

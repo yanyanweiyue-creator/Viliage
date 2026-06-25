@@ -78,7 +78,7 @@ const i18n = {
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     communityTitle: "Village Community", communityIntro: "Join group conversations or connect privately with people who chose to participate.", communityOpen: "Open community chats", communityPrivacy: "Your email and private survey note are never shown. Waffles matches only shared interests, age group, and journey stage. You can leave at any time.", communityEnable: "Join the community", communityDisable: "Leave community matching", communityDisplayName: "Community display name", communityGroups: "Group chats", communitySuggestions: "People Waffles suggests", communityIncoming: "Connection requests", communityDirect: "Private chats", communityJoin: "Join group", communityOpenRoom: "Open chat", communityConnect: "Say hello", communityPending: "Request sent", communityAccept: "Accept", communityDecline: "Decline", communitySend: "Send", communityMessagePlaceholder: "Write a kind message…", communityEmpty: "No messages yet. You can start gently.", communityLoading: "Opening the community…", communitySafety: "Community messages are stored securely but are not end-to-end encrypted. They are peer conversation, not professional or emergency support. Do not share passwords, addresses, or urgent medical details.",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
-    aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.",
+    aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceDislike: "Dislike", resourceDisliked: "Disliked", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.", resourceDislikeSaved: "Resource added to disliked list.", resourceDislikeRemoved: "Resource removed from disliked list.", savedResourcesTitle: "Saved resources", dislikedResourcesTitle: "Disliked resources", noSavedResources: "No saved resources yet.", noDislikedResources: "No disliked resources yet.", clarificationTitle: "A quick detail will improve these matches", clarificationNone: "None of these", clarificationContinue: "Continue search", clarificationRequired: "Choose any relevant option, or select “None of these.”", sourceLabel: "Database source", scoringLabel: "scoring", aiExpandedKeywords: "AI-expanded keywords", localExpandedKeywords: "local synonym expansion", supportSearchTitle: "Search the support database", supportSearchIntro: "Waffles checks the live resource database and ranks each match with the same transparent scoring system used in the Education buildings.", supportContactTab: "Contact", supportFindTab: "Find resources", communityPrivateTab: "Private chat", communityGroupsTab: "Groups", communityMomentsTab: "Moments", communityRequestsTab: "Requests",
     voiceTools: "Voice assistant", voiceAssistant: "Narrate clicks and places", voiceControl: "Microphone commands", voiceListen: "Listen for a command", voiceListening: "Listening…", voiceHint: "Try natural phrases like “show me the next part,” “open Waffles,” or “find school support.” Waffles may ask a follow-up question. Voice recognition runs in your browser; spoken Waffles audio is AI-generated.",
     recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
     sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
@@ -99,7 +99,7 @@ const i18n = {
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     communityTitle: "村庄社区", communityIntro: "加入不同群聊，或与自愿参与且经历相似的用户私聊。", communityOpen: "打开社区聊天", communityPrivacy: "不会展示你的邮箱或问卷私人备注。Waffles 只比较共同关注领域、年龄组和经历阶段；你可以随时退出。", communityEnable: "加入社区", communityDisable: "退出社区匹配", communityDisplayName: "社区显示名称", communityGroups: "群聊", communitySuggestions: "Waffles 推荐认识的人", communityIncoming: "好友申请", communityDirect: "私聊", communityJoin: "加入群聊", communityOpenRoom: "打开聊天", communityConnect: "打个招呼", communityPending: "已发送申请", communityAccept: "接受", communityDecline: "拒绝", communitySend: "发送", communityMessagePlaceholder: "写一条友善的消息……", communityEmpty: "还没有消息，可以轻轻地开始。", communityLoading: "正在打开社区……", communitySafety: "社区消息会安全保存，但不是端到端加密。这里属于用户互助，不是专业或紧急服务；请勿发送密码、住址或紧急医疗隐私。",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
-    aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。",
+    aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceDislike: "不喜欢", resourceDisliked: "已不喜欢", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。", resourceDislikeSaved: "已加入不喜欢资源列表。", resourceDislikeRemoved: "已从不喜欢资源中移除。", savedResourcesTitle: "收藏的资源", dislikedResourcesTitle: "不喜欢的资源", noSavedResources: "还没有收藏资源。", noDislikedResources: "还没有不喜欢的资源。", clarificationTitle: "补充一个小细节，匹配会更准确", clarificationNone: "以上都不是", clarificationContinue: "继续搜索", clarificationRequired: "请选择一个相关选项，或选择“以上都不是”。", sourceLabel: "数据库来源", scoringLabel: "评分版本", aiExpandedKeywords: "AI 扩展关键词", localExpandedKeywords: "本地同义词扩展", supportSearchTitle: "搜索支持资源数据库", supportSearchIntro: "Waffles 会检查实时资源数据库，并用与教育建筑相同的透明评分系统排序。", supportContactTab: "联系", supportFindTab: "找资源", communityPrivateTab: "私聊", communityGroupsTab: "群组", communityMomentsTab: "动态", communityRequestsTab: "请求",
     voiceTools: "语音助手", voiceAssistant: "点击时自动讲解", voiceControl: "麦克风语音操作", voiceListen: "听取指令", voiceListening: "正在听…", voiceHint: "可以自然地说：“show me the next part”、“open Waffles” 或“find school support”。如果不清楚，Waffles 会追问。语音识别在浏览器内运行；Waffles 的旁白为 AI 生成语音。",
     recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
     sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
@@ -120,7 +120,7 @@ const i18n = {
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     communityTitle: "Comunidad de la aldea", communityIntro: "Únete a grupos o conecta en privado con personas que aceptaron participar.", communityOpen: "Abrir chats", communityPrivacy: "Tu correo y tus notas privadas nunca se muestran. Waffles compara solo intereses, edad y etapa del recorrido.", communityEnable: "Unirme a la comunidad", communityDisable: "Salir de la comunidad", communityDisplayName: "Nombre visible", communityGroups: "Chats grupales", communitySuggestions: "Personas sugeridas por Waffles", communityIncoming: "Solicitudes", communityDirect: "Chats privados", communityJoin: "Unirme", communityOpenRoom: "Abrir chat", communityConnect: "Saludar", communityPending: "Solicitud enviada", communityAccept: "Aceptar", communityDecline: "Rechazar", communitySend: "Enviar", communityMessagePlaceholder: "Escribe un mensaje amable…", communityEmpty: "Aún no hay mensajes.", communityLoading: "Abriendo la comunidad…", communitySafety: "Los mensajes se guardan de forma segura, pero no tienen cifrado de extremo a extremo. Son apoyo entre pares, no atención profesional ni de emergencia. No compartas contraseñas, direcciones ni datos médicos urgentes.",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
-    aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.",
+    aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceDislike: "No me sirve", resourceDisliked: "Marcado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.", resourceDislikeSaved: "Recurso marcado como no útil.", resourceDislikeRemoved: "Recurso quitado de no útiles.", savedResourcesTitle: "Recursos guardados", dislikedResourcesTitle: "Recursos no útiles", noSavedResources: "Aún no hay recursos guardados.", noDislikedResources: "Aún no hay recursos marcados.", clarificationTitle: "Un detalle rápido mejorará estas coincidencias", clarificationNone: "Ninguna de estas", clarificationContinue: "Continuar búsqueda", clarificationRequired: "Elige una opción relevante o selecciona “Ninguna de estas”.", sourceLabel: "Fuente de datos", scoringLabel: "puntuación", aiExpandedKeywords: "palabras ampliadas por IA", localExpandedKeywords: "expansión local de sinónimos", supportSearchTitle: "Buscar en la base de apoyo", supportSearchIntro: "Waffles revisa la base de recursos en vivo y ordena cada resultado con el mismo sistema de puntuación transparente usado en Educación.", supportContactTab: "Contacto", supportFindTab: "Buscar recursos", communityPrivateTab: "Chat privado", communityGroupsTab: "Grupos", communityMomentsTab: "Momentos", communityRequestsTab: "Solicitudes",
     voiceTools: "Asistente de voz", voiceAssistant: "Narrar clics y lugares", voiceControl: "Comandos por micrófono", voiceListen: "Escuchar comando", voiceListening: "Escuchando…", voiceHint: "Prueba frases naturales como “show me the next part”, “open Waffles” o “find school support”. Waffles puede hacer una pregunta de seguimiento. El reconocimiento de voz se ejecuta en tu navegador; la voz de Waffles es generada por IA.",
     recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
     sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
@@ -701,6 +701,41 @@ function escapeHtml(value = "") {
   return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
+const CLARIFICATION_TEXT = {
+  en: {
+    legal_issue: "Which legal issue is most important for this search?",
+    format: "Do you prefer small-group, 1-on-1, sensory-friendly, online, or in-person support?",
+    life_stage: "Which age or life stage should Waffles prioritize?",
+    priority: "Which detail should Waffles prioritize for this search?",
+    "Disability rights": "Disability rights", Medicaid: "Medicaid", Conservatorship: "Conservatorship", Guardianship: "Guardianship", "Regional Center support": "Regional Center support",
+    "Small group": "Small group", "1-on-1": "1-on-1", "Sensory-friendly": "Sensory-friendly", Online: "Online", "In person": "In person", Adult: "Adult", "All ages": "All ages",
+    "Most relevant match": "Most relevant match", "Low cost": "Low cost", "Available soon": "Available soon", "Local/in-person": "Local/in-person"
+  },
+  zh: {
+    legal_issue: "这次搜索最重要的法律议题是什么？",
+    format: "你更偏好小组、1 对 1、低感官刺激、线上，还是线下支持？",
+    life_stage: "Waffles 应该优先考虑哪个年龄或人生阶段？",
+    priority: "这次搜索最应该优先考虑哪一项？",
+    "Disability rights": "残障权益", Medicaid: "Medicaid / 医疗补助", Conservatorship: "监护/保佐相关", Guardianship: "监护权相关", "Regional Center support": "区域中心支持",
+    "Small group": "小组", "1-on-1": "1 对 1", "Sensory-friendly": "低感官刺激", Online: "线上", "In person": "线下", Adult: "成人", "All ages": "所有年龄",
+    "Most relevant match": "最相关", "Low cost": "低费用", "Available soon": "近期可用", "Local/in-person": "本地/线下"
+  },
+  es: {
+    legal_issue: "¿Qué tema legal es más importante para esta búsqueda?",
+    format: "¿Prefieres apoyo en grupo pequeño, 1 a 1, sensorialmente amable, en línea o presencial?",
+    life_stage: "¿Qué edad o etapa debe priorizar Waffles?",
+    priority: "¿Qué detalle debe priorizar Waffles en esta búsqueda?",
+    "Disability rights": "Derechos de discapacidad", Medicaid: "Medicaid", Conservatorship: "Curatela", Guardianship: "Tutela", "Regional Center support": "Apoyo del Regional Center",
+    "Small group": "Grupo pequeño", "1-on-1": "1 a 1", "Sensory-friendly": "Sensorialmente amable", Online: "En línea", "In person": "Presencial", Adult: "Adulto", "All ages": "Todas las edades",
+    "Most relevant match": "Coincidencia más relevante", "Low cost": "Bajo costo", "Available soon": "Disponible pronto", "Local/in-person": "Local/presencial"
+  }
+};
+
+function translatedClarification(value, id = "") {
+  const language = state.settings.language || "en";
+  return CLARIFICATION_TEXT[language]?.[id] || CLARIFICATION_TEXT[language]?.[value] || CLARIFICATION_TEXT.en[id] || value;
+}
+
 function toast(message) {
   const element = $("#toast");
   element.textContent = message;
@@ -956,7 +991,7 @@ function supportIcon(name) {
 
 function resourceSearchForm(topic = "Support") {
   const examples = topic === "Support" ? "For example: I need affordable family support, respite care, or a local parent group…" : "Describe what kind of resource would help…";
-  return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>Search the support database</h3><p>Waffles checks the live resource database and ranks each match with the same transparent scoring system used in the Education buildings.</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t("aiDisclaimer"))}</p></div>`;
+  return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>${escapeHtml(t("supportSearchTitle"))}</h3><p>${escapeHtml(t("supportSearchIntro"))}</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t("aiDisclaimer"))}</p></div>`;
 }
 
 function supportPanel(tab = state.supportTab, island = state.supportIsland || state.selectedIsland) {
@@ -971,7 +1006,7 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
   openPanel({
     title: t("supportTitle"),
     eyebrow: t("supportEyebrow"),
-    html: `<div class="support-shell">${tab === "search" ? resourceSearchForm("Support") : phoneContent}<nav class="support-dock" aria-label="Support options"><button type="button" class="${tab === "phone" ? "active" : ""}" data-action="support-tab" data-support-tab="phone">${supportIcon("phone")}<span>Contact</span></button><button type="button" class="${tab === "search" ? "active" : ""}" data-action="support-tab" data-support-tab="search">${supportIcon("search")}<span>Find resources</span></button></nav></div>`
+    html: `<div class="support-shell">${tab === "search" ? resourceSearchForm("Support") : phoneContent}<nav class="support-dock" aria-label="Support options"><button type="button" class="${tab === "phone" ? "active" : ""}" data-action="support-tab" data-support-tab="phone">${supportIcon("phone")}<span>${escapeHtml(t("supportContactTab"))}</span></button><button type="button" class="${tab === "search" ? "active" : ""}" data-action="support-tab" data-support-tab="search">${supportIcon("search")}<span>${escapeHtml(t("supportFindTab"))}</span></button></nav></div>`
   });
 }
 
@@ -1007,7 +1042,7 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   const direct = `<section><h3>${escapeHtml(t("communityDirect"))}</h3><div class="community-direct-list">${directRooms || `<p class="community-empty">Search for a person above to add your first friend.</p>`}</div></section><section><h3>${escapeHtml(t("communitySuggestions"))}</h3><div class="community-grid">${suggestions}</div></section>`;
   const inbox = `<section><h3>Friend requests</h3><div class="community-grid">${incoming || `<p class="community-empty">No new friend requests.</p>`}</div></section><section><h3>Group invitations</h3><div class="community-grid">${groupInvites || `<p class="community-empty">No new group invitations.</p>`}</div></section>${blocks ? `<section><h3>Blocked users</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
   const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : direct;
-  const navItems = [["direct", "Private chat"], ["groups", "Groups"], ["moments", "Moments"], ["inbox", "Requests"]];
+  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")]];
   return `<div class="community-shell"><div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">Search people</label><input id="community-query" name="query" minlength="2" placeholder="Search name or email to add friends" required><button class="secondary-button">Search</button></form><div id="community-search-results"></div></div><div class="community-account"><div><small>${escapeHtml(t("communityDisplayName"))}</small><strong>${escapeHtml(data.displayName)}</strong></div><button type="button" class="text-button" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button></div><main class="community-tab-content">${tabContent}</main><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p><nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${label}</span>${tab === "inbox" && ((data.incoming || []).length + (data.groupInvites || []).length) ? `<b>${(data.incoming || []).length + (data.groupInvites || []).length}</b>` : ""}</button>`).join("")}</nav></div>`;
 }
 
@@ -1273,11 +1308,56 @@ function isResourceLiked(resource) {
   return Boolean(key.trim()) && (state.user?.likedResources || []).some((item) => resourceKey(item) === key);
 }
 
+function isResourceDisliked(resource) {
+  const key = resourceKey(resource);
+  return Boolean(key.trim()) && (state.user?.dislikedResources || []).some((item) => resourceKey(item) === key);
+}
+
+function translateReasonLabel(label = "") {
+  const language = state.settings.language || "en";
+  if (language === "en") return label;
+  const text = String(label);
+  const replacements = language === "zh"
+    ? [["primary", "主要"], ["secondary", "补充"], ["predicted", "预测"], ["exact", "精确"], ["similar", "相似"], ["related", "相关"], ["keyword", "关键词"], ["partial", "部分"], ["tag match", "标签匹配"], ["description match", "描述匹配"], ["major issue", "主要冲突"], ["minor issue", "轻微冲突"]]
+    : [["primary", "principal"], ["secondary", "secundario"], ["predicted", "predicho"], ["exact", "exacto"], ["similar", "similar"], ["related", "relacionado"], ["keyword", "palabra clave"], ["partial", "parcial"], ["tag match", "coincidencia de etiqueta"], ["description match", "coincidencia de descripción"], ["major issue", "conflicto importante"], ["minor issue", "conflicto menor"]];
+  return replacements.reduce((output, [from, to]) => output.replaceAll(from, to), text);
+}
+
+function translateFilterBadge(label = "") {
+  const language = state.settings.language || "en";
+  if (language === "en") return label;
+  const text = String(label);
+  const replacements = language === "zh"
+    ? [["Diagnosis", "诊断"], ["Category", "类别"], ["Life stage", "年龄阶段"], ["Description gate", "描述门槛"], ["Autism", "自闭症"], ["ADHD", "ADHD"], ["Education", "教育"], ["Legal", "法律"], ["Recreation", "休闲活动"], ["Support", "支持"]]
+    : [["Diagnosis", "Diagnóstico"], ["Category", "Categoría"], ["Life stage", "Etapa"], ["Description gate", "Filtro de descripción"], ["Autism", "Autismo"], ["ADHD", "TDAH"], ["Education", "Educación"], ["Legal", "Legal"], ["Recreation", "Recreación"], ["Support", "Apoyo"]];
+  return replacements.reduce((output, [from, to]) => output.replaceAll(from, to), text);
+}
+
+function gateEvidenceLabel(gate) {
+  if (!gate) return "";
+  const authority = gate.authority && gate.authority !== "none" ? gate.authority.replace("-", " ") : "";
+  if (state.settings.language === "zh") return authority ? `${authority} 证据 · 置信度 ${gate.confidence}` : "描述证据";
+  if (state.settings.language === "es") return authority ? `evidencia ${authority} · confianza ${gate.confidence}` : "evidencia de descripción";
+  return authority ? `${authority} evidence · confidence ${gate.confidence}` : "description evidence";
+}
+
 function explainResource(resource) {
   const reasons = (resource.explanation || []).filter((reason) => Number(reason.points) > 0).slice(0, 3);
+  const fallbackReason = state.settings.language === "zh" ? "它的描述和标签与你的搜索有重合" : state.settings.language === "es" ? "su descripción y etiquetas se relacionan con tu búsqueda" : "its description and tags overlap with your search";
   const reasonText = reasons.length
-    ? reasons.map((reason) => `${reason.label} (${reason.keyword})`).join("; ")
-    : "its description and tags overlap with your search.";
+    ? reasons.map((reason) => `${translateReasonLabel(reason.label)} (${reason.keyword})`).join("; ")
+    : fallbackReason;
+  const language = state.settings.language || "en";
+  if (language === "zh") {
+    const cost = resource.price ? ` 费用提示：${resource.price}。` : "";
+    const age = resource.age ? ` 这个资源标注适合 ${resource.age}。` : "";
+    return `Waffles 认为 ${resource.name} 可能合适，因为 ${reasonText}。${age}${cost} 请直接向服务机构确认资格、可用性和实际匹配度。`;
+  }
+  if (language === "es") {
+    const cost = resource.price ? ` Nota de costo: ${resource.price}.` : "";
+    const age = resource.age ? ` Está listado para ${resource.age}.` : "";
+    return `Waffles cree que ${resource.name} puede encajar porque ${reasonText}.${age}${cost} Confirma requisitos, disponibilidad y ajuste directamente con el proveedor.`;
+  }
   const cost = resource.price ? ` Cost note: ${resource.price}.` : "";
   const age = resource.age ? ` It is listed for ${resource.age}.` : "";
   return `Waffles thinks ${resource.name} may fit because ${reasonText}.${age}${cost} Please verify eligibility, availability, and fit directly with the provider.`;
@@ -1285,6 +1365,21 @@ function explainResource(resource) {
 
 function parseResourcePayload(element) {
   try { return JSON.parse(element.dataset.resourceJson || "{}"); } catch { return {}; }
+}
+
+function renderSourceFooter(data, fallbackVersion = "1.0") {
+  const expandedBy = data.keywordExpansion?.ai ? t("aiExpandedKeywords") : t("localExpandedKeywords");
+  return `<p class="privacy-note">${escapeHtml(t("sourceLabel"))}: ${escapeHtml(data.source)} · ${escapeHtml(t("scoringLabel"))} v${escapeHtml(data.scoring?.version || fallbackVersion)} · ${escapeHtml(expandedBy)}</p>`;
+}
+
+function renderClarificationForm(questions) {
+  const options = questions.flatMap((question) => question.options || []);
+  const questionHtml = questions.map((question) => {
+    const legend = translatedClarification(question.question, question.id);
+    const optionHtml = (question.options || []).map((option) => `<label class="clarification-option"><input type="checkbox" name="confirmedKeyword" value="${escapeHtml(option)}"><span>${escapeHtml(translatedClarification(option))}</span></label>`).join("");
+    return `<fieldset class="clarification-fieldset"><legend>${escapeHtml(legend)}</legend>${optionHtml}</fieldset>`;
+  }).join("");
+  return `<form id="clarification-form" class="ai-form clarification-form"><h3>${escapeHtml(t("clarificationTitle"))}</h3>${questionHtml}<label class="clarification-option clarification-none"><input type="checkbox" name="rejectAll" value="1"><span>${escapeHtml(t("clarificationNone"))}</span></label><input type="hidden" name="allOptions" value="${escapeHtml(JSON.stringify(options))}"><button class="primary-button" type="submit">${escapeHtml(t("clarificationContinue"))} <span aria-hidden="true">→</span></button><p class="form-error" role="alert"></p></form>`;
 }
 
 async function submitAi(event) {
@@ -1302,12 +1397,11 @@ async function submitAi(event) {
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
-    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count };
+    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en" };
     state.pendingSearch = payload;
     const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
     if (data.needsClarification) {
-      const options = data.questions.flatMap((question) => question.options || []);
-      $("#ai-results").innerHTML = `<form id="clarification-form" class="ai-form"><h3>A quick detail will improve these matches</h3>${data.questions.map((question) => `<fieldset><legend>${escapeHtml(question.question)}</legend>${(question.options || []).map((option) => `<label><input type="checkbox" name="confirmedKeyword" value="${escapeHtml(option)}"> ${escapeHtml(option)}</label>`).join("")}</fieldset>`).join("")}<label><input type="checkbox" name="rejectAll" value="1"> None of these</label><input type="hidden" name="allOptions" value="${escapeHtml(JSON.stringify(options))}"><button class="primary-button" type="submit">Continue search →</button><p class="form-error" role="alert"></p></form>`;
+      $("#ai-results").innerHTML = renderClarificationForm(data.questions || []);
       return;
     }
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
@@ -1316,7 +1410,7 @@ async function submitAi(event) {
     state.audio?.playAnimal("capybara");
     setTimeout(() => character?.classList.remove("celebrate"), 1500);
     const expanded = data.keywordExpansion?.suggested || [];
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(data.source)} · scoring v${escapeHtml(data.scoring?.version || "1.0")} · ${data.keywordExpansion?.ai ? "AI-expanded keywords" : "local synonym expansion"}</p>`;
+    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, "1.0")}`;
   } catch (error) {
     $("#ai-error").textContent = error.message;
     character?.classList.remove("thinking");
@@ -1333,17 +1427,17 @@ async function submitClarification(event) {
   const confirmedSecondaryKeywords = data.getAll("confirmedKeyword");
   const rejectAll = data.get("rejectAll") === "1";
   if (!confirmedSecondaryKeywords.length && !rejectAll) {
-    form.querySelector(".form-error").textContent = "Choose any relevant option, or select “None of these.”";
+    form.querySelector(".form-error").textContent = t("clarificationRequired");
     return;
   }
   const allOptions = JSON.parse(data.get("allOptions") || "[]");
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
-    const payload = { ...state.pendingSearch, clarificationHandled: true, confirmedSecondaryKeywords, rejectedKeywords: rejectAll ? allOptions : [] };
+    const payload = { ...state.pendingSearch, language: state.settings.language || "en", clarificationHandled: true, confirmedSecondaryKeywords, rejectedKeywords: rejectAll ? allOptions : [] };
     const response = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
     const expanded = response.keywordExpansion?.suggested || [];
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div><p class="privacy-note">Database source: ${escapeHtml(response.source)} · scoring v${escapeHtml(response.scoring?.version || "2.1")}</p>`;
+    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div>${renderSourceFooter(response, "2.1")}`;
   } catch (error) {
     form.querySelector(".form-error").textContent = error.message;
     button.disabled = false;
@@ -1355,22 +1449,44 @@ function resourceCard(resource) {
   const reasons = resource.explanation || [];
   const passedFilters = resource.passedFilters || [];
   const gate = resource.gateEvidence;
-  const gateLabel = gate?.authority && gate.authority !== "none" ? `${gate.authority.replace("-", " ")} evidence · confidence ${gate.confidence}` : "description evidence";
+  const gateLabel = gateEvidenceLabel(gate);
   const saved = isResourceLiked(resource);
+  const disliked = isResourceDisliked(resource);
   const resourceJson = escapeHtml(JSON.stringify({ ...resource, topic: state.currentTopic }));
-  return `<article class="resource-card ${saved ? "liked" : ""}" data-resource-card data-resource-key="${escapeHtml(resourceKey(resource))}">
+  return `<article class="resource-card ${saved ? "liked" : ""} ${disliked ? "disliked" : ""}" data-resource-card data-resource-key="${escapeHtml(resourceKey(resource))}">
     <div class="resource-heading"><div><small>${escapeHtml(resource.location || "See website")}</small><h3>${escapeHtml(resource.name)}</h3></div><span class="score-badge">${escapeHtml(String(resource.score ?? 0))} pts</span></div>
     <p>${escapeHtml(resource.description)}</p>
     <div class="resource-meta"><span>${escapeHtml(resource.age || "All ages")}</span><span>${escapeHtml(resource.price || "See website")}</span>${categories.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
-    ${passedFilters.length ? `<div class="filter-badges" aria-label="Passed recommendation filters">${passedFilters.map((item) => `<span>✓ ${escapeHtml(item)}</span>`).join("")}${gate ? `<span class="gate-evidence">${escapeHtml(gateLabel)}</span>` : ""}</div>` : ""}
+    ${passedFilters.length ? `<div class="filter-badges" aria-label="Passed recommendation filters">${passedFilters.map((item) => `<span>✓ ${escapeHtml(translateFilterBadge(item))}</span>`).join("")}${gate ? `<span class="gate-evidence">${escapeHtml(gateLabel)}</span>` : ""}</div>` : ""}
     <div class="resource-actions">
       <button type="button" class="secondary-button resource-explain-button" data-action="explain-resource" data-resource-json='${resourceJson}'>${escapeHtml(t("resourceExplain"))}</button>
       <button type="button" class="secondary-button resource-like-button ${saved ? "active" : ""}" data-action="like-resource" data-liked="${String(saved)}" data-resource-json='${resourceJson}'>${escapeHtml(saved ? t("resourceLiked") : t("resourceLike"))}</button>
+      <button type="button" class="secondary-button resource-dislike-button ${disliked ? "active" : ""}" data-action="dislike-resource" data-disliked="${String(disliked)}" data-resource-json='${resourceJson}'>${escapeHtml(disliked ? t("resourceDisliked") : t("resourceDislike"))}</button>
       <a href="${escapeHtml(resource.url)}" target="_blank" rel="noreferrer">${escapeHtml(t("resourceVisit"))}</a>
     </div>
     <div class="resource-explanation" hidden></div>
     ${reasons.length ? `<details class="score-details"><summary>${escapeHtml(t("scoreWhy"))}</summary><ul>${reasons.map((reason) => `<li><b class="${reason.points < 0 ? "negative" : "positive"}">${reason.points > 0 ? "+" : ""}${escapeHtml(String(reason.points))}</b> ${escapeHtml(reason.label)} · “${escapeHtml(reason.keyword)}”</li>`).join("")}</ul></details>` : ""}
   </article>`;
+}
+
+function syncResourceCardState(card, resource) {
+  if (!card) return;
+  const saved = isResourceLiked(resource);
+  const disliked = isResourceDisliked(resource);
+  card.classList.toggle("liked", saved);
+  card.classList.toggle("disliked", disliked);
+  const likeButton = card.querySelector('[data-action="like-resource"]');
+  if (likeButton) {
+    likeButton.dataset.liked = String(saved);
+    likeButton.classList.toggle("active", saved);
+    likeButton.textContent = saved ? t("resourceLiked") : t("resourceLike");
+  }
+  const dislikeButton = card.querySelector('[data-action="dislike-resource"]');
+  if (dislikeButton) {
+    dislikeButton.dataset.disliked = String(disliked);
+    dislikeButton.classList.toggle("active", disliked);
+    dislikeButton.textContent = disliked ? t("resourceDisliked") : t("resourceDislike");
+  }
 }
 
 function showResourceExplanation(element) {
@@ -1390,12 +1506,10 @@ async function toggleResourceLike(element) {
   try {
     const data = await api("/api/resources/like", { method: "POST", body: JSON.stringify({ resource, liked }) });
     if (state.user) state.user.likedResources = data.likedResources || [];
+    if (state.user) state.user.dislikedResources = data.dislikedResources || [];
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     const card = element.closest("[data-resource-card]");
-    card?.classList.toggle("liked", liked);
-    element.dataset.liked = String(liked);
-    element.classList.toggle("active", liked);
-    element.textContent = liked ? t("resourceLiked") : t("resourceLike");
+    syncResourceCardState(card, resource);
     const message = liked ? t("resourceSaved") : t("resourceUnsaved");
     toast(message);
     speakVillage(message);
@@ -1404,17 +1518,48 @@ async function toggleResourceLike(element) {
   }
 }
 
+async function toggleResourceDislike(element) {
+  const resource = parseResourcePayload(element);
+  const disliked = element.dataset.disliked !== "true";
+  try {
+    const data = await api("/api/resources/dislike", { method: "POST", body: JSON.stringify({ resource, disliked }) });
+    if (state.user) state.user.likedResources = data.likedResources || [];
+    if (state.user) state.user.dislikedResources = data.dislikedResources || [];
+    if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
+    const card = element.closest("[data-resource-card]");
+    syncResourceCardState(card, resource);
+    const message = disliked ? t("resourceDislikeSaved") : t("resourceDislikeRemoved");
+    toast(message);
+    speakVillage(message);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function recordResourceList(resources, emptyKey) {
+  const list = Array.isArray(resources) ? resources : [];
+  if (!list.length) return `<p class="record-empty">${escapeHtml(t(emptyKey))}</p>`;
+  return `<div class="record-resource-list">${list.map((resource) => `<article class="record-resource-item">
+    <div><small>${escapeHtml(resource.topic || resource.location || "Resource")}</small><strong>${escapeHtml(resource.name || "Untitled resource")}</strong><p>${escapeHtml(resource.description || resource.url || "")}</p></div>
+    <a href="${escapeHtml(resource.url || "#")}" target="_blank" rel="noreferrer">${escapeHtml(t("resourceVisit"))}</a>
+  </article>`).join("")}</div>`;
+}
+
 function profilePanel() {
   if (state.user?.guest) return openPanel({ title: "Guest visit", eyebrow: "Temporary access", html: `<p class="panel-intro">You can explore both islands and use resource search during this visit.</p><article class="record-card"><strong>Community is locked for guests</strong><p>Create an account to save a personal record, post Moments, join group chats, or message friends.</p></article><button type="button" class="primary-button" data-action="logout">Create or log in to an account</button>` });
   const profile = state.user?.profile;
   const history = state.user?.history || [];
+  const likedResources = state.user?.likedResources || [];
+  const dislikedResources = state.user?.dislikedResources || [];
   openPanel({
     title: t("recordTitle"),
     eyebrow: state.user?.name || "Village visitor",
     html: `<p class="panel-intro">${escapeHtml(t("recordIntro"))}</p>
       <div class="sync-badge ${state.sheetSync.configured ? "connected" : "missing"}">${escapeHtml(state.sheetSync.configured ? t("sheetConnected") : t("sheetMissing"))}</div>
       <div class="record-summary">${escapeHtml(profile?.summary || "Complete the Community Compass to create your record.")}</div>
-      <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article></div>
+      <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
+      <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
+      <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>
       <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
       <button class="text-button" data-action="logout">${escapeHtml(t("logout"))}</button>`
   });
@@ -1494,9 +1639,9 @@ function fallbackSpeech(text) {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 420));
-  utterance.rate = .82;
-  utterance.pitch = 1;
-  utterance.volume = .86;
+  utterance.rate = .76;
+  utterance.pitch = .88;
+  utterance.volume = .82;
   utterance.lang = state.settings.language === "zh" ? "zh-CN" : state.settings.language === "es" ? "es-US" : "en-US";
   window.speechSynthesis.speak(utterance);
 }
@@ -1524,7 +1669,7 @@ async function playGeneratedSpeech(text) {
     state.voiceAudio.currentTime = 0;
   }
   const audio = new Audio(objectUrl);
-  audio.volume = .88;
+  audio.volume = .84;
   state.voiceAudio = audio;
   await audio.play();
 }
@@ -2088,6 +2233,7 @@ document.addEventListener("click", (event) => {
   if (action === "start-voice-command") startVoiceCommand();
   if (action === "explain-resource") showResourceExplanation(actionElement);
   if (action === "like-resource") toggleResourceLike(actionElement);
+  if (action === "dislike-resource") toggleResourceDislike(actionElement);
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);

@@ -279,12 +279,13 @@ function safeUser(user) {
     profile: user.profile || null,
     history: user.history || [],
     feedback: user.feedback || "",
-    likedResources: Array.isArray(user.likedResources) ? user.likedResources : []
+    likedResources: Array.isArray(user.likedResources) ? user.likedResources : [],
+    dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : []
   };
 }
 
 function guestUser() {
-  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [] };
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [] };
 }
 
 function parseCookies(req) {
@@ -503,10 +504,27 @@ function profileSummary(responses = {}) {
   return `Exploring ${interests}. Age group: ${responses.age || "not specified"}. Journey: ${responses.journey || "not specified"}. Current situation: ${situation}. ${responses.note ? `Priority: ${responses.note}` : ""}`.trim();
 }
 
-function deterministicAnswer(topic, description, matches) {
-  if (!matches.length) return `Waffles did not find a ${topic.toLowerCase()} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
+function deterministicAnswer(topic, description, matches, language = "en") {
+  const topicText = String(topic).toLowerCase();
+  if (language === "zh") {
+    if (!matches.length) return `Waffles 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；诊断类型与建筑分类仍会作为硬性筛选保留。`;
+    const names = matches.slice(0, 3).map((item) => item.name).join("、");
+    return `Waffles 找到了 ${matches.length} 个可能合适的${topicText}资源，匹配你的需求：“${description}”。可以先看：${names}。每个结果都会先按标签评分，再参考描述和潜在冲突项。请直接向服务机构确认资格、费用和当前可用性。`;
+  }
+  if (language === "es") {
+    if (!matches.length) return `Waffles no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; el diagnóstico y la categoría del edificio seguirán protegidos como filtros.`;
+    const names = matches.slice(0, 3).map((item) => item.name).join(", ");
+    return `Waffles encontró ${matches.length} recursos prometedores de ${topicText} para “${description}”. Empieza con ${names}. Cada resultado se puntuó primero por etiquetas, luego por descripción y posibles conflictos. Confirma requisitos, costo y disponibilidad directamente con cada proveedor.`;
+  }
+  if (!matches.length) return `Waffles did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
   const names = matches.slice(0, 3).map((item) => item.name).join(", ");
-  return `Waffles found ${matches.length} promising ${topic.toLowerCase()} resources for “${description}”. Start with ${names}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+  return `Waffles found ${matches.length} promising ${topicText} resources for “${description}”. Start with ${names}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+}
+
+function responseLanguageName(language = "en") {
+  if (language === "zh") return "Simplified Chinese";
+  if (language === "es") return "Spanish";
+  return "English";
 }
 
 function responseText(data) {
@@ -557,7 +575,7 @@ async function expandKeywordsWithAI({ topic, description, profile, directKeyword
   }
 }
 
-async function callOpenAI({ topic, description, profile, matches }) {
+async function callOpenAI({ topic, description, profile, matches, language = "en" }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
   const input = {
@@ -573,7 +591,7 @@ async function callOpenAI({ topic, description, profile, matches }) {
       model: process.env.OPENAI_MODEL || "gpt-5.5",
       reasoning: { effort: "low" },
       text: { verbosity: "low" },
-      instructions: "You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Treat their score explanations as ranking evidence. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words.",
+      instructions: `You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Treat their score explanations as ranking evidence. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words. Respond in ${responseLanguageName(language)}.`,
       input: JSON.stringify(input)
     }),
     signal: AbortSignal.timeout(30_000)
@@ -583,7 +601,7 @@ async function callOpenAI({ topic, description, profile, matches }) {
   return responseText(data);
 }
 
-const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: a quiet nighttime storyteller speaking to a friend. Calm, warm, patient, and natural. Speak a little slower than normal without dragging. Leave tiny pauses between sentences. Keep the tone soft and clean, never sharp, gloomy, formal, news-like, or advertising-like.";
+const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: a quiet nighttime storyteller speaking to a friend. Calm, warm, patient, and natural. Use a lower, softer pitch with clean articulation. Speak slowly and clearly without dragging. Leave small pauses between sentences. Keep the tone gentle and grounded, never sharp, gloomy, formal, news-like, or advertising-like.";
 
 async function generateWafflesSpeech({ text, language }) {
   const key = process.env.OPENAI_API_KEY;
@@ -662,7 +680,9 @@ async function syncUserRecord(user) {
     "history": JSON.stringify(user.history || []),
     "feedback": user.feedback || "",
     "Chat History": JSON.stringify(chatHistory),
+    "Save resource": JSON.stringify(user.likedResources || []),
     "Like resource": JSON.stringify(user.likedResources || []),
+    "Dislike resource": JSON.stringify(user.dislikedResources || []),
     "Email": user.email,
     userId: user.id
   };
@@ -680,6 +700,52 @@ async function syncUserRecord(user) {
   return { synced: true, row: result.row || null };
 }
 
+function errorLogPayload({ event, reason, user, topic = "", diagnosis = "", description = "", requestedCount = "", providedCount = "", highScoreCount = "", source = "", resource = null }) {
+  const at = new Date().toISOString();
+  return {
+    action: "log-resource-error",
+    spreadsheetId: process.env.ERROR_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
+    sheetGid: process.env.ERROR_SHEET_GID || "",
+    Timestamp: at,
+    At: at,
+    Event: event,
+    Reason: reason,
+    "User name": user?.name || "",
+    Email: user?.email || "",
+    userId: user?.id || "",
+    Topic: topic || resource?.topic || "",
+    Diagnosis: diagnosis,
+    "Search description": description,
+    "Requested resources": requestedCount,
+    "Provided resources": providedCount,
+    "High score resources": highScoreCount,
+    "Resource name": resource?.name || "",
+    "Resource URL": resource?.url || "",
+    "Resource score": resource?.score ?? "",
+    "Resource description": resource?.description || "",
+    Source: source,
+    Helpful: "No",
+    helpful: "No"
+  };
+}
+
+async function logErrorRecord(details) {
+  const webhook = process.env.ERROR_SHEET_WEBHOOK_URL;
+  if (!webhook) return { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
+  const response = await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(errorLogPayload(details)),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`Error sheet webhook returned ${response.status}.`);
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "Error sheet rejected the update.");
+  return { synced: true, row: result.row || null };
+}
+
 async function updateUser(userId, updater) {
   const users = await loadUsers();
   const index = users.findIndex((user) => user.id === userId);
@@ -689,9 +755,27 @@ async function updateUser(userId, updater) {
   return users[index];
 }
 
+function resourceIdentityKey(resource) {
+  return `${String(resource?.name || "").trim().toLowerCase()}|${String(resource?.url || "").trim().toLowerCase()}`;
+}
+
+function resourceSnapshot(resource) {
+  const name = String(resource.name || "").trim().slice(0, 180);
+  const urlValue = String(resource.url || "").trim().slice(0, 500);
+  if (!name || !urlValue) return null;
+  return {
+    name,
+    url: urlValue,
+    description: String(resource.description || "").trim().slice(0, 500),
+    topic: String(resource.topic || "").trim().slice(0, 80),
+    score: Number(resource.score || 0),
+    savedAt: new Date().toISOString()
+  };
+}
+
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "POST" && url.pathname === "/api/voice/narrate") {
@@ -783,7 +867,7 @@ async function handleApi(req, res, url) {
     if (String(password || "").length < 8) return sendError(res, 400, "Password must be at least 8 characters.");
     const users = await loadUsers();
     if (users.some((user) => user.email.toLowerCase() === email.toLowerCase())) return sendError(res, 409, "An account with this email already exists.");
-    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], createdAt: new Date().toISOString() };
+    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], createdAt: new Date().toISOString() };
     users.push(user);
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
@@ -1073,7 +1157,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "" } = await readJsonBody(req);
+    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en" } = await readJsonBody(req);
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
@@ -1097,17 +1181,55 @@ async function handleApi(req, res, url) {
     let answer;
     let ai = false;
     try {
-      answer = await callOpenAI({ topic, description, profile: user.profile, matches });
+      answer = await callOpenAI({ topic, description, profile: user.profile, matches, language });
       ai = Boolean(answer);
     } catch (error) {
-      answer = deterministicAnswer(topic, description, matches);
+      answer = deterministicAnswer(topic, description, matches, language);
       answer += ` (AI service note: ${error.message})`;
     }
-    if (!answer) answer = deterministicAnswer(topic, description, matches);
+    if (!answer) answer = deterministicAnswer(topic, description, matches, language);
+    const highScoreCount = matches.filter((match) => Number(match.score || 0) >= 20).length;
+    const errorLogs = [];
+    if (matches.length < requestedCount) {
+      errorLogs.push({
+        event: "insufficient_resources",
+        reason: `Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`,
+        user,
+        topic,
+        diagnosis,
+        description,
+        requestedCount,
+        providedCount: matches.length,
+        highScoreCount,
+        source
+      });
+    }
+    if (requestedCount > 3 && highScoreCount < 3) {
+      errorLogs.push({
+        event: "insufficient_high_score_resources",
+        reason: `Requested ${requestedCount} resources, but only ${highScoreCount} database resources scored at least 20.`,
+        user,
+        topic,
+        diagnosis,
+        description,
+        requestedCount,
+        providedCount: matches.length,
+        highScoreCount,
+        source
+      });
+    }
     let sync = { synced: false };
     if (!user.guest) {
       const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
       try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    }
+    const errorSync = [];
+    for (const details of errorLogs) {
+      try {
+        errorSync.push(await logErrorRecord(details));
+      } catch (error) {
+        errorSync.push({ synced: false, reason: error.message });
+      }
     }
     return sendJson(res, 200, {
       answer,
@@ -1116,6 +1238,7 @@ async function handleApi(req, res, url) {
       ai,
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
+      errorSync,
       sync
     });
   }
@@ -1132,26 +1255,52 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/resources/like") {
     if (user.guest) return sendError(res, 403, "Create an account to save liked resources.");
     const { resource = {}, liked = true } = await readJsonBody(req);
-    const name = String(resource.name || "").trim().slice(0, 180);
-    const urlValue = String(resource.url || "").trim().slice(0, 500);
-    if (!name || !urlValue) return sendError(res, 400, "Choose a resource before saving it.");
-    const savedResource = {
-      name,
-      url: urlValue,
-      description: String(resource.description || "").trim().slice(0, 500),
-      topic: String(resource.topic || "").trim().slice(0, 80),
-      score: Number(resource.score || 0),
-      savedAt: new Date().toISOString()
-    };
-    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const savedResource = resourceSnapshot(resource);
+    if (!savedResource) return sendError(res, 400, "Choose a resource before saving it.");
+    const key = resourceIdentityKey(savedResource);
     const saved = await updateUser(user.id, (item) => {
       const current = Array.isArray(item.likedResources) ? item.likedResources : [];
       const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
-      return { ...item, likedResources: liked ? [savedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
+      const disliked = Array.isArray(item.dislikedResources) ? item.dislikedResources : [];
+      const filteredDisliked = liked ? disliked.filter((entry) => resourceIdentityKey(entry) !== key) : disliked;
+      return { ...item, likedResources: liked ? [savedResource, ...filtered].slice(0, 100) : filtered, dislikedResources: filteredDisliked, updatedAt: new Date().toISOString() };
     });
     let sync = { synced: false };
     try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], sync });
+    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/resources/dislike") {
+    if (user.guest) return sendError(res, 403, "Create an account to mark disliked resources.");
+    const { resource = {}, disliked = true } = await readJsonBody(req);
+    const dislikedResource = resourceSnapshot(resource);
+    if (!dislikedResource) return sendError(res, 400, "Choose a resource before marking it.");
+    const key = resourceIdentityKey(dislikedResource);
+    const saved = await updateUser(user.id, (item) => {
+      const current = Array.isArray(item.dislikedResources) ? item.dislikedResources : [];
+      const filtered = current.filter((entry) => resourceIdentityKey(entry) !== key);
+      const liked = Array.isArray(item.likedResources) ? item.likedResources : [];
+      const filteredLiked = disliked ? liked.filter((entry) => resourceIdentityKey(entry) !== key) : liked;
+      return { ...item, likedResources: filteredLiked, dislikedResources: disliked ? [dislikedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
+    });
+    let sync = { synced: false };
+    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    let errorSync = { synced: false };
+    if (disliked) {
+      try {
+        errorSync = await logErrorRecord({
+          event: "resource_disliked",
+          reason: "User marked a resource as disliked.",
+          user: saved,
+          topic: dislikedResource.topic,
+          resource: dislikedResource,
+          source: "resource-card"
+        });
+      } catch (error) {
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
   }
 
   sendError(res, 404, "API route not found.");
