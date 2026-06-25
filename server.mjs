@@ -583,6 +583,64 @@ async function callOpenAI({ topic, description, profile, matches }) {
   return responseText(data);
 }
 
+const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: a quiet nighttime storyteller speaking to a friend. Calm, warm, patient, and natural. Speak a little slower than normal without dragging. Leave tiny pauses between sentences. Keep the tone soft and clean, never sharp, gloomy, formal, news-like, or advertising-like.";
+
+async function generateWafflesSpeech({ text, language }) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const input = String(text || "").trim().slice(0, 700);
+  if (!input) return null;
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      voice: process.env.OPENAI_TTS_VOICE || "marin",
+      input,
+      instructions: `${WAFFLES_VOICE_INSTRUCTIONS} Speak in ${language === "zh" ? "Mandarin Chinese when the text is Chinese, otherwise natural English" : language === "es" ? "natural Spanish when the text is Spanish, otherwise natural English" : "natural English"}.`,
+      response_format: "mp3"
+    }),
+    signal: AbortSignal.timeout(20_000)
+  });
+  if (!response.ok) throw new Error(`OpenAI speech request failed (${response.status}).`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function parseVoiceIntentWithAI({ transcript, context }) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const schema = {
+    type: "object",
+    properties: {
+      action: { type: "string", enum: ["select_island", "open_building", "open_waffles", "search_resources", "open_settings", "open_record", "close_panel", "home", "next", "back", "scroll", "ask_followup"] },
+      island: { type: ["string", "null"], enum: ["autism", "adhd", null] },
+      buildingId: { type: ["string", "null"] },
+      buildingType: { type: ["string", "null"], enum: ["support", "activity", "ai", null] },
+      topic: { type: ["string", "null"], enum: ["Education", "Legal", "Recreation", "Caregiver Support", null] },
+      direction: { type: ["string", "null"], enum: ["up", "down", null] },
+      followUpQuestion: { type: ["string", "null"] },
+      speech: { type: "string" },
+      confidence: { type: "number" }
+    },
+    required: ["action", "island", "buildingId", "buildingType", "topic", "direction", "followUpQuestion", "speech", "confidence"],
+    additionalProperties: false
+  };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || "gpt-5.5",
+      reasoning: { effort: "low" },
+      text: { verbosity: "low", format: { type: "json_schema", name: "voice_navigation_intent", strict: true, schema } },
+      instructions: "Map natural voice requests to website navigation for an accessibility assistant. Accept loose phrases like 'show me the next part', 'open Waffles', 'take me to school help', or 'I need legal stuff'. Use ask_followup only when the target is genuinely unclear. Do not invent unsupported actions. Keep speech short, warm, and plain.",
+      input: JSON.stringify({ transcript: String(transcript || "").slice(0, 500), context })
+    }),
+    signal: AbortSignal.timeout(12_000)
+  });
+  if (!response.ok) throw new Error(`OpenAI voice intent returned ${response.status}.`);
+  return JSON.parse(responseText(await response.json()) || "{}");
+}
+
 async function localChatHistory(userId) {
   const community = await loadCommunity();
   return community.messages.filter((message) => message.userId === userId).slice(-100).map((message) => ({
@@ -634,6 +692,22 @@ async function updateUser(userId, updater) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/voice/narrate") {
+    const { text = "", language = "en" } = await readJsonBody(req);
+    const audio = await generateWafflesSpeech({ text, language });
+    if (!audio) return sendError(res, 503, "Waffles voice is not configured.");
+    res.writeHead(200, { "Content-Type": "audio/mpeg", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" });
+    return res.end(audio);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/voice/command") {
+    const { transcript = "", context = {} } = await readJsonBody(req);
+    if (!String(transcript).trim()) return sendError(res, 400, "Voice command is empty.");
+    const intent = await parseVoiceIntentWithAI({ transcript, context });
+    if (!intent) return sendError(res, 503, "Voice command AI is not configured.");
+    return sendJson(res, 200, intent);
   }
 
   if (req.method === "GET" && url.pathname === "/api/scoring-config") {

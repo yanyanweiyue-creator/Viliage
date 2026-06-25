@@ -71,6 +71,49 @@ test("Cloudflare Worker exposes D1-backed health status", async () => {
   assert.equal(health.storage, "cloudflare-d1");
 });
 
+test("Cloudflare voice narration asks OpenAI for a calm Waffles storyteller voice", async () => {
+  const database = new DatabaseSync(":memory:");
+  const originalFetch = globalThis.fetch;
+  let speechRequest;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(String(url), "https://api.openai.com/v1/audio/speech");
+    speechRequest = JSON.parse(options.body);
+    return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "audio/mpeg" } });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/voice/narrate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "Welcome to Waffles.", language: "en" })
+    }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "audio/mpeg");
+    assert.equal(speechRequest.model, "gpt-4o-mini-tts");
+    assert.equal(speechRequest.voice, "marin");
+    assert.match(speechRequest.instructions, /quiet nighttime storyteller/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Cloudflare voice command parser returns a structured navigation intent", async () => {
+  const database = new DatabaseSync(":memory:");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ action: "open_waffles", island: null, buildingId: null, buildingType: null, topic: "Education", direction: null, followUpQuestion: null, speech: "Opening Waffles.", confidence: 0.92 }) }] }] });
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/voice/command", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: "show me Waffles", context: { selectedIsland: "autism" } })
+    }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
+    assert.equal(response.status, 200);
+    const intent = await response.json();
+    assert.equal(intent.action, "open_waffles");
+    assert.equal(intent.topic, "Education");
+    assert.equal(intent.confidence, 0.92);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("guest sessions can explore but cannot open Village Community", async () => {
   const guest = await worker.fetch(new Request("https://village.example/api/auth/guest", { method: "POST" }), {}, ctx);
   assert.equal(guest.status, 200);

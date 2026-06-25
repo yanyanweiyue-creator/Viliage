@@ -51,6 +51,9 @@ const state = {
   supportIsland: null,
   voiceRecognition: null,
   voiceListening: false,
+  voiceAudio: null,
+  voiceCache: new Map(),
+  voiceClarification: null,
   audio: null,
   ecosystem: null,
   immersive: null,
@@ -76,7 +79,7 @@ const i18n = {
     communityTitle: "Village Community", communityIntro: "Join group conversations or connect privately with people who chose to participate.", communityOpen: "Open community chats", communityPrivacy: "Your email and private survey note are never shown. Waffles matches only shared interests, age group, and journey stage. You can leave at any time.", communityEnable: "Join the community", communityDisable: "Leave community matching", communityDisplayName: "Community display name", communityGroups: "Group chats", communitySuggestions: "People Waffles suggests", communityIncoming: "Connection requests", communityDirect: "Private chats", communityJoin: "Join group", communityOpenRoom: "Open chat", communityConnect: "Say hello", communityPending: "Request sent", communityAccept: "Accept", communityDecline: "Decline", communitySend: "Send", communityMessagePlaceholder: "Write a kind message…", communityEmpty: "No messages yet. You can start gently.", communityLoading: "Opening the community…", communitySafety: "Community messages are stored securely but are not end-to-end encrypted. They are peer conversation, not professional or emergency support. Do not share passwords, addresses, or urgent medical details.",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.",
     aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.",
-    voiceTools: "Voice assistant", voiceAssistant: "Narrate clicks and places", voiceControl: "Microphone commands", voiceListen: "Listen for a command", voiceListening: "Listening…", voiceHint: "Try: open Autism Island, go to School, find education resources. Voice recognition runs in your browser.",
+    voiceTools: "Voice assistant", voiceAssistant: "Narrate clicks and places", voiceControl: "Microphone commands", voiceListen: "Listen for a command", voiceListening: "Listening…", voiceHint: "Try natural phrases like “show me the next part,” “open Waffles,” or “find school support.” Waffles may ask a follow-up question. Voice recognition runs in your browser; spoken Waffles audio is AI-generated.",
     recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
     sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
     environmentFinding: "Finding your local sky…", environmentUnavailable: "Local weather unavailable", approximateIp: "Approx. by IP · Open-Meteo",
@@ -97,7 +100,7 @@ const i18n = {
     communityTitle: "村庄社区", communityIntro: "加入不同群聊，或与自愿参与且经历相似的用户私聊。", communityOpen: "打开社区聊天", communityPrivacy: "不会展示你的邮箱或问卷私人备注。Waffles 只比较共同关注领域、年龄组和经历阶段；你可以随时退出。", communityEnable: "加入社区", communityDisable: "退出社区匹配", communityDisplayName: "社区显示名称", communityGroups: "群聊", communitySuggestions: "Waffles 推荐认识的人", communityIncoming: "好友申请", communityDirect: "私聊", communityJoin: "加入群聊", communityOpenRoom: "打开聊天", communityConnect: "打个招呼", communityPending: "已发送申请", communityAccept: "接受", communityDecline: "拒绝", communitySend: "发送", communityMessagePlaceholder: "写一条友善的消息……", communityEmpty: "还没有消息，可以轻轻地开始。", communityLoading: "正在打开社区……", communitySafety: "社区消息会安全保存，但不是端到端加密。这里属于用户互助，不是专业或紧急服务；请勿发送密码、住址或紧急医疗隐私。",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。",
     aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。",
-    voiceTools: "语音助手", voiceAssistant: "点击时自动讲解", voiceControl: "麦克风语音操作", voiceListen: "听取指令", voiceListening: "正在听…", voiceHint: "可以说：打开 Autism Island、进入学校、查找教育资源。语音识别在浏览器内运行。",
+    voiceTools: "语音助手", voiceAssistant: "点击时自动讲解", voiceControl: "麦克风语音操作", voiceListen: "听取指令", voiceListening: "正在听…", voiceHint: "可以自然地说：“show me the next part”、“open Waffles” 或“find school support”。如果不清楚，Waffles 会追问。语音识别在浏览器内运行；Waffles 的旁白为 AI 生成语音。",
     recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
     sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
     environmentFinding: "正在寻找你当地的天空…", environmentUnavailable: "暂时无法获取当地天气", approximateIp: "IP 大致位置 · Open-Meteo",
@@ -118,7 +121,7 @@ const i18n = {
     communityTitle: "Comunidad de la aldea", communityIntro: "Únete a grupos o conecta en privado con personas que aceptaron participar.", communityOpen: "Abrir chats", communityPrivacy: "Tu correo y tus notas privadas nunca se muestran. Waffles compara solo intereses, edad y etapa del recorrido.", communityEnable: "Unirme a la comunidad", communityDisable: "Salir de la comunidad", communityDisplayName: "Nombre visible", communityGroups: "Chats grupales", communitySuggestions: "Personas sugeridas por Waffles", communityIncoming: "Solicitudes", communityDirect: "Chats privados", communityJoin: "Unirme", communityOpenRoom: "Abrir chat", communityConnect: "Saludar", communityPending: "Solicitud enviada", communityAccept: "Aceptar", communityDecline: "Rechazar", communitySend: "Enviar", communityMessagePlaceholder: "Escribe un mensaje amable…", communityEmpty: "Aún no hay mensajes.", communityLoading: "Abriendo la comunidad…", communitySafety: "Los mensajes se guardan de forma segura, pero no tienen cifrado de extremo a extremo. Son apoyo entre pares, no atención profesional ni de emergencia. No compartas contraseñas, direcciones ni datos médicos urgentes.",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.",
     aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.",
-    voiceTools: "Asistente de voz", voiceAssistant: "Narrar clics y lugares", voiceControl: "Comandos por micrófono", voiceListen: "Escuchar comando", voiceListening: "Escuchando…", voiceHint: "Prueba: abre Isla Autismo, ve a Escuela, busca recursos educativos. El reconocimiento de voz se ejecuta en tu navegador.",
+    voiceTools: "Asistente de voz", voiceAssistant: "Narrar clics y lugares", voiceControl: "Comandos por micrófono", voiceListen: "Escuchar comando", voiceListening: "Escuchando…", voiceHint: "Prueba frases naturales como “show me the next part”, “open Waffles” o “find school support”. Waffles puede hacer una pregunta de seguimiento. El reconocimiento de voz se ejecuta en tu navegador; la voz de Waffles es generada por IA.",
     recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
     sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
     environmentFinding: "Buscando tu cielo local…", environmentUnavailable: "Clima local no disponible", approximateIp: "Ubicación aproximada por IP · Open-Meteo",
@@ -1478,13 +1481,48 @@ function toggleVoiceSetting(key) {
 
 function speakVillage(text, { force = false } = {}) {
   if (!force && !state.settings.voiceAssistant) return;
+  const phrase = String(text || "").trim().slice(0, 500);
+  if (!phrase) return;
+  playGeneratedSpeech(phrase).catch(() => fallbackSpeech(phrase));
+}
+
+function fallbackSpeech(text) {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 260));
-  utterance.rate = .95;
+  const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 420));
+  utterance.rate = .82;
   utterance.pitch = 1;
+  utterance.volume = .86;
   utterance.lang = state.settings.language === "zh" ? "zh-CN" : state.settings.language === "es" ? "es-US" : "en-US";
   window.speechSynthesis.speak(utterance);
+}
+
+async function playGeneratedSpeech(text) {
+  const cacheKey = `${state.settings.language || "en"}:${text}`;
+  let objectUrl = state.voiceCache.get(cacheKey);
+  if (!objectUrl) {
+    const response = await fetch("/api/voice/narrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language: state.settings.language || "en" })
+    });
+    if (!response.ok) throw new Error("Waffles voice is unavailable.");
+    objectUrl = URL.createObjectURL(await response.blob());
+    state.voiceCache.set(cacheKey, objectUrl);
+    if (state.voiceCache.size > 18) {
+      const [oldKey, oldUrl] = state.voiceCache.entries().next().value;
+      state.voiceCache.delete(oldKey);
+      URL.revokeObjectURL(oldUrl);
+    }
+  }
+  if (state.voiceAudio) {
+    state.voiceAudio.pause();
+    state.voiceAudio.currentTime = 0;
+  }
+  const audio = new Audio(objectUrl);
+  audio.volume = .88;
+  state.voiceAudio = audio;
+  await audio.play();
 }
 
 function stopVoiceCommand() {
@@ -1524,22 +1562,83 @@ function startVoiceCommand() {
   speakVillage("I am listening for a village command.", { force: true });
 }
 
-function handleVoiceCommand(transcript) {
-  const text = String(transcript || "").toLowerCase();
-  if (!text.trim()) return;
-  const island = text.includes("autism") || text.includes("自闭") ? "autism" : text.includes("adhd") || text.includes("多动") ? "adhd" : state.selectedIsland || "autism";
-  const openBuilding = (typeOrTopic) => {
-    const building = config.buildings.find((item) => item.island === island && (item.type === typeOrTopic || String(item.topic || "").toLowerCase() === typeOrTopic));
-    if (building) handleBuilding(building.id);
+function voiceContext() {
+  return {
+    selectedIsland: state.selectedIsland,
+    currentTopic: state.currentTopic,
+    currentDiagnosis: state.currentDiagnosis,
+    panelOpen: $("#panel")?.classList.contains("open") || false,
+    panelTitle: $("#panel-title")?.textContent || "",
+    introOpen: Boolean(state.introOpen),
+    introStep: state.introStep,
+    pendingClarification: state.voiceClarification,
+    availableBuildings: config.buildings.map(({ id, island, type, topic, label, mapLabel }) => ({ id, island, type, topic: topic || "", label, mapLabel }))
   };
-  if (text.includes("support") || text.includes("village") || text.includes("联系") || text.includes("支持")) return openBuilding("support");
-  if (text.includes("school") || text.includes("education") || text.includes("resource") || text.includes("学校") || text.includes("教育") || text.includes("资源")) return openBuilding("education");
-  if (text.includes("court") || text.includes("legal") || text.includes("law") || text.includes("法律")) return openBuilding("legal");
-  if (text.includes("park") || text.includes("recreation") || text.includes("activity") || text.includes("活动") || text.includes("休闲")) return openBuilding("recreation");
-  if (text.includes("setting") || text.includes("设置")) return settingsPanel();
-  if (text.includes("autism") || text.includes("自闭")) return selectIsland("autism");
-  if (text.includes("adhd") || text.includes("多动") || text.includes("注意力")) return selectIsland("adhd");
-  speakVillage("I heard you, but I need a clearer village command like open Autism Island, go to School, or find education resources.", { force: true });
+}
+
+async function handleVoiceCommand(transcript) {
+  const text = String(transcript || "").trim();
+  if (!text) return;
+  let intent = null;
+  try {
+    intent = await api("/api/voice/command", { method: "POST", body: JSON.stringify({ transcript: text, context: voiceContext() }) });
+  } catch {
+    intent = localVoiceIntent(text);
+  }
+  executeVoiceIntent(intent || localVoiceIntent(text), text);
+}
+
+function localVoiceIntent(transcript) {
+  const text = String(transcript || "").toLowerCase();
+  const island = text.includes("autism") || text.includes("自闭") ? "autism" : text.includes("adhd") || text.includes("多动") ? "adhd" : state.selectedIsland || "autism";
+  if (text.includes("next") || text.includes("continue") || text.includes("下一") || text.includes("继续")) return { action: "next", speech: "I’ll show the next part." };
+  if (text.includes("back") || text.includes("previous") || text.includes("返回") || text.includes("上一个")) return { action: "back", speech: "I’ll go back one step." };
+  if (text.includes("waffles") || text.includes("guide") || text.includes("向导")) return { action: "open_waffles", speech: "Opening Waffles." };
+  if (text.includes("setting") || text.includes("设置")) return { action: "open_settings", speech: "Opening settings." };
+  if (text.includes("record") || text.includes("profile") || text.includes("记录")) return { action: "open_record", speech: "Opening your record." };
+  if (text.includes("support") || text.includes("village") || text.includes("联系") || text.includes("支持")) return { action: "open_building", island, buildingType: "support", speech: "Opening support." };
+  if (text.includes("school") || text.includes("education") || text.includes("resource") || text.includes("学校") || text.includes("教育") || text.includes("资源")) return { action: "open_building", island, topic: "Education", speech: "Opening education resources." };
+  if (text.includes("court") || text.includes("legal") || text.includes("law") || text.includes("法律")) return { action: "open_building", island, topic: "Legal", speech: "Opening legal resources." };
+  if (text.includes("park") || text.includes("recreation") || text.includes("activity") || text.includes("活动") || text.includes("休闲")) return { action: "open_building", island, topic: "Recreation", speech: "Opening recreation." };
+  if (text.includes("autism") || text.includes("自闭")) return { action: "select_island", island: "autism", speech: "Opening Autism Island." };
+  if (text.includes("adhd") || text.includes("多动") || text.includes("注意力")) return { action: "select_island", island: "adhd", speech: "Opening ADHD Island." };
+  return { action: "ask_followup", followUpQuestion: "I heard you, but I’m not sure where to go. Do you want Waffles, an island, a building, or your record?" };
+}
+
+function executeVoiceIntent(intent, originalTranscript = "") {
+  const action = intent?.action || "ask_followup";
+  if (intent?.followUpQuestion) state.voiceClarification = { question: intent.followUpQuestion, originalTranscript };
+  else state.voiceClarification = null;
+  const say = (message) => speakVillage(message || intent?.speech || "Done.", { force: true });
+  if (action === "ask_followup") return say(intent?.followUpQuestion || "Can you say that another way?");
+  if (action === "select_island") { selectIsland(intent.island || state.selectedIsland || "autism"); return say(intent.speech); }
+  if (action === "open_waffles" || action === "search_resources") { aiPanel(intent.topic || state.currentTopic || "Education", intent.island || state.selectedIsland); return say(intent.speech || "Opening Waffles."); }
+  if (action === "open_settings") { settingsPanel(); return say(intent.speech || "Opening settings."); }
+  if (action === "open_record") { profilePanel(); return say(intent.speech || "Opening your record."); }
+  if (action === "close_panel") { closePanel(); return say(intent.speech || "Closing this panel."); }
+  if (action === "home") { closePanel(); resetMap(); return say(intent.speech || "Back to both islands."); }
+  if (action === "scroll") { ($("#panel").classList.contains("open") ? $("#panel") : window).scrollBy?.({ top: intent.direction === "up" ? -360 : 360, behavior: "smooth" }); return say(intent.speech || "Moving the page."); }
+  if (action === "next") {
+    if (state.introOpen) changeIntroStep(1);
+    else ($("#panel").classList.contains("open") ? $("#panel") : window).scrollBy?.({ top: 360, behavior: "smooth" });
+    return say(intent.speech || "Showing the next part.");
+  }
+  if (action === "back") {
+    if (state.introOpen) changeIntroStep(-1);
+    else if (state.selectedIsland) resetMap();
+    else closePanel();
+    return say(intent.speech || "Going back.");
+  }
+  if (action === "open_building") {
+    const island = intent.island || state.selectedIsland || "autism";
+    const building = config.buildings.find((item) => item.island === island && (item.id === intent.buildingId || item.type === intent.buildingType || String(item.topic || "").toLowerCase() === String(intent.topic || "").toLowerCase()));
+    if (building) {
+      if (state.selectedIsland !== building.island) applyIslandFocus(building.island);
+      handleBuilding(building.id);
+      return;
+    }
+  }
+  return say("I’m not fully sure which part to open. You can say things like open Waffles, go to School, or show the next part.");
 }
 
 function toggleCalm() {
