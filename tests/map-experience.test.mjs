@@ -37,6 +37,16 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /map-stage\.focus-adhd/);
 });
 
+test("single-island focus keeps the whole island in view", async () => {
+  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  for (const island of ["autism", "adhd"]) {
+    const rule = css.match(new RegExp(`\\.map-stage\\.focus-${island} \\{[^}]*transform:\\s*scale\\(([^)]+)\\) translate\\(([-0-9.]+)%`));
+    assert.ok(rule, `${island} focus needs an explicit scale and translate`);
+    assert.ok(Number(rule[1]) <= 1.35, `${island} focus should not crop the island`);
+    assert.ok(Math.abs(Number(rule[2])) <= 16, `${island} focus should keep island edges visible`);
+  }
+});
+
 test("the ocean motion mask keeps animation off islands and the bridge", async () => {
   const { pointIsOpenWater } = await import("../public/surface-motion.mjs");
   assert.equal(pointIsOpenWater(0.03, 0.04), true);

@@ -316,8 +316,8 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .building[data-topic="recreation"] { --roof: #5c8fa0; background: linear-gradient(145deg,#f0f7f5 0 62%,#79a9a6 63%); }
 .building[data-type="activity"] { --roof: #8d83b6; }
 .building[data-type="support"] { --roof: #c96762; }
-.map-stage.focus-autism { transform: scale(2.08) translate(25%, 0); }
-.map-stage.focus-adhd { transform: scale(2.08) translate(-25%, 0); }
+.map-stage.focus-autism { transform: scale(1.28) translate(15%, 0); }
+.map-stage.focus-adhd { transform: scale(1.28) translate(-15%, 0); }
 .map-stage.focus-autism .building[data-island="adhd"], .map-stage.focus-adhd .building[data-island="autism"],
 .map-stage.focus-autism .island-label, .map-stage.focus-adhd .island-label,
 .map-stage.focus-autism .island-hit-area, .map-stage.focus-adhd .island-hit-area { opacity: 0; pointer-events: none; }
@@ -467,7 +467,7 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   .survey-grid { grid-template-columns: 1fr; }.wide-field, .form-actions, .survey-grid > .form-error { grid-column: 1; }
   .app-header { grid-template-columns: 1fr auto; }.app-header nav { display: none; }.pill-button { width: 2.7rem; height: 2.7rem; justify-content: center; padding: 0; font-size: 0; }.pill-button > span[aria-hidden="true"] { font-size: 1rem; }.pill-button > span[data-i18n] { display: none; }.header-tools { gap: .4rem; }
   .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 62rem; max-width: none; }
-  .map-stage.focus-autism { transform: scale(2.08) translate(25%, 0); }.map-stage.focus-adhd { transform: scale(2.08) translate(-25%, 0); }
+  .map-stage.focus-autism { transform: scale(1.28) translate(15%, 0); }.map-stage.focus-adhd { transform: scale(1.28) translate(-15%, 0); }
   .environment-status { position: sticky; left: 1rem; top: .75rem; transform: none; width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: -3.9rem; }
   .island-label.autism, .island-label.adhd { top: 18%; }
   .map-stage.focus-autism .island-label.autism, .map-stage.focus-adhd .island-label.adhd { opacity: 0; pointer-events: none; }
