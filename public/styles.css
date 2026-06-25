@@ -36,7 +36,7 @@ a { color: inherit; }
 .lede { color: var(--muted); font-size: 1.08rem; max-width: 42rem; }
 .brand-lockup { display: inline-flex; align-items: center; gap: .72rem; font-weight: 700; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 2.35rem; height: 2.35rem; border-radius: 48% 52% 46% 54%; background: var(--ink); color: var(--butter); font-family: "Fraunces", serif; }
-.brand-logo-lockup { position: relative; flex: 0 0 auto; width: clamp(8.2rem, 12vw, 11.5rem); height: 3.6rem; overflow: hidden; }
+.brand-logo-lockup { position: relative; flex: 0 0 auto; width: clamp(8.2rem, 12vw, 11.5rem); height: 3.6rem; overflow: show; }
 .brand-logo-lockup img { position: absolute; left: -26%; top: -98%; display: block; width: auto; max-width: none; height: 297%; }
 .auth-card .brand-logo-lockup { width: 14rem; height: 6.5rem; }
 
