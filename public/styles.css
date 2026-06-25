@@ -322,13 +322,14 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .map-stage.focus-autism .building[data-island="adhd"], .map-stage.focus-adhd .building[data-island="autism"],
 .map-stage.focus-autism .island-label, .map-stage.focus-adhd .island-label,
 .map-stage.focus-autism .island-hit-area, .map-stage.focus-adhd .island-hit-area { opacity: 0; pointer-events: none; }
-.map-hotspot, .map-hotspot:hover, .map-hotspot:active, .map-hotspot:focus, body.scene-3d .map-hotspot, body.scene-3d .map-hotspot:hover { border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; filter: none !important; }
-.map-hotspot { clip-path: var(--hit-polygon, polygon(0 0, 100% 0, 100% 100%, 0 100%)); }
+.map-hotspot, .map-hotspot:hover, .map-hotspot:active, .map-hotspot:focus, body.scene-3d .map-hotspot, body.scene-3d .map-hotspot:hover { background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; filter: none !important; }
+.map-hotspot { border: 0; border-radius: .55rem; clip-path: none; }
+body.scene-2d .map-hotspot { border: 1.5px dashed rgba(255,255,255,.82) !important; outline: 1px dashed rgba(27,67,57,.42); outline-offset: -.28rem; background: rgba(255,255,255,.035) !important; }
+body.scene-2d .map-hotspot:hover, body.scene-2d .map-hotspot:focus-visible { border-color: rgba(255,236,151,.95) !important; outline-color: rgba(37,82,70,.72); background: rgba(255,255,255,.08) !important; }
 .map-hotspot::after { top: calc(100% + .2rem); opacity: 0; transition: opacity .2s, transform .2s; }
-.map-hotspot:hover, .map-hotspot:focus-visible { background: transparent; filter: none; }
 .map-hotspot:hover::after, .map-hotspot:focus-visible::after { opacity: 1; }
 .map-hotspot .building-icon, .map-hotspot .building-ground { display: none; }
-body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3d); width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .72); border: 0; background: transparent; box-shadow: none; }
+body.scene-3d .map-hotspot { left: var(--building-x-3d); top: var(--building-y-3d); width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .72); border: 0 !important; outline: 0; background: transparent; box-shadow: none; }
 body.scene-3d .map-hotspot .building-ground { display: none; }
 .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: 1; filter: none; pointer-events: auto; }
 body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity: .68; filter: saturate(.86) contrast(1.03); }

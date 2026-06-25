@@ -23,13 +23,16 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.doesNotMatch(css, /\.map-hotspot::before/);
+  assert.match(html, /styles\.css\?v=village-hotspots-20260625/);
+  assert.match(html, /app\.js\?v=village-hotspots-20260625/);
+  assert.match(css, /body\.scene-2d \.map-hotspot[^}]*border:\s*1\.5px dashed/);
+  assert.match(css, /body\.scene-3d \.map-hotspot[^}]*border:\s*0 !important/);
   assert.match(css, /\.island-hit-area[^}]*background:\s*transparent/);
   assert.match(css, /\.island-hit-area\.autism[^}]*clip-path:\s*polygon\(3\.8% 52\.4%/);
   assert.match(css, /\.island-hit-area\.adhd[^}]*clip-path:\s*polygon\(49\.2% 58\.2%/);
   assert.match(css, /\.island-label[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.island-label[^}]*display:\s*grid/);
-  assert.match(css, /\.map-hotspot:hover[^}]*background:\s*transparent/);
+  assert.match(css, /\.map-hotspot \{[^}]*clip-path:\s*none/);
   assert.match(html, /id="waffles-intro"/);
   assert.match(css, /island-transition\.active/);
   assert.match(css, /island-transition\.disperse/);
@@ -101,6 +104,7 @@ test("each island exposes the five approved map destinations", async () => {
       assert.ok(building, `${island} needs a ${label} hotspot`);
       assert.equal(building.type, type);
       assert.ok(building.hitWidth <= 16.5, `${building.id} hotspot should stay close to the drawing`);
+      assert.ok(Number.isFinite(building.x) && Number.isFinite(building.y), `${building.id} needs a center point for its 2D hotspot`);
       assert.ok(Array.isArray(building.hitPolygon), `${building.id} needs an explicit hit polygon`);
     }
     assert.equal(buildings.find((item) => item.mapLabel === "School").topic, "Education");
