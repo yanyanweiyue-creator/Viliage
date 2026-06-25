@@ -49,7 +49,7 @@ export function celestialTrackPoint({ currentMinutes = 720, sunrise = 360, sunse
   const progress = clamp((Number(currentMinutes) - Number(sunrise)) / dayLength, 0, 1);
   const arc = 4 * progress * (1 - progress);
   const x = width * (.04 + progress * .92);
-  const y = height * (.1 - arc * .08);
+  const y = height * (.31 - arc * .18);
   return { x, y, progress, elevation: arc };
 }
 

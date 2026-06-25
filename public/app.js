@@ -1637,8 +1637,8 @@ function updateCelestialScene() {
   const sunrise = minutesFromIso(environment.sun?.sunrise, 360);
   const sunset = minutesFromIso(environment.sun?.sunset, 1080);
   const isDay = currentMinutes >= sunrise && currentMinutes <= sunset;
-  let sunPosition = { x: 50, y: 13 };
-  let moonPosition = { x: 50, y: 13 };
+  let sunPosition = { x: 50, y: 31 };
+  let moonPosition = { x: 50, y: 31 };
 
   if (isDay) {
     const progress = Math.max(0, Math.min(1, (currentMinutes - sunrise) / Math.max(1, sunset - sunrise)));
