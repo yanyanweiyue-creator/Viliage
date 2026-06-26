@@ -61,6 +61,11 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(app, /data-action="guide-suggestion"/);
   assert.match(app, /function startGuideVoiceInput\(\)/);
   assert.match(app, /startVoiceCommand\(\{ continuous: true, announce: false \}\)/);
+  assert.match(app, /guideScoringTitle/);
+  assert.match(app, /resources with the most points are the ones Waffles sees as most relevant/);
+  assert.doesNotMatch(app, /two islands connected by a small bridge/);
+  assert.match(app, /searchQuery/);
+  assert.match(app, /autoSubmit/);
   assert.match(css, /\.guide-chat/);
   assert.match(css, /\.guide-message/);
 });

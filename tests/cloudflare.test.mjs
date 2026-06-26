@@ -74,7 +74,7 @@ test("Cloudflare Worker exposes D1-backed health status", async () => {
   assert.equal(health.storage, "cloudflare-d1");
 });
 
-test("Cloudflare voice narration asks OpenAI for a calm Waffles storyteller voice", async () => {
+test("Cloudflare voice narration asks OpenAI for a warm conversational Waffles voice", async () => {
   const database = new DatabaseSync(":memory:");
   const originalFetch = globalThis.fetch;
   let speechRequest;
@@ -89,29 +89,38 @@ test("Cloudflare voice narration asks OpenAI for a calm Waffles storyteller voic
     }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "audio/mpeg");
-    assert.equal(speechRequest.model, "gpt-4o-tts");
-    assert.equal(speechRequest.voice, "marin");
-    assert.match(speechRequest.instructions, /calm, gentle, and warm storytelling voice/);
-    assert.match(speechRequest.instructions, /peaceful evening/);
+    assert.equal(speechRequest.model, "gpt-4o-mini-tts");
+    assert.equal(speechRequest.voice, "coral");
+    assert.equal(speechRequest.speed, 0.92);
+    assert.match(speechRequest.instructions, /conversational AI companion voice/);
+    assert.match(speechRequest.instructions, /warmer and more tender/);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
   }
 });
 
-test("Cloudflare voice command parser returns a structured navigation intent", async () => {
+test("Cloudflare voice command parser returns a structured research intent", async () => {
   const database = new DatabaseSync(":memory:");
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ action: "open_waffles", island: null, buildingId: null, buildingType: null, topic: "Education", direction: null, followUpQuestion: null, speech: "Opening Waffles.", confidence: 0.92 }) }] }] });
+  let requestBody;
+  globalThis.fetch = async (url, options) => {
+    requestBody = JSON.parse(options.body);
+    return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({ action: "search_resources", island: null, buildingId: null, buildingType: null, topic: "Education", direction: null, followUpQuestion: null, searchQuery: "research school support", speech: "I’ll research matching resources.", confidence: 0.92 }) }] }] });
+  };
   try {
     const response = await worker.fetch(new Request("https://village.example/api/voice/command", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: "show me Waffles", context: { selectedIsland: "autism" } })
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: "research school support", context: { selectedIsland: "autism" } })
     }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
     assert.equal(response.status, 200);
     const intent = await response.json();
-    assert.equal(intent.action, "open_waffles");
+    assert.equal(intent.action, "search_resources");
     assert.equal(intent.topic, "Education");
+    assert.equal(intent.searchQuery, "research school support");
     assert.equal(intent.confidence, 0.92);
+    assert.equal(requestBody.reasoning.effort, "medium");
+    assert.match(requestBody.instructions, /resource research/);
+    assert.ok(requestBody.text.format.schema.required.includes("searchQuery"));
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
