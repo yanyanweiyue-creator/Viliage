@@ -601,7 +601,7 @@ async function callOpenAI({ topic, description, profile, matches, language = "en
   return responseText(data);
 }
 
-const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: a quiet nighttime storyteller speaking to a friend. Calm, warm, patient, and natural. Use a lower, softer pitch with clean articulation. Speak slowly and clearly without dragging. Leave small pauses between sentences. Keep the tone gentle and grounded, never sharp, gloomy, formal, news-like, or advertising-like.";
+const WAFFLES_VOICE_INSTRUCTIONS = "Voice style: A calm, gentle, and warm storytelling voice, with a soft natural tone, relaxed pacing, and subtle emotional warmth. It should sound soothing and comforting, like someone quietly telling a story on a peaceful evening. Avoid sounding robotic, formal, dramatic, or commercial. Speak clearly, a little slower than normal, with small natural pauses.";
 
 async function generateWafflesSpeech({ text, language }) {
   const key = process.env.OPENAI_API_KEY;
@@ -612,7 +612,7 @@ async function generateWafflesSpeech({ text, language }) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-tts",
       voice: process.env.OPENAI_TTS_VOICE || "marin",
       input,
       instructions: `${WAFFLES_VOICE_INSTRUCTIONS} Speak in ${language === "zh" ? "Mandarin Chinese when the text is Chinese, otherwise natural English" : language === "es" ? "natural Spanish when the text is Spanish, otherwise natural English" : "natural English"}.`,
@@ -630,7 +630,7 @@ async function parseVoiceIntentWithAI({ transcript, context }) {
   const schema = {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["select_island", "open_building", "open_waffles", "search_resources", "open_settings", "open_record", "close_panel", "home", "next", "back", "scroll", "ask_followup"] },
+      action: { type: "string", enum: ["select_island", "open_building", "open_guide", "open_waffles", "search_resources", "open_settings", "open_record", "close_panel", "home", "next", "back", "scroll", "ask_followup"] },
       island: { type: ["string", "null"], enum: ["autism", "adhd", null] },
       buildingId: { type: ["string", "null"] },
       buildingType: { type: ["string", "null"], enum: ["support", "activity", "ai", null] },
@@ -650,7 +650,7 @@ async function parseVoiceIntentWithAI({ transcript, context }) {
       model: process.env.OPENAI_MODEL || "gpt-5.5",
       reasoning: { effort: "low" },
       text: { verbosity: "low", format: { type: "json_schema", name: "voice_navigation_intent", strict: true, schema } },
-      instructions: "Map natural voice requests to website navigation for an accessibility assistant. Accept loose phrases like 'show me the next part', 'open Waffles', 'take me to school help', or 'I need legal stuff'. Use ask_followup only when the target is genuinely unclear. Do not invent unsupported actions. Keep speech short, warm, and plain.",
+      instructions: "Map natural voice requests to website navigation for an accessibility assistant. Accept loose phrases like 'show me the next part', 'open Waffles', 'what is this website', 'who made this', 'take me to school help', or 'I need legal stuff'. Use open_guide for Waffles, site overview, creator, or story requests. Use ask_followup only when the target is genuinely unclear. Do not invent unsupported actions. Keep speech short, warm, and plain.",
       input: JSON.stringify({ transcript: String(transcript || "").slice(0, 500), context })
     }),
     signal: AbortSignal.timeout(12_000)

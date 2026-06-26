@@ -1,7 +1,7 @@
 import { EcosystemController } from "./ecosystem-runtime.mjs?v=land-map-20260624";
 import { ImmersiveScene } from "./immersive-scene.mjs?v=land-map-20260624";
 import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
-import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=land-map-20260624";
+import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 
@@ -70,7 +70,8 @@ const i18n = {
     village: "Village", myRecord: "My record", lowStimulation: "Low-stimulation", viewBoth: "← View both islands", selectIsland: "Tap an island, then choose a building", chooseBuilding: "Choose a building",
     quietGardens: "Quiet gardens", momentumTrails: "Momentum trails", autismIsland: "Autism Island", adhdIsland: "ADHD Island",
     resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", guestReady: "Temporary guest visit", guestMatch: "Searches and records are not saved", account: "Account", view: "View", refresh: "Refresh",
-    jaGuide: "Waffles · AI guide", jaReady: "I’m here when you’re ready.",
+    jaGuide: "Waffles · Site guider", jaReady: "Ask me how this village works.",
+    guideTitle: "Waffles · Village guider", guideEyebrow: "A friendly tour of the project", guideIntro: "This website helps people explore neurodiversity resources at their own pace. You can enter an island, choose a building, and let Waffles compare resources from the village database with your personal record.", guideStoryTitle: "The story", guideStory: "The village began as two islands connected by a small bridge: one quieter, one full of momentum. Each building is a doorway to a kind of help, and Waffles is here to make the path feel calmer instead of crowded.", guideBuiltByTitle: "Made by", guideBuiltBy: "Created by SNP- Group D, 2026, cohort3.", guideUseTitle: "How Waffles helps", guideUse: "Waffles can introduce buildings, explain why a resource matched, save or dislike resources, and listen for natural voice commands when microphone control is turned on.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
     language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
@@ -91,7 +92,8 @@ const i18n = {
     village: "村庄", myRecord: "我的记录", lowStimulation: "低刺激模式", viewBoth: "← 查看两座岛", selectIsland: "点岛进入，再选择建筑", chooseBuilding: "选择一栋建筑",
     quietGardens: "安静花园", momentumTrails: "活力小径", autismIsland: "自闭症岛", adhdIsland: "ADHD 岛",
     resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", guestReady: "临时访客模式", guestMatch: "搜索与个人记录不会被保存", account: "账户", view: "查看", refresh: "刷新",
-    jaGuide: "Waffles · AI 向导", jaReady: "准备好时，我就在这里。",
+    jaGuide: "Waffles · 网站向导", jaReady: "我可以介绍这个网站。",
+    guideTitle: "Waffles · 村庄向导", guideEyebrow: "这个项目的温柔导览", guideIntro: "这个网站帮助用户按照自己的节奏探索神经多样性相关资源。你可以进入一座岛，选择一栋建筑，然后让 Waffles 结合你的个人记录与村庄数据库来比较资源。", guideStoryTitle: "背景故事", guideStory: "这个村庄从两座由小桥连接的岛开始：一座更安静，一座更有行动感。每栋建筑都是一种帮助的入口，而 Waffles 的任务是让寻找资源这件事变得更平静、更不拥挤。", guideBuiltByTitle: "制作团队", guideBuiltBy: "由 SNP- Group D，2026，cohort3 创建。", guideUseTitle: "Waffles 可以做什么", guideUse: "Waffles 可以介绍建筑、解释资源为什么匹配、收藏或标记不喜欢的资源，并在开启麦克风控制后理解自然语音指令。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
     language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
@@ -112,7 +114,8 @@ const i18n = {
     village: "Aldea", myRecord: "Mi registro", lowStimulation: "Baja estimulación", viewBoth: "← Ver ambas islas", selectIsland: "Toca una isla y luego un edificio", chooseBuilding: "Elige un edificio",
     quietGardens: "Jardines tranquilos", momentumTrails: "Senderos activos", autismIsland: "Isla Autismo", adhdIsland: "Isla TDAH",
     resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", guestReady: "Visita temporal", guestMatch: "Las búsquedas y registros no se guardan", account: "Cuenta", view: "Ver", refresh: "Actualizar",
-    jaGuide: "Waffles · Guía de IA", jaReady: "Estoy aquí cuando quieras.",
+    jaGuide: "Waffles · Guía del sitio", jaReady: "Puedo explicar cómo funciona.",
+    guideTitle: "Waffles · Guía de la aldea", guideEyebrow: "Un recorrido amable del proyecto", guideIntro: "Este sitio ayuda a explorar recursos de neurodiversidad a tu propio ritmo. Puedes entrar en una isla, elegir un edificio y dejar que Waffles compare recursos de la base de datos con tu registro personal.", guideStoryTitle: "La historia", guideStory: "La aldea empezó como dos islas unidas por un pequeño puente: una más tranquila y otra con más impulso. Cada edificio es una puerta hacia un tipo de ayuda, y Waffles está aquí para que el camino se sienta más calmado.", guideBuiltByTitle: "Creado por", guideBuiltBy: "Creado por SNP- Group D, 2026, cohort3.", guideUseTitle: "Cómo ayuda Waffles", guideUse: "Waffles puede presentar edificios, explicar por qué coincide un recurso, guardar o marcar recursos, y escuchar comandos naturales cuando activas el micrófono.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
     language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
@@ -922,8 +925,12 @@ function renderBuildings() {
   const hitPolygon = (building) => Array.isArray(building.hitPolygon)
     ? `polygon(${building.hitPolygon.map(([x, y]) => `${Number(x)}% ${Number(y)}%`).join(", ")})`
     : "polygon(0 0, 100% 0, 100% 100%, 0 100%)";
+  const outlinePoints = (building) => Array.isArray(building.hitPolygon)
+    ? building.hitPolygon.map(([x, y]) => `${Number(x)},${Number(y)}`).join(" ")
+    : "0,0 100,0 100,100 0,100";
   layer.innerHTML = config.buildings.map((building) => `
     <button class="building map-hotspot" type="button" style="--building-x:${building.x}%;--building-y:${building.y}%;--building-x-3d:${building.x3d ?? building.x}%;--building-y-3d:${building.y3d ?? building.y}%;--hotspot-width:${building.hitWidth || 14}%;--hotspot-height:${building.hitHeight || 18}%;--hit-polygon:${hitPolygon(building)}" data-building="${escapeHtml(building.id)}" data-island="${building.island}" data-type="${building.type}" data-topic="${escapeHtml(String(building.topic || "").toLowerCase())}" data-map-label="${escapeHtml(building.mapLabel || building.short)}" data-label="${escapeHtml(`${building.mapLabel || building.short} · ${buildingLabel(building)}`)}" aria-label="${escapeHtml(`${building.mapLabel || building.short}, ${buildingLabel(building)}`)} · ${building.island === "autism" ? t("autismIsland") : t("adhdIsland")}">
+      <svg class="hotspot-outline" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><polygon points="${escapeHtml(outlinePoints(building))}"></polygon></svg>
       <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
     </button>`).join("");
@@ -1281,6 +1288,23 @@ function activitiesPanel() {
       <div class="card-list">${config.activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p></div></article>`).join("")}</div>
       <p class="privacy-note">Edit activities in <code>public/site-config.js</code>; users have no editing controls.</p>`
   });
+}
+
+function guidePanel() {
+  const guideCards = [
+    [t("guideStoryTitle"), t("guideStory")],
+    [t("guideBuiltByTitle"), t("guideBuiltBy")],
+    [t("guideUseTitle"), t("guideUse")]
+  ];
+  openPanel({
+    title: t("guideTitle"),
+    eyebrow: t("guideEyebrow"),
+    html: `<div class="guide-shell">
+      <div class="mori-stage guide-stage"><div class="mori-character" aria-hidden="true"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><p>${escapeHtml(t("guideIntro"))}</p></div>
+      <div class="guide-card-list">${guideCards.map(([title, detail]) => `<article class="guide-card"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p></article>`).join("")}</div>
+    </div>`
+  });
+  speakVillage(t("guideIntro"));
 }
 
 function aiPanel(topic = "Education", island = state.selectedIsland) {
@@ -1742,7 +1766,7 @@ function localVoiceIntent(transcript) {
   const island = text.includes("autism") || text.includes("自闭") ? "autism" : text.includes("adhd") || text.includes("多动") ? "adhd" : state.selectedIsland || "autism";
   if (text.includes("next") || text.includes("continue") || text.includes("下一") || text.includes("继续")) return { action: "next", speech: "I’ll show the next part." };
   if (text.includes("back") || text.includes("previous") || text.includes("返回") || text.includes("上一个")) return { action: "back", speech: "I’ll go back one step." };
-  if (text.includes("waffles") || text.includes("guide") || text.includes("向导")) return { action: "open_waffles", speech: "Opening Waffles." };
+  if (text.includes("waffles") || text.includes("guide") || text.includes("向导") || text.includes("介绍") || text.includes("story") || text.includes("made")) return { action: "open_guide", speech: "Opening the Waffles guide." };
   if (text.includes("setting") || text.includes("设置")) return { action: "open_settings", speech: "Opening settings." };
   if (text.includes("record") || text.includes("profile") || text.includes("记录")) return { action: "open_record", speech: "Opening your record." };
   if (text.includes("support") || text.includes("village") || text.includes("联系") || text.includes("支持")) return { action: "open_building", island, buildingType: "support", speech: "Opening support." };
@@ -1761,7 +1785,8 @@ function executeVoiceIntent(intent, originalTranscript = "") {
   const say = (message) => speakVillage(message || intent?.speech || "Done.", { force: true });
   if (action === "ask_followup") return say(intent?.followUpQuestion || "Can you say that another way?");
   if (action === "select_island") { selectIsland(intent.island || state.selectedIsland || "autism"); return say(intent.speech); }
-  if (action === "open_waffles" || action === "search_resources") { aiPanel(intent.topic || state.currentTopic || "Education", intent.island || state.selectedIsland); return say(intent.speech || "Opening Waffles."); }
+  if (action === "open_guide" || action === "open_waffles") { guidePanel(); return say(intent.speech || "Opening the Waffles guide."); }
+  if (action === "search_resources") { aiPanel(intent.topic || state.currentTopic || "Education", intent.island || state.selectedIsland); return say(intent.speech || "Opening Waffles."); }
   if (action === "open_settings") { settingsPanel(); return say(intent.speech || "Opening settings."); }
   if (action === "open_record") { profilePanel(); return say(intent.speech || "Opening your record."); }
   if (action === "close_panel") { closePanel(); return say(intent.speech || "Closing this panel."); }
@@ -2044,8 +2069,9 @@ function updateCelestialScene() {
   const sunrise = minutesFromIso(environment.sun?.sunrise, 360);
   const sunset = minutesFromIso(environment.sun?.sunset, 1080);
   const isDay = currentMinutes >= sunrise && currentMinutes <= sunset;
-  let sunPosition = { x: 50, y: 31 };
-  let moonPosition = { x: 50, y: 31 };
+  const orbitStart = celestialOrbit(0);
+  let sunPosition = orbitStart;
+  let moonPosition = orbitStart;
 
   if (isDay) {
     const progress = Math.max(0, Math.min(1, (currentMinutes - sunrise) / Math.max(1, sunset - sunrise)));
@@ -2219,7 +2245,7 @@ document.addEventListener("click", (event) => {
   if (action === "reset-map" || action === "home") { closePanel(); resetMap(); }
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
-  if (action === "open-mori") aiPanel("Education");
+  if (action === "open-mori") guidePanel();
   if (action === "continue-guest") continueAsGuest();
   if (action === "open-password-reset") openPasswordReset();
   if (action === "close-password-reset") closePasswordReset();

@@ -11,10 +11,11 @@ async function loadConfig() {
 }
 
 test("approved PDF map raster and its single-island interaction shell are present", async () => {
-  const [config, html, css] = await Promise.all([
+  const [config, html, css, app] = await Promise.all([
     loadConfig(),
     readFile(new URL("../public/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8")
   ]);
   assert.equal(config.map.image, "/assets/village-map-approved.png");
   await access(new URL("../public/assets/village-map-approved.png", import.meta.url));
@@ -23,14 +24,18 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=village-hit-shapes-white-20260625/);
-  assert.match(html, /app\.js\?v=village-hit-shapes-white-20260625/);
+  assert.match(html, /styles\.css\?v=village-guide-voice-20260625/);
+  assert.match(html, /app\.js\?v=village-guide-voice-20260625/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
-  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\][^}]*border:\s*1\.5px dashed/);
-  assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\][^}]*border:\s*1\.5px dashed/);
+  assert.match(app, /class="hotspot-outline"/);
+  assert.match(css, /\.hotspot-outline polygon \{[^}]*stroke:\s*rgba\(255,255,255,\.96\)/);
+  assert.match(css, /\.hotspot-outline polygon \{[^}]*stroke-width:\s*4\.8/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\] \.hotspot-outline/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\] \.hotspot-outline/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\][^}]*clip-path:\s*var\(--hit-polygon\)/);
+  assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
   assert.match(css, /\.building::after \{[^}]*opacity:\s*0/);
   assert.doesNotMatch(css, /\.map-hotspot:hover::after,\s*\.map-hotspot:focus-visible::after\s*\{[^}]*opacity:\s*1/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]:hover::after/);
@@ -47,6 +52,9 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /island-transition\.disperse/);
   assert.match(css, /map-stage\.focus-autism/);
   assert.match(css, /map-stage\.focus-adhd/);
+  assert.match(app, /const orbitStart = celestialOrbit\(0\)/);
+  assert.match(app, /function guidePanel\(\)/);
+  assert.match(app, /if \(action === "open-mori"\) guidePanel\(\)/);
 });
 
 test("header logo fits its lockup without the old oversized crop", async () => {

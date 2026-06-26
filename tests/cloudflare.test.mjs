@@ -89,9 +89,10 @@ test("Cloudflare voice narration asks OpenAI for a calm Waffles storyteller voic
     }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "audio/mpeg");
-    assert.equal(speechRequest.model, "gpt-4o-mini-tts");
+    assert.equal(speechRequest.model, "gpt-4o-tts");
     assert.equal(speechRequest.voice, "marin");
-    assert.match(speechRequest.instructions, /quiet nighttime storyteller/);
+    assert.match(speechRequest.instructions, /calm, gentle, and warm storytelling voice/);
+    assert.match(speechRequest.instructions, /peaceful evening/);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

@@ -260,6 +260,7 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .celestial.moon.has-phase { box-shadow: none; filter: drop-shadow(0 0 .7rem rgba(226,241,255,.68)) drop-shadow(0 0 2.2rem rgba(126,170,210,.28)); }
 .celestial.moon::after { content: ""; position: absolute; width: 22%; height: 22%; border-radius: 50%; left: 22%; top: 54%; background: rgba(125,145,154,.23); box-shadow: 1.05rem -1.25rem 0 .12rem rgba(125,145,154,.18); }
 .celestial.moon.has-phase::after { display: none; }
+body.scene-3d .celestial { display: none; }
 .cloud { position: absolute; z-index: 4; width: var(--cloud-width, clamp(6rem, 13vw, 12rem)); height: var(--cloud-height, clamp(1.8rem, 4vw, 3.6rem)); border-radius: var(--cloud-radius, 56% 44% 51% 49% / 62% 58% 42% 38%); background: linear-gradient(180deg, rgba(255,255,253,.96), var(--cloud-base, rgba(222,237,239,.88))); box-shadow: inset 0 .35rem .8rem rgba(255,255,255,.65), inset 0 -.5rem .7rem rgba(102,144,153,.14), 0 .7rem 1.4rem rgba(47,70,78,.2); filter: blur(var(--cloud-blur, 0)); opacity: 0; transition: opacity 1.4s ease; animation: cloudDrift var(--cloud-speed, 32s) linear infinite; }
 .cloud::before, .cloud::after { content: ""; position: absolute; bottom: 18%; border-radius: 50%; background: inherit; }
 .cloud::before { width: 43%; aspect-ratio: 1; left: 14%; }.cloud::after { width: 34%; aspect-ratio: 1; right: 14%; }
@@ -326,11 +327,20 @@ body.scene-3d .ecosystem-actor::after { opacity: .78; transform: rotate(-4deg) s
 .map-hotspot { border: 0; border-radius: 50%; clip-path: none; }
 body.scene-2d .map-hotspot { width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .62); border: 0 !important; outline: 0; background: transparent !important; }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"],
-body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"] { border: 1.5px dashed rgba(255,255,255,.98) !important; border-radius: 0; outline: 1px dashed rgba(255,255,255,.92); outline-offset: -.28rem; background: rgba(255,255,255,.035) !important; clip-path: var(--hit-polygon); }
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"] { border: 0 !important; border-radius: 0; outline: 0; background: rgba(255,255,255,.035) !important; clip-path: var(--hit-polygon); }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover,
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover,
-body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { border-color: rgba(255,255,255,1) !important; outline-color: rgba(255,255,255,.96); background: rgba(255,255,255,.08) !important; }
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { background: rgba(255,255,255,.08) !important; }
+.hotspot-outline { position: absolute; inset: -.08rem; width: calc(100% + .16rem); height: calc(100% + .16rem); overflow: visible; opacity: 0; pointer-events: none; }
+.hotspot-outline polygon { fill: rgba(255,255,255,.06); stroke: rgba(255,255,255,.96); stroke-width: 4.8; stroke-dasharray: 7 5; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 .18rem rgba(23,60,48,.35)); }
+body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"] .hotspot-outline,
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"] .hotspot-outline { opacity: 1; }
+body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover .hotspot-outline polygon,
+body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible .hotspot-outline polygon,
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover .hotspot-outline polygon,
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible .hotspot-outline polygon { fill: rgba(255,255,255,.11); stroke: #fff; stroke-width: 5.6; }
+body.scene-3d .hotspot-outline { display: none; }
 .map-hotspot::after { top: calc(100% + .2rem); }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover::after,
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible::after,
@@ -365,6 +375,13 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .info-card h3, .activity-card h3, .resource-card h3 { margin: 0 0 .25rem; font-size: 1rem; }
 .info-card p, .activity-card p, .resource-card p { margin: 0; color: var(--muted); font-size: .88rem; }
 .info-card a { align-self: center; color: var(--sage-dark); font-weight: 700; }
+.guide-shell { display: grid; gap: 1rem; }
+.guide-stage { align-items: center; }
+.guide-stage p { margin: 0; color: var(--muted); }
+.guide-card-list { display: grid; gap: .8rem; }
+.guide-card { border: 1px solid color-mix(in srgb, var(--sage) 30%, var(--line)); border-radius: 1rem; padding: 1rem; background: linear-gradient(135deg, #fffdf6, color-mix(in srgb, var(--sage-soft) 42%, white)); box-shadow: 0 .55rem 1.2rem rgba(37,62,55,.07); }
+.guide-card h3 { margin: 0 0 .35rem; font-size: 1rem; }
+.guide-card p { margin: 0; color: var(--muted); }
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
 .community-launch { display: grid; gap: 1rem; margin: 1.2rem 0; padding: 1.15rem; border: 1px solid color-mix(in srgb, var(--sage) 36%, var(--line)); border-radius: 1.2rem; background: linear-gradient(135deg, color-mix(in srgb, var(--sage-soft) 78%, white), #fff8e7); }
 .community-launch small { color: var(--sage-dark); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.community-launch h3 { margin: .25rem 0; font-size: 1.05rem; }.community-launch p { margin: 0; color: var(--muted); font-size: .85rem; }.community-launch button { justify-self: start; }
