@@ -51,6 +51,9 @@ const state = {
   supportIsland: null,
   voiceRecognition: null,
   voiceListening: false,
+  voiceRestartTimer: null,
+  guideListening: false,
+  lastGuideAnswer: "",
   voiceAudio: null,
   voiceCache: new Map(),
   voiceClarification: null,
@@ -71,7 +74,7 @@ const i18n = {
     quietGardens: "Quiet gardens", momentumTrails: "Momentum trails", autismIsland: "Autism Island", adhdIsland: "ADHD Island",
     resourcesLoading: "Loading resources…", resourcesChecking: "Checking the live database", personalReady: "Your personal record is ready", personalMatch: "Waffles uses it only to improve matching", guestReady: "Temporary guest visit", guestMatch: "Searches and records are not saved", account: "Account", view: "View", refresh: "Refresh",
     jaGuide: "Waffles · Site guider", jaReady: "Ask me how this village works.",
-    guideTitle: "Waffles · Village guider", guideEyebrow: "A friendly tour of the project", guideIntro: "This website helps people explore neurodiversity resources at their own pace. You can enter an island, choose a building, and let Waffles compare resources from the village database with your personal record.", guideStoryTitle: "The story", guideStory: "The village began as two islands connected by a small bridge: one quieter, one full of momentum. Each building is a doorway to a kind of help, and Waffles is here to make the path feel calmer instead of crowded.", guideBuiltByTitle: "Made by", guideBuiltBy: "Created by SNP- Group D, 2026, cohort3.", guideUseTitle: "How Waffles helps", guideUse: "Waffles can introduce buildings, explain why a resource matched, save or dislike resources, and listen for natural voice commands when microphone control is turned on.",
+    guideTitle: "Waffles · Village guider", guideEyebrow: "A friendly tour of the project", guideIntro: "This website helps people explore neurodiversity resources at their own pace. You can enter an island, choose a building, and let Waffles compare resources from the village database with your personal record.", guideStoryTitle: "The story", guideStory: "The village began as two islands connected by a small bridge: one quieter, one full of momentum. Each building is a doorway to a kind of help, and Waffles is here to make the path feel calmer instead of crowded.", guideBuiltByTitle: "Made by", guideBuiltBy: "Created by SNP- Group D, 2026, cohort3.", guideUseTitle: "How Waffles helps", guideUse: "Waffles can introduce buildings, explain why a resource matched, save or dislike resources, and listen for natural voice commands when microphone control is turned on.", guideQuestion: "Ask Waffles about the site", guidePlaceholder: "For example: who made this site, what does the Courthouse do, or where should I go for legal help?", guideAsk: "Ask guide", guideSpeak: "Read aloud", guideListen: "Voice question", guideListening: "Listening for a guide question…", guideThinking: "Waffles is thinking…", guideActionPrefix: "Suggested next steps", guideError: "Waffles could not answer that yet.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
     language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
@@ -93,7 +96,7 @@ const i18n = {
     quietGardens: "安静花园", momentumTrails: "活力小径", autismIsland: "自闭症岛", adhdIsland: "ADHD 岛",
     resourcesLoading: "正在加载资源…", resourcesChecking: "正在检查实时数据库", personalReady: "你的个人记录已准备好", personalMatch: "Waffles 只用它来改善资源匹配", guestReady: "临时访客模式", guestMatch: "搜索与个人记录不会被保存", account: "账户", view: "查看", refresh: "刷新",
     jaGuide: "Waffles · 网站向导", jaReady: "我可以介绍这个网站。",
-    guideTitle: "Waffles · 村庄向导", guideEyebrow: "这个项目的温柔导览", guideIntro: "这个网站帮助用户按照自己的节奏探索神经多样性相关资源。你可以进入一座岛，选择一栋建筑，然后让 Waffles 结合你的个人记录与村庄数据库来比较资源。", guideStoryTitle: "背景故事", guideStory: "这个村庄从两座由小桥连接的岛开始：一座更安静，一座更有行动感。每栋建筑都是一种帮助的入口，而 Waffles 的任务是让寻找资源这件事变得更平静、更不拥挤。", guideBuiltByTitle: "制作团队", guideBuiltBy: "由 SNP- Group D，2026，cohort3 创建。", guideUseTitle: "Waffles 可以做什么", guideUse: "Waffles 可以介绍建筑、解释资源为什么匹配、收藏或标记不喜欢的资源，并在开启麦克风控制后理解自然语音指令。",
+    guideTitle: "Waffles · 村庄向导", guideEyebrow: "这个项目的温柔导览", guideIntro: "这个网站帮助用户按照自己的节奏探索神经多样性相关资源。你可以进入一座岛，选择一栋建筑，然后让 Waffles 结合你的个人记录与村庄数据库来比较资源。", guideStoryTitle: "背景故事", guideStory: "这个村庄从两座由小桥连接的岛开始：一座更安静，一座更有行动感。每栋建筑都是一种帮助的入口，而 Waffles 的任务是让寻找资源这件事变得更平静、更不拥挤。", guideBuiltByTitle: "制作团队", guideBuiltBy: "由 SNP- Group D，2026，cohort3 创建。", guideUseTitle: "Waffles 可以做什么", guideUse: "Waffles 可以介绍建筑、解释资源为什么匹配、收藏或标记不喜欢的资源，并在开启麦克风控制后理解自然语音指令。", guideQuestion: "向 Waffles 询问网站", guidePlaceholder: "例如：这个网站是谁做的，法院建筑有什么用，或我需要法律帮助该去哪？", guideAsk: "询问向导", guideSpeak: "朗读", guideListen: "语音提问", guideListening: "正在听你的向导问题…", guideThinking: "Waffles 正在思考…", guideActionPrefix: "建议的下一步", guideError: "Waffles 现在还无法回答。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
     language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
@@ -115,7 +118,7 @@ const i18n = {
     quietGardens: "Jardines tranquilos", momentumTrails: "Senderos activos", autismIsland: "Isla Autismo", adhdIsland: "Isla TDAH",
     resourcesLoading: "Cargando recursos…", resourcesChecking: "Consultando la base de datos", personalReady: "Tu registro personal está listo", personalMatch: "Waffles lo usa solo para mejorar las coincidencias", guestReady: "Visita temporal", guestMatch: "Las búsquedas y registros no se guardan", account: "Cuenta", view: "Ver", refresh: "Actualizar",
     jaGuide: "Waffles · Guía del sitio", jaReady: "Puedo explicar cómo funciona.",
-    guideTitle: "Waffles · Guía de la aldea", guideEyebrow: "Un recorrido amable del proyecto", guideIntro: "Este sitio ayuda a explorar recursos de neurodiversidad a tu propio ritmo. Puedes entrar en una isla, elegir un edificio y dejar que Waffles compare recursos de la base de datos con tu registro personal.", guideStoryTitle: "La historia", guideStory: "La aldea empezó como dos islas unidas por un pequeño puente: una más tranquila y otra con más impulso. Cada edificio es una puerta hacia un tipo de ayuda, y Waffles está aquí para que el camino se sienta más calmado.", guideBuiltByTitle: "Creado por", guideBuiltBy: "Creado por SNP- Group D, 2026, cohort3.", guideUseTitle: "Cómo ayuda Waffles", guideUse: "Waffles puede presentar edificios, explicar por qué coincide un recurso, guardar o marcar recursos, y escuchar comandos naturales cuando activas el micrófono.",
+    guideTitle: "Waffles · Guía de la aldea", guideEyebrow: "Un recorrido amable del proyecto", guideIntro: "Este sitio ayuda a explorar recursos de neurodiversidad a tu propio ritmo. Puedes entrar en una isla, elegir un edificio y dejar que Waffles compare recursos de la base de datos con tu registro personal.", guideStoryTitle: "La historia", guideStory: "La aldea empezó como dos islas unidas por un pequeño puente: una más tranquila y otra con más impulso. Cada edificio es una puerta hacia un tipo de ayuda, y Waffles está aquí para que el camino se sienta más calmado.", guideBuiltByTitle: "Creado por", guideBuiltBy: "Creado por SNP- Group D, 2026, cohort3.", guideUseTitle: "Cómo ayuda Waffles", guideUse: "Waffles puede presentar edificios, explicar por qué coincide un recurso, guardar o marcar recursos, y escuchar comandos naturales cuando activas el micrófono.", guideQuestion: "Pregunta a Waffles sobre el sitio", guidePlaceholder: "Por ejemplo: quién creó este sitio, qué hace el juzgado o adónde voy para apoyo legal.", guideAsk: "Preguntar", guideSpeak: "Leer en voz alta", guideListen: "Pregunta por voz", guideListening: "Escuchando una pregunta para la guía…", guideThinking: "Waffles está pensando…", guideActionPrefix: "Siguientes pasos sugeridos", guideError: "Waffles aún no pudo responder eso.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
     language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
@@ -1296,15 +1299,84 @@ function guidePanel() {
     [t("guideBuiltByTitle"), t("guideBuiltBy")],
     [t("guideUseTitle"), t("guideUse")]
   ];
+  state.lastGuideAnswer = state.lastGuideAnswer || t("guideIntro");
   openPanel({
     title: t("guideTitle"),
     eyebrow: t("guideEyebrow"),
     html: `<div class="guide-shell">
       <div class="mori-stage guide-stage"><div class="mori-character" aria-hidden="true"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><p>${escapeHtml(t("guideIntro"))}</p></div>
+      <section class="guide-chat" aria-live="polite">
+        <div class="guide-message guide-message-waffles" id="guide-answer">${escapeHtml(state.lastGuideAnswer)}</div>
+        <div class="guide-actions" id="guide-actions"></div>
+        <form id="guide-form" class="guide-form">
+          <label>${escapeHtml(t("guideQuestion"))}<textarea name="message" rows="3" minlength="2" placeholder="${escapeHtml(t("guidePlaceholder"))}"></textarea></label>
+          <div class="guide-voice-row">
+            <button class="primary-button" type="submit">${escapeHtml(t("guideAsk"))} <span aria-hidden="true">→</span></button>
+            <button type="button" class="secondary-button" data-action="speak-guide">${escapeHtml(t("guideSpeak"))}</button>
+            <button type="button" class="secondary-button" data-action="listen-guide">${escapeHtml(state.guideListening ? t("guideListening") : t("guideListen"))}</button>
+          </div>
+          <p id="guide-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
       <div class="guide-card-list">${guideCards.map(([title, detail]) => `<article class="guide-card"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(detail)}</p></article>`).join("")}</div>
     </div>`
   });
+  renderGuideActions([]);
   speakVillage(t("guideIntro"));
+}
+
+function renderGuideActions(actions = []) {
+  const target = $("#guide-actions");
+  if (!target) return;
+  const valid = actions.filter((item) => item?.label && item.action !== "none").slice(0, 3);
+  target.innerHTML = valid.length ? `<small>${escapeHtml(t("guideActionPrefix"))}</small>${valid.map((item) => `<button type="button" class="secondary-button guide-action-button" data-action="guide-suggestion" data-guide-suggestion="${escapeHtml(JSON.stringify(item))}">${escapeHtml(item.label)}</button>`).join("")}` : "";
+}
+
+function findGuideBuilding(action = {}) {
+  const island = action.island || state.selectedIsland || "autism";
+  return config.buildings.find((item) => item.id === action.buildingId)
+    || config.buildings.find((item) => item.island === island && action.buildingType && item.type === action.buildingType && (!action.topic || String(item.topic || "Caregiver Support") === action.topic))
+    || config.buildings.find((item) => item.island === island && action.topic && String(item.topic || "").toLowerCase() === String(action.topic).toLowerCase())
+    || config.buildings.find((item) => item.island === island && action.buildingType && item.type === action.buildingType);
+}
+
+function followGuideAction(action = {}) {
+  if (action.action === "open_settings") return settingsPanel();
+  if (action.action === "open_record") return profilePanel();
+  if (action.action === "select_island") return selectIsland(action.island || state.selectedIsland || "autism");
+  if (action.action === "open_building") {
+    const building = findGuideBuilding(action);
+    if (!building) return toast(t("guideError"));
+    return handleBuilding(building.id);
+  }
+}
+
+async function askGuide(message) {
+  const answer = $("#guide-answer");
+  const error = $("#guide-error");
+  if (error) error.textContent = "";
+  if (answer) answer.textContent = t("guideThinking");
+  try {
+    const data = await api("/api/guide/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, language: state.settings.language || "en", context: voiceContext() })
+    });
+    state.lastGuideAnswer = data.answer || t("guideIntro");
+    if (answer) answer.textContent = state.lastGuideAnswer;
+    renderGuideActions(data.suggestedActions || []);
+    speakVillage(state.lastGuideAnswer, { force: true });
+  } catch (err) {
+    if (answer) answer.textContent = state.lastGuideAnswer || t("guideIntro");
+    if (error) error.textContent = err.message || t("guideError");
+  }
+}
+
+function submitGuide(event) {
+  event.preventDefault();
+  const form = event.target;
+  const message = String(new FormData(form).get("message") || "").trim();
+  if (!message) return;
+  askGuide(message);
 }
 
 function aiPanel(topic = "Education", island = state.selectedIsland) {
@@ -1649,6 +1721,7 @@ function toggleVoiceSetting(key) {
   applySettings();
   settingsPanel();
   toast(t("settingsSaved"));
+  if (key === "voiceControl" && state.settings.voiceControl) startVoiceCommand({ continuous: true });
   if (key === "voiceAssistant" && state.settings.voiceAssistant) speakVillage("Voice assistant is on. I will narrate islands, buildings, and saved resources.");
 }
 
@@ -1700,11 +1773,16 @@ async function playGeneratedSpeech(text) {
 
 function stopVoiceCommand() {
   state.voiceListening = false;
-  try { state.voiceRecognition?.stop?.(); } catch {}
+  clearTimeout(state.voiceRestartTimer);
+  state.voiceRestartTimer = null;
+  try {
+    if (state.voiceRecognition) state.voiceRecognition.onend = null;
+    state.voiceRecognition?.stop?.();
+  } catch {}
   state.voiceRecognition = null;
 }
 
-function startVoiceCommand() {
+function startVoiceCommand({ continuous = true, announce = true } = {}) {
   if (!state.settings.voiceControl) return toast("Turn on microphone commands first.");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) return toast("Voice commands are not available in this browser.");
@@ -1722,17 +1800,56 @@ function startVoiceCommand() {
     handleVoiceCommand(transcript);
     if ($("#panel").classList.contains("open") && $("#panel-content .voice-settings")) settingsPanel();
   };
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
     state.voiceListening = false;
-    toast("I could not hear that command clearly.");
+    if (!["no-speech", "aborted"].includes(event.error)) toast("I could not hear that command clearly.");
     if ($("#panel").classList.contains("open") && $("#panel-content .voice-settings")) settingsPanel();
   };
   recognition.onend = () => {
     state.voiceListening = false;
     if ($("#panel").classList.contains("open") && $("#panel-content .voice-settings")) settingsPanel();
+    if (continuous && state.settings.voiceControl) {
+      clearTimeout(state.voiceRestartTimer);
+      state.voiceRestartTimer = setTimeout(() => startVoiceCommand({ continuous: true, announce: false }), 650);
+    }
   };
-  recognition.start();
-  speakVillage("I am listening for a village command.", { force: true });
+  try {
+    recognition.start();
+    if (announce) speakVillage("I am listening for natural village commands. You can ask in your own words.", { force: true });
+  } catch {
+    state.voiceListening = false;
+  }
+}
+
+function startGuideVoiceInput() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return toast("Voice questions are not available in this browser.");
+  const recognition = new Recognition();
+  state.guideListening = true;
+  const button = $('[data-action="listen-guide"]');
+  if (button) button.textContent = t("guideListening");
+  recognition.lang = state.settings.language === "zh" ? "zh-CN" : state.settings.language === "es" ? "es-US" : "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onresult = (event) => {
+    const transcript = String(event.results?.[0]?.[0]?.transcript || "").trim();
+    const input = $('#guide-form textarea[name="message"]');
+    if (input) input.value = transcript;
+    if (transcript) askGuide(transcript);
+  };
+  recognition.onerror = () => toast("I could not hear that guide question clearly.");
+  recognition.onend = () => {
+    state.guideListening = false;
+    const nextButton = $('[data-action="listen-guide"]');
+    if (nextButton) nextButton.textContent = t("guideListen");
+  };
+  try {
+    recognition.start();
+    speakVillage(t("guideListening"), { force: true });
+  } catch {
+    state.guideListening = false;
+    toast("Voice questions are not available right now.");
+  }
 }
 
 function voiceContext() {
@@ -2154,6 +2271,7 @@ function hydrateApp() {
   loadIntegrationStatus();
   loadResources();
   loadEnvironment();
+  if (state.settings.voiceControl && !state.voiceListening) setTimeout(() => startVoiceCommand({ continuous: true, announce: false }), 900);
   if (!state.user?.guest && state.user?.onboardingCompleted === false && !state.introOpen) setTimeout(openWafflesIntro, 350);
 }
 
@@ -2246,6 +2364,12 @@ document.addEventListener("click", (event) => {
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
   if (action === "open-mori") guidePanel();
+  if (action === "speak-guide") speakVillage(state.lastGuideAnswer || t("guideIntro"), { force: true });
+  if (action === "listen-guide") startGuideVoiceInput();
+  if (action === "guide-suggestion") {
+    try { followGuideAction(JSON.parse(actionElement.dataset.guideSuggestion || "{}")); }
+    catch { toast(t("guideError")); }
+  }
   if (action === "continue-guest") continueAsGuest();
   if (action === "open-password-reset") openPasswordReset();
   if (action === "close-password-reset") closePasswordReset();
@@ -2284,6 +2408,7 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
   if (event.target.id === "survey-form") submitSurvey(event);
   if (event.target.id === "ai-form") submitAi(event);
+  if (event.target.id === "guide-form") submitGuide(event);
   if (event.target.id === "clarification-form") submitClarification(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);

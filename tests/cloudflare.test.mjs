@@ -118,6 +118,35 @@ test("Cloudflare voice command parser returns a structured navigation intent", a
   }
 });
 
+test("Cloudflare Waffles guide chat answers site questions without recommending resources", async () => {
+  const database = new DatabaseSync(":memory:");
+  const originalFetch = globalThis.fetch;
+  let guideRequest;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(String(url), "https://api.openai.com/v1/responses");
+    guideRequest = JSON.parse(options.body);
+    return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({
+      answer: "It Takes a Village is a guided resource map made by SNP- Group D, 2026, cohort3.",
+      suggestedActions: [{ label: "Visit Legal", action: "open_building", island: "autism", buildingId: null, buildingType: "ai", topic: "Legal" }]
+    }) }] }] });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/guide/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: "Who made this and where do I go for rights?", language: "en" })
+    }), cloudflareEnv(database, { OPENAI_API_KEY: "test-key" }), ctx);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.ai, true);
+    assert.match(result.answer, /SNP- Group D/);
+    assert.equal(result.suggestedActions[0].topic, "Legal");
+    assert.match(guideRequest.instructions, /Do not recommend specific resources or provider names/);
+    assert.match(guideRequest.instructions, /SNP- Group D, 2026, cohort3/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("guest sessions can explore but cannot open Village Community", async () => {
   const guest = await worker.fetch(new Request("https://village.example/api/auth/guest", { method: "POST" }), {}, ctx);
   assert.equal(guest.status, 200);

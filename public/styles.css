@@ -382,6 +382,12 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .guide-card { border: 1px solid color-mix(in srgb, var(--sage) 30%, var(--line)); border-radius: 1rem; padding: 1rem; background: linear-gradient(135deg, #fffdf6, color-mix(in srgb, var(--sage-soft) 42%, white)); box-shadow: 0 .55rem 1.2rem rgba(37,62,55,.07); }
 .guide-card h3 { margin: 0 0 .35rem; font-size: 1rem; }
 .guide-card p { margin: 0; color: var(--muted); }
+.guide-chat { display: grid; gap: .85rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--sage) 34%, var(--line)); border-radius: 1rem; background: radial-gradient(circle at 12% 8%, rgba(255,255,255,.82), transparent 34%), linear-gradient(135deg, #fdfcf6, color-mix(in srgb, var(--sage-soft) 52%, white)); box-shadow: 0 .7rem 1.6rem rgba(37,62,55,.08); }
+.guide-message { padding: .9rem 1rem; border-radius: .35rem 1rem 1rem 1rem; background: white; color: var(--ink); box-shadow: 0 .4rem .9rem rgba(37,62,55,.08); white-space: pre-wrap; }
+.guide-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; min-height: .2rem; }.guide-actions small { width: 100%; color: var(--sage-dark); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: .68rem; }
+.guide-action-button { padding: .55rem .75rem; }
+.guide-form { display: grid; gap: .7rem; }.guide-form textarea { min-height: 5.2rem; resize: vertical; }
+.guide-voice-row { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; justify-content: flex-end; }
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
 .community-launch { display: grid; gap: 1rem; margin: 1.2rem 0; padding: 1.15rem; border: 1px solid color-mix(in srgb, var(--sage) 36%, var(--line)); border-radius: 1.2rem; background: linear-gradient(135deg, color-mix(in srgb, var(--sage-soft) 78%, white), #fff8e7); }
 .community-launch small { color: var(--sage-dark); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.community-launch h3 { margin: .25rem 0; font-size: 1.05rem; }.community-launch p { margin: 0; color: var(--muted); font-size: .85rem; }.community-launch button { justify-self: start; }

@@ -55,6 +55,14 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(app, /const orbitStart = celestialOrbit\(0\)/);
   assert.match(app, /function guidePanel\(\)/);
   assert.match(app, /if \(action === "open-mori"\) guidePanel\(\)/);
+  assert.match(app, /\/api\/guide\/chat/);
+  assert.match(app, /data-action="speak-guide"/);
+  assert.match(app, /data-action="listen-guide"/);
+  assert.match(app, /data-action="guide-suggestion"/);
+  assert.match(app, /function startGuideVoiceInput\(\)/);
+  assert.match(app, /startVoiceCommand\(\{ continuous: true, announce: false \}\)/);
+  assert.match(css, /\.guide-chat/);
+  assert.match(css, /\.guide-message/);
 });
 
 test("header logo fits its lockup without the old oversized crop", async () => {

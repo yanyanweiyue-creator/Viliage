@@ -319,7 +319,7 @@ async function expandKeywords(env, { topic, description, profile, directKeywords
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: env.OPENAI_MODEL || "gpt-5.5",
+        model: env.OPENAI_MODEL || "gpt-5.4",
         reasoning: { effort: "low" },
         text: { verbosity: "low", format: { type: "json_schema", name: "keyword_expansion", strict: true, schema: { type: "object", properties: { keywords: { type: "array", items: { type: "string" }, maxItems: limit } }, required: ["keywords"], additionalProperties: false } } },
         instructions: "Suggest only short search synonyms, related resource tags, category terms, and common alternative phrases. Avoid duplicates and sensitive inferences.",
@@ -341,7 +341,7 @@ async function aiAnswer(env, { topic, description, profile, matches, language = 
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: env.OPENAI_MODEL || "gpt-5.5",
+      model: env.OPENAI_MODEL || "gpt-5.4",
       reasoning: { effort: "low" },
       text: { verbosity: "low" },
       instructions: `You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit in under 180 words. Respond in ${responseLanguageName(language)}.`,
@@ -392,7 +392,7 @@ async function voiceIntent(env, { transcript, context }) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: env.OPENAI_MODEL || "gpt-5.5",
+      model: env.OPENAI_MODEL || "gpt-5.4",
       reasoning: { effort: "low" },
       text: { verbosity: "low", format: { type: "json_schema", name: "voice_navigation_intent", strict: true, schema } },
       instructions: "Map natural voice requests to website navigation for an accessibility assistant. Accept loose phrases like 'show me the next part', 'open Waffles', 'what is this website', 'who made this', 'take me to school help', or 'I need legal stuff'. Use open_guide for Waffles, site overview, creator, or story requests. Use ask_followup only when the target is genuinely unclear. Do not invent unsupported actions. Keep speech short, warm, and plain.",
@@ -402,6 +402,99 @@ async function voiceIntent(env, { transcript, context }) {
   });
   if (!response.ok) throw new Error(`OpenAI voice intent returned ${response.status}.`);
   return JSON.parse(responseText(await response.json()) || "{}");
+}
+
+function guideActionSchema() {
+  return {
+    type: "object",
+    properties: {
+      answer: { type: "string" },
+      suggestedActions: {
+        type: "array",
+        maxItems: 3,
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string" },
+            action: { type: "string", enum: ["select_island", "open_building", "open_settings", "open_record", "none"] },
+            island: { type: ["string", "null"], enum: ["autism", "adhd", null] },
+            buildingId: { type: ["string", "null"] },
+            buildingType: { type: ["string", "null"], enum: ["support", "activity", "ai", null] },
+            topic: { type: ["string", "null"], enum: ["Education", "Legal", "Recreation", "Caregiver Support", null] }
+          },
+          required: ["label", "action", "island", "buildingId", "buildingType", "topic"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["answer", "suggestedActions"],
+    additionalProperties: false
+  };
+}
+
+function localGuideAnswer({ message = "", language = "en" }) {
+  const text = String(message || "").toLowerCase();
+  const zh = language === "zh";
+  const es = language === "es";
+  const base = zh
+    ? "我是 Waffles，这个网站的互动向导。我可以介绍 It Takes a Village、解释每座岛和建筑的用途，并带你去合适的地方。"
+    : es
+      ? "Soy Waffles, la guía interactiva del sitio. Puedo explicar It Takes a Village, presentar las islas y edificios, y llevarte al lugar adecuado."
+      : "I’m Waffles, the interactive site guider. I can explain It Takes a Village, introduce each island and building, and help you move to the right place.";
+  const actions = [];
+  if (text.includes("legal") || text.includes("law") || text.includes("法律")) actions.push({ label: zh ? "去法律建筑" : es ? "Ir a Legal" : "Go to Legal", action: "open_building", island: null, buildingId: null, buildingType: "ai", topic: "Legal" });
+  else if (text.includes("school") || text.includes("education") || text.includes("教育")) actions.push({ label: zh ? "去教育建筑" : es ? "Ir a Educación" : "Go to Education", action: "open_building", island: null, buildingId: null, buildingType: "ai", topic: "Education" });
+  else if (text.includes("park") || text.includes("activity") || text.includes("recreation") || text.includes("活动") || text.includes("休闲")) actions.push({ label: zh ? "去活动建筑" : es ? "Ir a Recreación" : "Go to Recreation", action: "open_building", island: null, buildingId: null, buildingType: "ai", topic: "Recreation" });
+  else if (text.includes("support") || text.includes("contact") || text.includes("联系") || text.includes("支持")) actions.push({ label: zh ? "去支持建筑" : es ? "Ir a Apoyo" : "Go to Support", action: "open_building", island: null, buildingId: null, buildingType: "support", topic: "Caregiver Support" });
+  else actions.push({ label: zh ? "查看两座岛" : es ? "Ver las islas" : "View the islands", action: "select_island", island: "autism", buildingId: null, buildingType: null, topic: null });
+  return { answer: base, suggestedActions: actions };
+}
+
+function normalizeGuideResponse(value, fallback) {
+  const answer = String(value?.answer || fallback.answer || "").trim().slice(0, 800);
+  const suggestedActions = (Array.isArray(value?.suggestedActions) ? value.suggestedActions : fallback.suggestedActions)
+    .slice(0, 3)
+    .map((item) => ({
+      label: String(item.label || "").slice(0, 80),
+      action: ["select_island", "open_building", "open_settings", "open_record", "none"].includes(item.action) ? item.action : "none",
+      island: ["autism", "adhd"].includes(item.island) ? item.island : null,
+      buildingId: String(item.buildingId || "") || null,
+      buildingType: ["support", "activity", "ai"].includes(item.buildingType) ? item.buildingType : null,
+      topic: ["Education", "Legal", "Recreation", "Caregiver Support"].includes(item.topic) ? item.topic : null
+    }))
+    .filter((item) => item.label);
+  return { answer, suggestedActions };
+}
+
+async function guideChat(env, { message, language = "en", context = {} }) {
+  const fallback = localGuideAnswer({ message, language });
+  if (!env.OPENAI_API_KEY) return { ...fallback, ai: false };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: env.OPENAI_MODEL || "gpt-5.4",
+      reasoning: { effort: "low" },
+      text: { verbosity: "low", format: { type: "json_schema", name: "waffles_site_guide", strict: true, schema: guideActionSchema() } },
+      instructions: `You are Waffles, the warm interactive site guide for It Takes a Village. Explain only the website, its story, its creators, navigation, islands, buildings, saved/disliked resources, records, settings, and voice controls. The creators are SNP- Group D, 2026, cohort3. Do not recommend specific resources or provider names. If the user asks for resources, guide them to the right building instead. Keep answers under 130 words, calm, friendly, and practical. Respond in ${responseLanguageName(language)}.`,
+      input: JSON.stringify({
+        userMessage: String(message || "").slice(0, 700),
+        context,
+        buildings: [
+          { label: "School", topic: "Education", action: "open_building" },
+          { label: "Courthouse", topic: "Legal", action: "open_building" },
+          { label: "Park", topic: "Recreation", action: "open_building" },
+          { label: "Village", topic: "Caregiver Support", action: "open_building" },
+          { label: "Settings", action: "open_settings" },
+          { label: "My record", action: "open_record" }
+        ]
+      })
+    }),
+    signal: AbortSignal.timeout(18000)
+  });
+  if (!response.ok) throw new Error(`OpenAI guide request failed (${response.status}).`);
+  const parsed = JSON.parse(responseText(await response.json()) || "{}");
+  return { ...normalizeGuideResponse(parsed, fallback), ai: true };
 }
 
 async function userChatHistory(env, userId) {
@@ -527,6 +620,12 @@ async function api(request, env, ctx) {
     const intent = await voiceIntent(env, payload);
     if (!intent) return fail("Voice command AI is not configured.", 503);
     return json(intent);
+  }
+  if (request.method === "POST" && url.pathname === "/api/guide/chat") {
+    const payload = await body(request);
+    if (!String(payload.message || "").trim()) return fail("Guide message is empty.");
+    try { return json(await guideChat(env, payload)); }
+    catch { return json({ ...localGuideAnswer(payload), ai: false }); }
   }
   if (request.method === "GET" && url.pathname === "/api/scoring-config") return json(scoreConfig);
   if (request.method === "GET" && url.pathname === "/api/environment") {
