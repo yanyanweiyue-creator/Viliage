@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=village-guide-voice-20260625" />
+    <link rel="stylesheet" href="/styles.css?v=character-guides-20260628" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -19,7 +19,7 @@
     <section id="auth-screen" class="screen auth-shell" aria-labelledby="auth-title">
       <div class="auth-art" aria-hidden="true">
         <div class="auth-landscape"></div>
-        <div class="welcome-capy"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div>
+        <img class="village-character login-character" src="/assets/character-waffles.svg" alt="" />
         <p>A small village can hold a lot of help.</p>
       </div>
       <div class="auth-card">
@@ -125,7 +125,7 @@
       <section id="waffles-intro" class="waffles-intro hidden" role="dialog" aria-modal="true" aria-labelledby="waffles-intro-title">
         <div class="waffles-intro-card">
           <button type="button" class="intro-skip" data-action="intro-skip">Skip introduction</button>
-          <div class="intro-capy" aria-hidden="true"><span class="capy-avatar"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></span><span class="intro-spark spark-one">✦</span><span class="intro-spark spark-two">✧</span></div>
+          <div class="intro-capy" aria-hidden="true"><img class="village-character intro-character" src="/assets/character-waffles.svg" alt="" /><span class="intro-spark spark-one">✦</span><span class="intro-spark spark-two">✧</span></div>
           <div class="intro-copy"><p id="waffles-intro-eyebrow" class="eyebrow">Meet your village guide</p><h2 id="waffles-intro-title">Hi, I’m Waffles.</h2><p id="waffles-intro-text"></p><div id="waffles-intro-building" class="intro-building-badge hidden"></div></div>
           <div class="intro-progress"><span id="waffles-intro-count">1 of 6</span><div id="waffles-intro-dots" class="intro-dots" aria-hidden="true"></div></div>
           <div class="intro-actions"><button type="button" id="intro-back" class="secondary-button" data-action="intro-back">← Back</button><button type="button" id="intro-next" class="primary-button" data-action="intro-next">Next →</button></div>
@@ -196,13 +196,13 @@
       <button id="panel-scrim" class="panel-scrim" data-action="close-panel" aria-label="Close panel"></button>
 
       <button id="mori-dock" class="mori-dock" data-action="open-mori" aria-label="Open Waffles site guider">
-        <span class="capy-avatar"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></span>
+        <img class="village-character dock-character" src="/assets/character-waffles.svg" alt="" />
         <span><small data-i18n="jaGuide">Waffles · Site guider</small><strong data-i18n="jaReady">Ask me how this village works.</strong></span><span class="dock-arrow">↑</span>
       </button>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>
 
     <script src="/site-config.js?v=village-guide-voice-20260625"></script>
-    <script type="module" src="/app.js?v=village-guide-voice-20260625"></script>
+    <script type="module" src="/app.js?v=character-guides-20260628"></script>
   </body>
 </html>
