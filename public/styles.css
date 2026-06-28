@@ -57,6 +57,8 @@ a { color: inherit; }
 .auth-art::after { width: 80%; height: 13rem; left: 10%; bottom: -5rem; background: #f1db96; }
 .auth-landscape { position: absolute; inset: 12% 10% 21%; background: url('/assets/village-map-approved.png') center/cover no-repeat; border-radius: 45% 55% 42% 58%; opacity: .28; filter: saturate(.75); mix-blend-mode: multiply; }
 .auth-art > p { position: absolute; left: 8%; bottom: 4%; max-width: 18rem; font-family: "Fraunces", serif; font-size: 1.9rem; line-height: 1.05; color: #183f36; }
+.village-character { display: block; object-fit: contain; object-position: center; mix-blend-mode: darken; }
+.login-character { position: relative; z-index: 2; width: min(27rem, 72%); max-height: 24rem; filter: drop-shadow(0 1.8rem 2rem rgba(30,67,57,.2)); animation: capyFloat 4s ease-in-out infinite; }
 .welcome-capy { position: relative; width: 15rem; height: 12rem; background: #a87b55; border-radius: 45% 45% 52% 52%; box-shadow: inset 0 -1.5rem rgba(83,52,33,.09), 0 1.8rem 3rem rgba(30,67,57,.18); z-index: 2; animation: capyFloat 4s ease-in-out infinite; }
 .capy-ear { position: absolute; width: 2.9rem; height: 2.9rem; border-radius: 50%; background: #865c3d; top: -.8rem; }
 .capy-ear.left { left: 1.4rem; } .capy-ear.right { right: 1.4rem; }
@@ -117,6 +119,7 @@ legend { font-family: "Fraunces", serif; font-size: 1.17rem; font-weight: 700; p
 .waffles-intro-card::before { content: ""; position: absolute; width: 20rem; height: 20rem; right: -8rem; bottom: -12rem; border-radius: 50%; background: rgba(244,216,135,.32); }
 .intro-skip { position: absolute; z-index: 2; right: 1.4rem; top: 1.2rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-weight: 700; }
 .intro-capy { position: relative; display: grid; place-items: center; align-self: center; min-height: 13rem; }
+.intro-character { width: clamp(8.5rem, 15vw, 12rem); height: clamp(7.5rem, 13vw, 10.5rem); filter: drop-shadow(0 1.2rem 1rem rgba(77,53,34,.18)); animation: capyFloat 4s ease-in-out infinite; }
 .intro-capy .capy-avatar { width: clamp(7.5rem, 13vw, 10.5rem); height: clamp(6.5rem, 11vw, 9rem); filter: drop-shadow(0 1.2rem 1rem rgba(77,53,34,.18)); animation: capyFloat 4s ease-in-out infinite; }
 .intro-capy .capy-ear { width: 2rem; height: 2rem; }.intro-capy .capy-eye { top: 42%; }.intro-capy .capy-nose { top: 57%; }
 .intro-spark { position: absolute; color: #d4a944; animation: introSpark 2.2s ease-in-out infinite alternate; }.spark-one { left: 4%; top: 14%; font-size: 1.7rem; }.spark-two { right: 4%; bottom: 18%; font-size: 2.2rem; animation-delay: -.7s; }
@@ -429,6 +432,11 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .activity-card small { display: block; color: var(--sage-dark); margin-bottom: .35rem; }
 .ai-shell { display: grid; gap: 1rem; }
 .mori-stage { display: grid; grid-template-columns: 6rem 1fr; align-items: center; gap: 1rem; padding: 1.2rem; border-radius: 1.2rem; background: linear-gradient(135deg, #e2f1e9, #f8eed0); }
+.panel-character { width: 5.4rem; height: 5.4rem; justify-self: center; border-radius: .7rem; transition: transform .25s; }
+.panel-character.thinking { animation: think 1.1s ease-in-out infinite; }
+.panel-character.celebrate { animation: celebrate .65s ease 2; }
+.support-character-stage h3, .support-character-stage p { margin: 0; }
+.support-character-stage p { color: var(--muted); }
 .mori-character { position: relative; width: 5.4rem; height: 4.5rem; border-radius: 48% 48% 54% 54%; background: #a67b58; transition: transform .25s; }
 .mori-character.thinking { animation: think 1.1s ease-in-out infinite; }
 .mori-character.celebrate { animation: celebrate .65s ease 2; }
@@ -483,6 +491,7 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .feedback-form { display: grid; gap: .7rem; margin-top: 1.5rem; }
 .mori-dock { position: fixed; right: 2.2rem; bottom: 1.5rem; z-index: 35; width: min(27rem, calc(100vw - 2rem)); display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .8rem; border: 1px solid var(--line); background: rgba(255,255,255,.94); backdrop-filter: blur(12px); border-radius: 1.3rem; padding: .7rem .8rem; box-shadow: var(--shadow); text-align: left; cursor: pointer; }
 .mori-dock small, .mori-dock strong { display: block; }.mori-dock small { color: var(--sage-dark); text-transform: uppercase; letter-spacing: .12em; }.mori-dock strong { margin-top: .15rem; }
+.dock-character { width: 4rem; height: 3.6rem; border-radius: .5rem; }
 .capy-avatar { position: relative; width: 3.8rem; height: 3.4rem; background: #a67b58; border-radius: 48% 48% 54% 54%; }
 .capy-avatar .capy-ear { width: .95rem; height: .95rem; top: -.2rem; }.capy-avatar .capy-ear.left { left: .5rem; }.capy-avatar .capy-ear.right { right: .5rem; }
 .capy-avatar .capy-eye { width: .24rem; height: .3rem; top: 1.35rem; }.capy-avatar .capy-eye.left { left: 1.05rem; }.capy-avatar .capy-eye.right { right: 1.05rem; }
@@ -534,7 +543,7 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   h1 { font-size: 2.65rem; }.simple-header, .app-header { padding: 0 1rem; }.survey-main { padding-top: 2.5rem; }.progress-rail { margin-bottom: 2.8rem; }
   .survey-grid fieldset { padding: 1rem; }.choice-grid, .choice-grid.compact { grid-template-columns: 1fr 1fr; }.form-actions { flex-direction: column-reverse; }
   .hero-copy { margin-inline: .5rem; }.panel-top, .panel-content { padding-left: 1.2rem; padding-right: 1.2rem; }.community-search-fixed { margin-inline: -1.2rem; padding-inline: 1.2rem; }.community-direct-room, .community-room-card, .community-person-card { grid-template-columns: auto minmax(0,1fr); }.community-direct-room .community-actions, .community-room-card .community-actions, .community-person-card .community-actions { grid-column: 1 / -1; justify-content: flex-end; }.mori-dock { left: 1rem; right: 1rem; bottom: .8rem; }.village-footer-cards { padding-inline: .3rem; }
-  .waffles-intro-card { grid-template-columns: 1fr; gap: .5rem; min-height: min(42rem, 92dvh); padding: 3.3rem 1.35rem 1.35rem; }.intro-capy { min-height: 8rem; }.intro-capy .capy-avatar { width: 6.4rem; height: 5.5rem; }.intro-copy { text-align: center; }.intro-copy > p:last-of-type { font-size: .9rem; }.intro-building-badge { text-align: left; }.intro-progress, .intro-actions { grid-column: 1; }.intro-actions .primary-button, .intro-actions .secondary-button { min-height: 2.8rem; padding: .65rem .85rem; }
+  .waffles-intro-card { grid-template-columns: 1fr; gap: .5rem; min-height: min(42rem, 92dvh); padding: 3.3rem 1.35rem 1.35rem; }.intro-capy { min-height: 8rem; }.intro-character { width: 7rem; height: 6.4rem; }.intro-capy .capy-avatar { width: 6.4rem; height: 5.5rem; }.intro-copy { text-align: center; }.intro-copy > p:last-of-type { font-size: .9rem; }.intro-building-badge { text-align: left; }.intro-progress, .intro-actions { grid-column: 1; }.intro-actions .primary-button, .intro-actions .secondary-button { min-height: 2.8rem; padding: .65rem .85rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
