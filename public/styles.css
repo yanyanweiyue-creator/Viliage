@@ -433,10 +433,11 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .ai-shell { display: grid; gap: 1rem; }
 .mori-stage { display: grid; grid-template-columns: 6rem 1fr; align-items: center; gap: 1rem; padding: 1.2rem; border-radius: 1.2rem; background: linear-gradient(135deg, #e2f1e9, #f8eed0); }
 .panel-character { width: 5.4rem; height: 5.4rem; justify-self: center; border-radius: .7rem; transition: transform .25s; }
+.mayor-crumpet-character { object-fit: cover; object-position: center 48%; }
 .panel-character.thinking { animation: think 1.1s ease-in-out infinite; }
 .panel-character.celebrate { animation: celebrate .65s ease 2; }
-.support-character-stage h3, .support-character-stage p { margin: 0; }
-.support-character-stage p { color: var(--muted); }
+.support-character-stage h3, .support-character-stage p, .activity-character-stage h3, .activity-character-stage p { margin: 0; }
+.support-character-stage p, .activity-character-stage p { color: var(--muted); }
 .mori-character { position: relative; width: 5.4rem; height: 4.5rem; border-radius: 48% 48% 54% 54%; background: #a67b58; transition: transform .25s; }
 .mori-character.thinking { animation: think 1.1s ease-in-out infinite; }
 .mori-character.celebrate { animation: celebrate .65s ease 2; }
