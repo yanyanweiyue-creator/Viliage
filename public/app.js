@@ -6,6 +6,13 @@ import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 
 const config = window.CAPY_CONFIG;
+const GUIDE_CHARACTERS = Object.freeze({
+  Education: { name: "Muffins", src: "/assets/character-muffins-school.svg", alt: "Muffins, the School guide" },
+  Legal: { name: "Bacon", src: "/assets/character-bacon-law.svg", alt: "Bacon, the Law guide" },
+  Recreation: { name: "Granola", src: "/assets/character-granola-recreation.svg", alt: "Granola, the Recreation guide" },
+  Support: { name: "Support guide", src: "/assets/character-flower-support.svg", alt: "The flower-wearing Support guide" },
+  Waffles: { name: "Waffles", src: "/assets/character-waffles.svg", alt: "Waffles, the village guider" }
+});
 const WAFFLES_INTRO_STEPS = Object.freeze([
   { eyebrow: "Meet your village guide", title: "Hi, I’m Waffles.", text: "I’m a friendly AI resource guide. Tell me what you are trying to find, and I’ll compare the village database with your personal record. I don’t diagnose or replace professional advice." },
   { eyebrow: "Village · Support", title: "Start with support.", text: "The Village connects you with contact options, community conversations, friends, groups, and a dedicated search for support resources.", building: "Village", symbol: "⌂" },
@@ -999,6 +1006,17 @@ function supportIcon(name) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>`;
 }
 
+function guideCharacter(topic = "Waffles", { id = "", className = "", decorative = false } = {}) {
+  const character = GUIDE_CHARACTERS[topic] || GUIDE_CHARACTERS.Waffles;
+  return `<img${id ? ` id="${id}"` : ""} class="village-character panel-character${className ? ` ${className}` : ""}" src="${character.src}" alt="${decorative ? "" : character.alt}">`;
+}
+
+function characterGreeting(name) {
+  if (state.settings.language === "zh") return `你好，我是 ${name}。`;
+  if (state.settings.language === "es") return `Hola, soy ${name}.`;
+  return `Hi, I’m ${name}.`;
+}
+
 function resourceSearchForm(topic = "Support") {
   const examples = topic === "Support" ? "For example: I need affordable family support, respite care, or a local parent group…" : "Describe what kind of resource would help…";
   return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>${escapeHtml(t("supportSearchTitle"))}</h3><p>${escapeHtml(t("supportSearchIntro"))}</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t("aiDisclaimer"))}</p></div>`;
@@ -1016,7 +1034,7 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
   openPanel({
     title: t("supportTitle"),
     eyebrow: t("supportEyebrow"),
-    html: `<div class="support-shell">${tab === "search" ? resourceSearchForm("Support") : phoneContent}<nav class="support-dock" aria-label="Support options"><button type="button" class="${tab === "phone" ? "active" : ""}" data-action="support-tab" data-support-tab="phone">${supportIcon("phone")}<span>${escapeHtml(t("supportContactTab"))}</span></button><button type="button" class="${tab === "search" ? "active" : ""}" data-action="support-tab" data-support-tab="search">${supportIcon("search")}<span>${escapeHtml(t("supportFindTab"))}</span></button></nav></div>`
+    html: `<div class="support-shell"><div class="mori-stage support-character-stage">${guideCharacter("Support")}<div><h3>${escapeHtml(t("supportTitle"))}</h3><p>${escapeHtml(t("supportEyebrow"))}</p></div></div>${tab === "search" ? resourceSearchForm("Support") : phoneContent}<nav class="support-dock" aria-label="Support options"><button type="button" class="${tab === "phone" ? "active" : ""}" data-action="support-tab" data-support-tab="phone">${supportIcon("phone")}<span>${escapeHtml(t("supportContactTab"))}</span></button><button type="button" class="${tab === "search" ? "active" : ""}" data-action="support-tab" data-support-tab="search">${supportIcon("search")}<span>${escapeHtml(t("supportFindTab"))}</span></button></nav></div>`
   });
 }
 
@@ -1305,7 +1323,7 @@ function guidePanel() {
     title: t("guideTitle"),
     eyebrow: t("guideEyebrow"),
     html: `<div class="guide-shell">
-      <div class="mori-stage guide-stage"><div class="mori-character" aria-hidden="true"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><p>${escapeHtml(t("guideIntro"))}</p></div>
+      <div class="mori-stage guide-stage">${guideCharacter("Waffles")}<p>${escapeHtml(t("guideIntro"))}</p></div>
       <section class="guide-chat" aria-live="polite">
         <div class="guide-message guide-message-waffles" id="guide-answer">${escapeHtml(state.lastGuideAnswer)}</div>
         <div class="guide-actions" id="guide-actions"></div>
@@ -1383,13 +1401,14 @@ function submitGuide(event) {
 function aiPanel(topic = "Education", island = state.selectedIsland, initialDescription = "", options = {}) {
   state.currentTopic = topic;
   state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
+  const character = GUIDE_CHARACTERS[topic] || GUIDE_CHARACTERS.Education;
   const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : topic === "Recreation" ? "For example: I’m looking for a calm, inclusive weekend activity nearby…" : "For example: I’m looking for executive-function support for a middle-school student…";
   const descriptionValue = String(initialDescription || "").trim();
   openPanel({
-    title: `${t(String(topic || "Education").toLowerCase())} · Waffles`,
+    title: `${t(String(topic || "Education").toLowerCase())} · ${character.name}`,
     eyebrow: t("aiEyebrow"),
     html: `<div class="ai-shell">
-      <div class="mori-stage"><div class="mori-character" id="mori-character"><span class="capy-ear left"></span><span class="capy-ear right"></span><span class="capy-eye left"></span><span class="capy-eye right"></span><span class="capy-nose"></span></div><div><h3>${escapeHtml(t("aiHello"))}</h3><p>${escapeHtml(t("aiExplain"))}</p></div></div>
+      <div class="mori-stage">${guideCharacter(topic, { id: "mori-character" })}<div><h3>${escapeHtml(characterGreeting(character.name))}</h3><p>${escapeHtml(t("aiExplain"))}</p></div></div>
       <form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}">${escapeHtml(descriptionValue)}</textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
       <div id="ai-results"></div>
       <p class="privacy-note">${escapeHtml(t("aiDisclaimer"))}</p>
