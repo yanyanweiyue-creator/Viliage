@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=character-guides-20260628b" />
+    <link rel="stylesheet" href="/styles.css?v=research-feedback-20260703" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -131,6 +131,19 @@
           <div class="intro-actions"><button type="button" id="intro-back" class="secondary-button" data-action="intro-back">← Back</button><button type="button" id="intro-next" class="primary-button" data-action="intro-next">Next →</button></div>
         </div>
       </section>
+      <section id="research-feedback-dialog" class="research-feedback-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="research-feedback-title">
+        <div class="research-feedback-card">
+          <img class="village-character research-feedback-character" src="/assets/character-waffles.svg" alt="" />
+          <p class="eyebrow">Daily research check-in</p>
+          <h2 id="research-feedback-title">Are the researching help?</h2>
+          <p>Your answer helps Waffles improve future resource searches.</p>
+          <div class="research-feedback-actions">
+            <button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="daily" data-helpful="true">Helpful</button>
+            <button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="daily" data-helpful="false">Not really</button>
+          </div>
+          <p class="research-feedback-status" role="status"></p>
+        </div>
+      </section>
       <header class="app-header">
         <a class="brand-lockup brand-logo-lockup" href="#" data-action="home"><img src="/assets/it-takes-a-village-logo.svg" alt="It Takes a Village" /></a>
         <nav aria-label="Main navigation"><button data-action="home" class="nav-button active" data-i18n="village">Village</button><button data-action="open-profile" class="nav-button" data-i18n="myRecord">My record</button></nav>
@@ -203,6 +216,6 @@
     </section>
 
     <script src="/site-config.js?v=village-guide-voice-20260625"></script>
-    <script type="module" src="/app.js?v=character-guides-20260628b"></script>
+    <script type="module" src="/app.js?v=research-feedback-20260703"></script>
   </body>
 </html>

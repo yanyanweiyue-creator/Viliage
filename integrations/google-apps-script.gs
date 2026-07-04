@@ -115,6 +115,7 @@ function sendPasswordResetCode_(data) {
 
 function appendResourceError_(data) {
   delete data.password;
+  data["Helpful?"] = "No";
   data["Helpful"] = "No";
   data.helpful = "No";
 
@@ -137,7 +138,7 @@ function appendResourceError_(data) {
   var dataKeys = Object.keys(data);
   var row = headers.map(function(header) {
     var normalizedHeader = normalizeHeader_(header);
-    if (normalizedHeader === "helpful") return "No";
+    if (normalizedHeader === "helpful" || normalizedHeader === "helpful?") return "No";
     var matchingKey = dataKeys.filter(function(key) {
       return normalizeHeader_(key) === normalizedHeader;
     })[0];

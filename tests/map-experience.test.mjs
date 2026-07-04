@@ -24,8 +24,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=village-guide-voice-20260625/);
-  assert.match(html, /app\.js\?v=village-guide-voice-20260625/);
+  assert.match(html, /styles\.css\?v=research-feedback-20260703/);
+  assert.match(html, /app\.js\?v=research-feedback-20260703/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);

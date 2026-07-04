@@ -359,7 +359,7 @@ export function rankResources(resources, options = {}) {
     }
   }
 
-  return collected.filter((resource) => resource.score >= limits.minimumScore).sort((a, b) => a.tier - b.tier || b.score - a.score || Number(b.gateEvidence?.confidence || 0) - Number(a.gateEvidence?.confidence || 0) || String(a.name).localeCompare(String(b.name))).slice(0, count);
+  return collected.filter((resource) => resource.score >= limits.minimumScore).sort((a, b) => b.score - a.score || a.tier - b.tier || Number(b.gateEvidence?.confidence || 0) - Number(a.gateEvidence?.confidence || 0) || String(a.name).localeCompare(String(b.name))).slice(0, count);
 }
 
 export function clarificationQuestions({ topic = "", description = "", maxQuestions = 3 } = {}) {

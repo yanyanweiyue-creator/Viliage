@@ -477,6 +477,18 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .resource-explanation { margin-top: .8rem; padding: .85rem; border: 1px solid color-mix(in srgb, var(--sage) 32%, var(--line)); border-radius: .9rem; background: rgba(255,255,255,.72); color: var(--ink); font-size: .84rem; line-height: 1.45; }
 .resource-meta { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .65rem; }
 .resource-meta span { background: #eef3ee; border-radius: 999px; padding: .28rem .5rem; font-size: .7rem; }
+.research-result-feedback { display: grid; gap: .65rem; margin: 1rem 0 1.15rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--sage) 34%, var(--line)); border-radius: 1rem; background: linear-gradient(135deg, rgba(238,245,239,.9), rgba(255,248,232,.8)); }
+.research-result-feedback p { margin: 0; color: var(--ink); font-weight: 800; }
+.research-result-feedback .research-feedback-actions { justify-content: flex-start; }
+.research-feedback-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .7rem; }
+.research-feedback-negative { border-color: #a96962; color: #7f3f39; }
+.research-feedback-status { min-height: 1.25rem; margin: 0; color: var(--muted); font-size: .78rem; }
+.research-feedback-dialog { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(25,45,40,.4); backdrop-filter: blur(6px); }
+.research-feedback-dialog.hidden { display: none; }
+.research-feedback-card { width: min(31rem, 94vw); padding: 2rem; border: 1px solid color-mix(in srgb, var(--sage) 38%, var(--line)); border-radius: 1.4rem; background: var(--paper); box-shadow: 0 1.5rem 5rem rgba(25,55,47,.28); text-align: center; }
+.research-feedback-card h2 { margin: .25rem 0 .6rem; }
+.research-feedback-card > p:not(.eyebrow):not(.research-feedback-status) { margin: 0 auto 1.35rem; color: var(--muted); }
+.research-feedback-character { width: 5rem; height: 5rem; margin-bottom: .6rem; }
 .filter-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .55rem; }
 .filter-badges span { border: 1px solid #bdd6c2; background: #f4faf4; color: #315b3b; border-radius: 999px; padding: .25rem .48rem; font-size: .68rem; font-weight: 750; }
 .filter-badges .gate-evidence { border-color: #d9caa6; background: #fff9e9; color: #735b27; }

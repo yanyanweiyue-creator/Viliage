@@ -38,7 +38,9 @@ const state = {
   selectedIsland: null,
   currentTopic: "Education",
   currentDiagnosis: "",
-  pendingSearch: null,
+  currentResearch: null,
+  dailyResearchContext: null,
+  dailyResearchFeedbackPending: false,
   passwordResetEmail: "",
   introStep: 0,
   introOpen: false,
@@ -1500,14 +1502,102 @@ function renderSourceFooter(data, fallbackVersion = "1.0") {
   return `<p class="privacy-note">${escapeHtml(t("sourceLabel"))}: ${escapeHtml(data.source)} · ${escapeHtml(t("scoringLabel"))} v${escapeHtml(data.scoring?.version || fallbackVersion)} · ${escapeHtml(expandedBy)}</p>`;
 }
 
-function renderClarificationForm(questions) {
-  const options = questions.flatMap((question) => question.options || []);
-  const questionHtml = questions.map((question) => {
-    const legend = translatedClarification(question.question, question.id);
-    const optionHtml = (question.options || []).map((option) => `<label class="clarification-option"><input type="checkbox" name="confirmedKeyword" value="${escapeHtml(option)}"><span>${escapeHtml(translatedClarification(option))}</span></label>`).join("");
-    return `<fieldset class="clarification-fieldset"><legend>${escapeHtml(legend)}</legend>${optionHtml}</fieldset>`;
-  }).join("");
-  return `<form id="clarification-form" class="ai-form clarification-form"><h3>${escapeHtml(t("clarificationTitle"))}</h3>${questionHtml}<label class="clarification-option clarification-none"><input type="checkbox" name="rejectAll" value="1"><span>${escapeHtml(t("clarificationNone"))}</span></label><input type="hidden" name="allOptions" value="${escapeHtml(JSON.stringify(options))}"><button class="primary-button" type="submit">${escapeHtml(t("clarificationContinue"))} <span aria-hidden="true">→</span></button><p class="form-error" role="alert"></p></form>`;
+function sortResourcesByScore(resources) {
+  return [...(Array.isArray(resources) ? resources : [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0) || String(a.name || "").localeCompare(String(b.name || "")));
+}
+
+function researchFeedbackStorageKey() {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return `capy-daily-research-feedback:${state.user?.id || "guest"}:${date}`;
+}
+
+function registerCompletedResearch(data, payload) {
+  const resources = sortResourcesByScore(data.resources);
+  data.resources = resources;
+  state.currentResearch = data.researchContext || {
+    fullInput: String(payload?.description || ""),
+    diagnosis: String(payload?.diagnosis || ""),
+    category: String(payload?.topic || ""),
+    primaryKeywords: [],
+    confirmedKeywords: payload?.confirmedSecondaryKeywords || [],
+    predictedKeywords: data.keywordExpansion?.predicted || [],
+    locatedKeywords: [...new Set(resources.flatMap((resource) => (resource.explanation || []).map((reason) => reason.keyword)).filter(Boolean))],
+    requestedCount: Number(payload?.count || 5),
+    providedCount: resources.length,
+    highScoreCount: resources.filter((resource) => Number(resource.score || 0) >= 20).length,
+    source: data.source || ""
+  };
+  try {
+    const key = researchFeedbackStorageKey();
+    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    if (!saved) {
+      const pending = { status: "pending", research: state.currentResearch };
+      localStorage.setItem(key, JSON.stringify(pending));
+      state.dailyResearchContext = state.currentResearch;
+      state.dailyResearchFeedbackPending = true;
+    } else if (saved.status === "pending") {
+      state.dailyResearchContext = saved.research || state.currentResearch;
+      state.dailyResearchFeedbackPending = true;
+    }
+  } catch {
+    state.dailyResearchContext ||= state.currentResearch;
+    state.dailyResearchFeedbackPending = true;
+  }
+}
+
+function renderResearchFeedback() {
+  return `<section class="research-result-feedback" aria-label="Research feedback"><p>Was this research helpful?</p><div class="research-feedback-actions"><button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="results" data-helpful="true">Like this research</button><button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="results" data-helpful="false">Not Helpful</button></div><p class="research-feedback-status" role="status"></p></section>`;
+}
+
+function renderCompletedResearch(data, payload, fallbackVersion) {
+  registerCompletedResearch(data, payload);
+  const expanded = data.keywordExpansion?.suggested || [];
+  return `<div class="ai-response">${escapeHtml(data.answer)}</div>${renderResearchFeedback()}${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, fallbackVersion)}`;
+}
+
+function showDailyResearchFeedback() {
+  if (!state.dailyResearchFeedbackPending || !state.dailyResearchContext) return;
+  const dialog = $("#research-feedback-dialog");
+  if (!dialog) return;
+  dialog.classList.remove("hidden");
+  dialog.querySelector(".research-feedback-status").textContent = "";
+  dialog.querySelector('[data-helpful="true"]')?.focus();
+}
+
+function closeDailyResearchFeedback() {
+  $("#research-feedback-dialog")?.classList.add("hidden");
+}
+
+async function submitResearchFeedback(element) {
+  const scope = element.dataset.feedbackScope || "results";
+  const helpful = element.dataset.helpful === "true";
+  const research = scope === "daily" ? state.dailyResearchContext : state.currentResearch;
+  const container = scope === "daily" ? $("#research-feedback-dialog") : element.closest(".research-result-feedback");
+  const status = container?.querySelector(".research-feedback-status");
+  const buttons = container ? $$("[data-action='research-feedback']", container) : [element];
+  buttons.forEach((button) => { button.disabled = true; });
+  if (status) status.textContent = "Saving…";
+  try {
+    const data = await api("/api/research-feedback", { method: "POST", body: JSON.stringify({ helpful, source: scope === "daily" ? "daily-return" : "research-results", research }) });
+    if (!helpful && !data.recorded) throw new Error(data.sync?.reason || "The feedback row could not be recorded.");
+    if (scope === "daily") {
+      state.dailyResearchFeedbackPending = false;
+      try { localStorage.setItem(researchFeedbackStorageKey(), JSON.stringify({ status: "done" })); } catch {}
+      closeDailyResearchFeedback();
+    } else if (status) {
+      status.textContent = helpful ? "Thanks — Waffles saved your response." : "Thanks — this research was recorded for review.";
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message;
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+function returnHome() {
+  closePanel();
+  resetMap();
+  window.setTimeout(showDailyResearchFeedback, 0);
 }
 
 async function submitAi(event) {
@@ -1526,49 +1616,19 @@ async function submitAi(event) {
   $("#ai-error").textContent = "";
   try {
     const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en" };
-    state.pendingSearch = payload;
     const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
-    if (data.needsClarification) {
-      $("#ai-results").innerHTML = renderClarificationForm(data.questions || []);
-      return;
-    }
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
     character?.classList.add("celebrate");
     state.audio?.playAnimal("capybara");
     setTimeout(() => character?.classList.remove("celebrate"), 1500);
-    const expanded = data.keywordExpansion?.suggested || [];
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(data.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, "1.0")}`;
+    $("#ai-results").innerHTML = renderCompletedResearch(data, payload, "1.0");
   } catch (error) {
     $("#ai-error").textContent = error.message;
     character?.classList.remove("thinking");
   } finally {
     button.disabled = false;
     button.innerHTML = `${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span>`;
-  }
-}
-
-async function submitClarification(event) {
-  event.preventDefault();
-  const form = event.target;
-  const data = new FormData(form);
-  const confirmedSecondaryKeywords = data.getAll("confirmedKeyword");
-  const rejectAll = data.get("rejectAll") === "1";
-  if (!confirmedSecondaryKeywords.length && !rejectAll) {
-    form.querySelector(".form-error").textContent = t("clarificationRequired");
-    return;
-  }
-  const allOptions = JSON.parse(data.get("allOptions") || "[]");
-  const button = form.querySelector("button[type='submit']");
-  button.disabled = true;
-  try {
-    const payload = { ...state.pendingSearch, language: state.settings.language || "en", clarificationHandled: true, confirmedSecondaryKeywords, rejectedKeywords: rejectAll ? allOptions : [] };
-    const response = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
-    const expanded = response.keywordExpansion?.suggested || [];
-    $("#ai-results").innerHTML = `<div class="ai-response">${escapeHtml(response.answer)}</div>${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${response.resources.map(resourceCard).join("")}</div>${renderSourceFooter(response, "2.1")}`;
-  } catch (error) {
-    form.querySelector(".form-error").textContent = error.message;
-    button.disabled = false;
   }
 }
 
@@ -1956,7 +2016,7 @@ function executeVoiceIntent(intent, originalTranscript = "") {
   if (action === "open_settings") { settingsPanel(); return say(intent.speech || "Opening settings."); }
   if (action === "open_record") { profilePanel(); return say(intent.speech || "Opening your record."); }
   if (action === "close_panel") { closePanel(); return say(intent.speech || "Closing this panel."); }
-  if (action === "home") { closePanel(); resetMap(); return say(intent.speech || "Back to both islands."); }
+  if (action === "home") { returnHome(); return say(intent.speech || "Back to both islands."); }
   if (action === "scroll") { ($("#panel").classList.contains("open") ? $("#panel") : window).scrollBy?.({ top: intent.direction === "up" ? -360 : 360, behavior: "smooth" }); return say(intent.speech || "Moving the page."); }
   if (action === "next") {
     if (state.introOpen) changeIntroStep(1);
@@ -2369,6 +2429,10 @@ function changeIntroStep(direction) {
 async function logout() {
   await api("/api/auth/logout", { method: "POST" }).catch(() => {});
   state.user = null;
+  state.currentResearch = null;
+  state.dailyResearchContext = null;
+  state.dailyResearchFeedbackPending = false;
+  closeDailyResearchFeedback();
   clearInterval(state.environmentTimer);
   clearTimeout(state.environmentRefreshTimer);
   state.ecosystem?.destroy();
@@ -2409,7 +2473,7 @@ document.addEventListener("click", (event) => {
   const action = actionElement?.dataset.action;
   if (!action) return;
   if (action === "close-panel") closePanel();
-  if (action === "reset-map" || action === "home") { closePanel(); resetMap(); }
+  if (action === "reset-map" || action === "home") returnHome();
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
   if (action === "open-mori") guidePanel();
@@ -2433,6 +2497,7 @@ document.addEventListener("click", (event) => {
   if (action === "explain-resource") showResourceExplanation(actionElement);
   if (action === "like-resource") toggleResourceLike(actionElement);
   if (action === "dislike-resource") toggleResourceDislike(actionElement);
+  if (action === "research-feedback") submitResearchFeedback(actionElement);
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
@@ -2458,7 +2523,6 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "survey-form") submitSurvey(event);
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "guide-form") submitGuide(event);
-  if (event.target.id === "clarification-form") submitClarification(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);
