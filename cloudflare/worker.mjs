@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { DEFAULT_SCORE_CONFIG, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
+import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -74,6 +74,15 @@ async function sendPasswordResetEmail(env, email, code) {
   const result = await response.json().catch(() => ({ ok: true }));
   if (result.ok === false) throw new Error(result.error || "Password email webhook failed.");
   return true;
+}
+
+function localizedClarificationQuestions({ topic, description, language = "en" }) {
+  const translations = CLARIFICATION_TRANSLATIONS[language] || CLARIFICATION_TRANSLATIONS.en || {};
+  return clarificationQuestions({ topic, description, maxQuestions: scoreConfig.limits.maximumFollowUpQuestions }).map((item) => ({
+    ...item,
+    question: translations[item.id] || item.question,
+    options: (item.options || []).map((option) => translations[option] || option)
+  }));
 }
 
 function parseJson(value, fallback) {
@@ -693,9 +702,18 @@ async function api(request, env, ctx) {
       VALUES (?, ?, ?, 0, ?)
       ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, requested_at = excluded.requested_at
     `).bind(normalizedEmail, codeHash, now + 10 * 60_000, now).run();
-    try { await sendPasswordResetEmail(env, normalizedEmail, code); }
-    catch (error) { console.error("Password reset email failed:", error.message); }
-    return json(response, 202);
+    let delivered = false;
+    try { delivered = await sendPasswordResetEmail(env, normalizedEmail, code); }
+    catch (error) {
+      await env.DB.prepare("DELETE FROM password_reset_codes WHERE email = ?").bind(normalizedEmail).run();
+      console.error("Password reset email failed:", error.message);
+      return fail("The verification email could not be sent. Please try again later or ask the site administrator for help.", 502);
+    }
+    if (!delivered) {
+      await env.DB.prepare("DELETE FROM password_reset_codes WHERE email = ?").bind(normalizedEmail).run();
+      return fail("Email delivery is not configured yet. Please ask the site administrator for help.", 503);
+    }
+    return json({ ...response, delivered }, 202);
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/password/confirm") {
@@ -1108,7 +1126,7 @@ async function api(request, env, ctx) {
         errorSync.push({ synced: false, reason: error.message });
       }
     }
-    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, followUpQuestions: localizedClarificationQuestions({ topic, description, language }), keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/research-feedback") {
