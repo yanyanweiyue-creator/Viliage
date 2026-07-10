@@ -38,13 +38,13 @@ test("life stage is a permanent hard filter when provided", () => {
   assert.ok(ranked.every((item) => item.passedFilters.some((filter) => filter.startsWith("Life stage:"))));
 });
 
-test("description gate excludes irrelevant resources before scoring", () => {
+test("description gate expansion still returns every result in descending score order", () => {
   const ranked = rankResources([
     resource({ name: "Gate pass" }),
     resource({ name: "Gate fail", tags: ["lawyer"], description: "General legal help" })
   ], { diagnosis: "Autism", category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["lawyer"], count: 5 });
-  assert.equal(ranked[0].name, "Gate pass");
-  assert.equal(ranked[0].tier, 3);
+  assert.ok(ranked.every((item, index) => index === 0 || ranked[index - 1].score >= item.score));
+  assert.equal(ranked.find((item) => item.name === "Gate pass")?.tier, 3);
   assert.equal(ranked.find((item) => item.name === "Gate fail")?.tier, 4);
 });
 

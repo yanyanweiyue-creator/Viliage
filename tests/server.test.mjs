@@ -332,7 +332,7 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(register.status, 201);
     const cookie = register.headers["set-cookie"][0].split(";")[0];
 
-    const recommendBody = JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, clarificationHandled: true });
+    const recommendBody = JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5 });
     const recommend = await httpRequest(`http://127.0.0.1:${port}/api/ai/recommend`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(recommendBody), Cookie: cookie },
@@ -341,13 +341,32 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(recommend.status, 200);
     const result = JSON.parse(recommend.text);
     assert.equal(result.resources.length, 0);
-    assert.deepEqual(errorRows.slice(0, 2).map((entry) => entry.Event), ["insufficient_resources", "insufficient_high_score_resources"]);
+    assert.equal(result.summaryGuide, "Bacon");
+    assert.match(result.answer, /^Bacon did not find/);
+    assert.equal("needsClarification" in result, false);
+    assert.deepEqual(errorRows.map((entry) => entry.Event), ["insufficient_resources_and_high_scores"]);
     assert.equal(errorRows[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorRows[0].sheetGid, "1952899933");
+    assert.equal(errorRows[0]["Helpful?"], "No");
+    assert.equal(errorRows[0]["Full Input"], "Medicaid assistance");
+    assert.equal(errorRows[0].Diagnosis, "Autism");
+    assert.equal(errorRows[0].Category, "Legal");
+    assert.match(errorRows[0]["Primary Keywords"], /medicaid/i);
     assert.equal(errorRows[0].Helpful, "No");
     assert.equal(errorRows[0].helpful, "No");
-    assert.equal(errorRows[1]["Requested resources"], 5);
-    assert.equal(errorRows[1]["High score resources"], 0);
+    assert.equal(errorRows[0]["Requested resources"], 5);
+    assert.equal(errorRows[0]["High score resources"], 0);
+
+    const feedbackBody = JSON.stringify({ helpful: false, source: "research-results", research: result.researchContext });
+    const researchFeedback = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(feedbackBody), Cookie: cookie },
+      body: feedbackBody
+    });
+    assert.equal(researchFeedback.status, 200);
+    assert.equal(JSON.parse(researchFeedback.text).recorded, true);
+    assert.equal(errorRows[1].Event, "research_not_helpful");
+    assert.equal(errorRows[1]["Full Input"], "Medicaid assistance");
 
     const dislikeBody = JSON.stringify({ resource: { name: "Not Useful Resource", url: "https://example.org/not-useful", description: "Not the right fit.", topic: "Education", score: 12 }, disliked: true });
     const dislike = await httpRequest(`http://127.0.0.1:${port}/api/resources/dislike`, {
@@ -358,7 +377,7 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(dislike.status, 200);
     assert.equal(errorRows[2].Event, "resource_disliked");
     assert.equal(errorRows[2]["Resource name"], "Not Useful Resource");
-    assert.equal(errorRows[2].Helpful, "No");
+    assert.equal(errorRows[2]["Helpful?"], "No");
   } finally {
     delete process.env.ERROR_SHEET_WEBHOOK_URL;
     delete process.env.ERROR_SHEET_GID;

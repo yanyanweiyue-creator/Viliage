@@ -256,8 +256,20 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(errorPayloads[0].Event, "resource_disliked");
     assert.equal(errorPayloads[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorPayloads[0].sheetGid, "1952899933");
+    assert.equal(errorPayloads[0]["Helpful?"], "No");
     assert.equal(errorPayloads[0].Helpful, "No");
     assert.equal(errorPayloads[0]["Resource name"], "Saved Resource");
+
+    const researchFeedback = await worker.fetch(new Request("https://village.example/api/research-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ helpful: false, source: "research-results", research: { fullInput: "Find respite support", diagnosis: "Autism", category: "Support", primaryKeywords: ["respite"], confirmedKeywords: ["caregiver"], predictedKeywords: ["family support"], locatedKeywords: ["respite"], requestedCount: 5, providedCount: 4, highScoreCount: 3 } })
+    }), cloudflareEnv(database, { ERROR_SHEET_WEBHOOK_URL: "https://error.example/sync", ERROR_SHEET_GID: "1952899933" }), ctx);
+    assert.equal(researchFeedback.status, 200);
+    assert.equal((await researchFeedback.json()).recorded, true);
+    assert.equal(errorPayloads[1].Event, "research_not_helpful");
+    assert.equal(errorPayloads[1]["Full Input"], "Find respite support");
+    assert.equal(errorPayloads[1]["Confirmed Keywords"], "caregiver");
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -451,19 +463,24 @@ test("recommendation API applies diagnosis and category before scoring database 
     const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, clarificationHandled: true })
+      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5 })
     }), env, ctx);
     assert.equal(response.status, 200);
     const result = await response.json();
+    assert.equal(result.summaryGuide, "Bacon");
+    assert.match(result.answer, /^Hi, I’m Bacon\./);
+    assert.equal("needsClarification" in result, false);
     assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
     assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
     const supportResponse = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ topic: "Caregiver Support", diagnosis: "Autism", description: "Affordable family respite support", count: 5, clarificationHandled: true })
+      body: JSON.stringify({ topic: "Caregiver Support", diagnosis: "Autism", description: "Affordable family respite support", count: 5 })
     }), env, ctx);
     assert.equal(supportResponse.status, 200);
     const supportResult = await supportResponse.json();
+    assert.equal(supportResult.summaryGuide, "Eggy");
+    assert.match(supportResult.answer, /^Hi, I’m Eggy\./);
     assert.deepEqual(supportResult.resources.map((item) => item.url), ["https://example.com/support"]);
     assert.equal(supportResult.resources[0].passedFilters[1], "Category: Caregiver Support");
   } finally {

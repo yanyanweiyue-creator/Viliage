@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -504,21 +504,32 @@ function profileSummary(responses = {}) {
   return `Exploring ${interests}. Age group: ${responses.age || "not specified"}. Journey: ${responses.journey || "not specified"}. Current situation: ${situation}. ${responses.note ? `Priority: ${responses.note}` : ""}`.trim();
 }
 
+function buildingGuideName(topic) {
+  const key = String(topic || "").toLowerCase();
+  if (key === "education") return "Muffins";
+  if (key === "legal") return "Bacon";
+  if (key === "recreation") return "Granola";
+  if (key === "caregiver support" || key === "support") return "Eggy";
+  if (key === "activity" || key === "activities") return "Mayor Crumpet";
+  return "Waffles";
+}
+
 function deterministicAnswer(topic, description, matches, language = "en") {
   const topicText = String(topic).toLowerCase();
+  const guideName = buildingGuideName(topic);
   if (language === "zh") {
-    if (!matches.length) return `Waffles 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；诊断类型与建筑分类仍会作为硬性筛选保留。`;
+    if (!matches.length) return `${guideName} 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；诊断类型与建筑分类仍会作为硬性筛选保留。`;
     const names = matches.slice(0, 3).map((item) => item.name).join("、");
-    return `Waffles 找到了 ${matches.length} 个可能合适的${topicText}资源，匹配你的需求：“${description}”。可以先看：${names}。每个结果都会先按标签评分，再参考描述和潜在冲突项。请直接向服务机构确认资格、费用和当前可用性。`;
+    return `你好，我是 ${guideName}。我找到了 ${matches.length} 个可能合适的${topicText}资源，匹配你的需求：“${description}”。可以先看：${names}。结果已按分数从高到低排列。请直接向服务机构确认资格、费用和当前可用性。`;
   }
   if (language === "es") {
-    if (!matches.length) return `Waffles no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; el diagnóstico y la categoría del edificio seguirán protegidos como filtros.`;
+    if (!matches.length) return `${guideName} no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; el diagnóstico y la categoría del edificio seguirán protegidos como filtros.`;
     const names = matches.slice(0, 3).map((item) => item.name).join(", ");
-    return `Waffles encontró ${matches.length} recursos prometedores de ${topicText} para “${description}”. Empieza con ${names}. Cada resultado se puntuó primero por etiquetas, luego por descripción y posibles conflictos. Confirma requisitos, costo y disponibilidad directamente con cada proveedor.`;
+    return `Hola, soy ${guideName}. Encontré ${matches.length} recursos prometedores de ${topicText} para “${description}”. Empieza con ${names}. Los resultados están ordenados de mayor a menor puntuación. Confirma requisitos, costo y disponibilidad directamente con cada proveedor.`;
   }
-  if (!matches.length) return `Waffles did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
+  if (!matches.length) return `${guideName} did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
   const names = matches.slice(0, 3).map((item) => item.name).join(", ");
-  return `Waffles found ${matches.length} promising ${topicText} resources for “${description}”. Start with ${names}. Each result was scored against its tags first, then its description and possible issue conflicts. Please confirm eligibility, cost, and current availability directly with each provider.`;
+  return `Hi, I’m ${guideName}. I found ${matches.length} promising ${topicText} resources for “${description}”. Start with ${names}. Results are ordered from highest to lowest score. Please confirm eligibility, cost, and current availability directly with each provider.`;
 }
 
 function responseLanguageName(language = "en") {
@@ -578,6 +589,7 @@ async function expandKeywordsWithAI({ topic, description, profile, directKeyword
 async function callOpenAI({ topic, description, profile, matches, language = "en" }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
+  const guideName = buildingGuideName(topic);
   const input = {
     topic,
     userDescription: description,
@@ -589,12 +601,13 @@ async function callOpenAI({ topic, description, profile, matches, language = "en
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5.4",
-      reasoning: { effort: "low" },
+      reasoning: { effort: "none" },
       text: { verbosity: "low" },
-      instructions: `You are Waffles, a warm animated capybara resource guide. Recommend only from candidateResources. Treat their score explanations as ranking evidence. Do not diagnose, promise outcomes, or invent facts or URLs. Explain why the top options fit. Encourage the user to verify eligibility, cost, and availability. If the request suggests immediate danger, direct them to emergency services first. Use plain, calm language and under 180 words. Respond in ${responseLanguageName(language)}.`,
+      max_output_tokens: 240,
+      instructions: `You are ${guideName}, the warm guide for the ${topic} building. Start by introducing yourself as ${guideName}. Summarize only candidateResources, keep their score order, and never invent facts or URLs. Do not diagnose or promise outcomes. Use plain language, no markdown, and no more than 90 words. Encourage verification of eligibility, cost, and availability. Respond in ${responseLanguageName(language)}.`,
       input: JSON.stringify(input)
     }),
-    signal: AbortSignal.timeout(30_000)
+    signal: AbortSignal.timeout(4_000)
   });
   if (!response.ok) throw new Error(`OpenAI request failed (${response.status}).`);
   const data = await response.json();
@@ -801,12 +814,29 @@ async function syncUserRecord(user) {
   return { synced: true, row: result.row || null };
 }
 
-function errorLogPayload({ event, reason, user, topic = "", diagnosis = "", description = "", requestedCount = "", providedCount = "", highScoreCount = "", source = "", resource = null }) {
+function keywordText(value) {
+  const values = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 50).join(", ");
+}
+
+function locatedKeywords(matches = []) {
+  return [...new Set((Array.isArray(matches) ? matches : []).flatMap((match) => (match.explanation || []).map((reason) => String(reason.keyword || "").trim())).filter(Boolean))].slice(0, 50);
+}
+
+function errorLogPayload({ event, reason, user, topic = "", diagnosis = "", description = "", requestedCount = "", providedCount = "", highScoreCount = "", source = "", resource = null, primaryKeywords = [], confirmedKeywords = [], predictedKeywords = [], locatedKeywords: foundKeywords = [] }) {
   const at = new Date().toISOString();
   return {
     action: "log-resource-error",
     spreadsheetId: process.env.ERROR_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
-    sheetGid: process.env.ERROR_SHEET_GID || "",
+    sheetGid: process.env.ERROR_SHEET_GID || "1952899933",
+    "Helpful?": "No",
+    "Full Input": description,
+    Diagnosis: diagnosis,
+    Category: topic || resource?.topic || "",
+    "Primary Keywords": keywordText(primaryKeywords),
+    "Confirmed Keywords": keywordText(confirmedKeywords),
+    "Predicted Keywords": keywordText(predictedKeywords),
+    "Located Key Words": keywordText(foundKeywords),
     Timestamp: at,
     At: at,
     Event: event,
@@ -1269,12 +1299,10 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, clarificationHandled = false, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en" } = await readJsonBody(req);
+    const { topic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en" } = await readJsonBody(req);
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
-    const questions = clarificationQuestions({ topic, description, maxQuestions: config?.limits?.maximumFollowUpQuestions || 2 });
-    if (!clarificationHandled && questions.length) return sendJson(res, 200, { needsClarification: true, questions });
     const { rows, source } = await getResources();
     const primaryKeywords = extractKeywords([description], config.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], config);
@@ -1284,12 +1312,8 @@ async function handleApi(req, res, url) {
     const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
     const requestedCount = normalizeResultCount(count, config);
     const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config };
-    let expanded = { ai: false, keywords: [] };
-    let matches = rankResources(rows, { ...rankingInput, predictedKeywords: [] });
-    if (matches.length < requestedCount) {
-      expanded = await expandKeywordsWithAI({ topic, description, profile: user.profile, directKeywords: primaryKeywords, limit: config.limits.maximumPredictedKeywords });
-      matches = rankResources(rows, { ...rankingInput, predictedKeywords: expanded.keywords });
-    }
+    const expanded = { ai: false, keywords: [] };
+    const matches = rankResources(rows, { ...rankingInput, predictedKeywords: [] });
     let answer;
     let ai = false;
     try {
@@ -1297,38 +1321,29 @@ async function handleApi(req, res, url) {
       ai = Boolean(answer);
     } catch (error) {
       answer = deterministicAnswer(topic, description, matches, language);
-      answer += ` (AI service note: ${error.message})`;
     }
     if (!answer) answer = deterministicAnswer(topic, description, matches, language);
     const highScoreCount = matches.filter((match) => Number(match.score || 0) >= 20).length;
-    const errorLogs = [];
+    const foundKeywords = locatedKeywords(matches);
+    const researchContext = {
+      fullInput: String(description),
+      diagnosis,
+      category: topic,
+      primaryKeywords,
+      confirmedKeywords: confirmedSecondaryKeywords,
+      predictedKeywords: expanded.keywords,
+      locatedKeywords: foundKeywords,
+      requestedCount,
+      providedCount: matches.length,
+      highScoreCount,
+      source
+    };
+    const shortageReasons = [];
     if (matches.length < requestedCount) {
-      errorLogs.push({
-        event: "insufficient_resources",
-        reason: `Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`,
-        user,
-        topic,
-        diagnosis,
-        description,
-        requestedCount,
-        providedCount: matches.length,
-        highScoreCount,
-        source
-      });
+      shortageReasons.push(`Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`);
     }
-    if (requestedCount > 3 && highScoreCount < 3) {
-      errorLogs.push({
-        event: "insufficient_high_score_resources",
-        reason: `Requested ${requestedCount} resources, but only ${highScoreCount} database resources scored at least 20.`,
-        user,
-        topic,
-        diagnosis,
-        description,
-        requestedCount,
-        providedCount: matches.length,
-        highScoreCount,
-        source
-      });
+    if (highScoreCount < 3) {
+      shortageReasons.push(`Only ${highScoreCount} displayed resources scored at least 20; at least 3 are required.`);
     }
     let sync = { synced: false };
     if (!user.guest) {
@@ -1336,9 +1351,24 @@ async function handleApi(req, res, url) {
       try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
     }
     const errorSync = [];
-    for (const details of errorLogs) {
+    if (shortageReasons.length) {
       try {
-        errorSync.push(await logErrorRecord(details));
+        errorSync.push(await logErrorRecord({
+          event: matches.length < requestedCount && highScoreCount < 3 ? "insufficient_resources_and_high_scores" : matches.length < requestedCount ? "insufficient_resources" : "insufficient_high_score_resources",
+          reason: shortageReasons.join(" "),
+          user,
+          topic,
+          diagnosis,
+          description,
+          requestedCount,
+          providedCount: matches.length,
+          highScoreCount,
+          source,
+          primaryKeywords,
+          confirmedKeywords: confirmedSecondaryKeywords,
+          predictedKeywords: expanded.keywords,
+          locatedKeywords: foundKeywords
+        }));
       } catch (error) {
         errorSync.push({ synced: false, reason: error.message });
       }
@@ -1348,11 +1378,42 @@ async function handleApi(req, res, url) {
       resources: matches,
       source,
       ai,
+      summaryGuide: buildingGuideName(topic),
+      researchContext,
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       errorSync,
       sync
     });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/research-feedback") {
+    const { helpful = true, source = "research-results", research = {} } = await readJsonBody(req);
+    if (Boolean(helpful)) return sendJson(res, 200, { ok: true, recorded: false });
+    const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);
+    if (!description) return sendError(res, 400, "Research context is required before feedback can be recorded.");
+    let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
+    try {
+      sync = await logErrorRecord({
+        event: "research_not_helpful",
+        reason: source === "daily-return" ? "User chose Not really in the daily return-to-home research check-in." : "User chose Not Helpful for the completed research.",
+        user,
+        topic: String(research.category || research.topic || ""),
+        diagnosis: String(research.diagnosis || ""),
+        description,
+        requestedCount: research.requestedCount ?? "",
+        providedCount: research.providedCount ?? "",
+        highScoreCount: research.highScoreCount ?? "",
+        source,
+        primaryKeywords: research.primaryKeywords,
+        confirmedKeywords: research.confirmedKeywords,
+        predictedKeywords: research.predictedKeywords,
+        locatedKeywords: research.locatedKeywords
+      });
+    } catch (error) {
+      sync = { synced: false, reason: error.message };
+    }
+    return sendJson(res, 200, { ok: true, recorded: Boolean(sync.synced), sync });
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {

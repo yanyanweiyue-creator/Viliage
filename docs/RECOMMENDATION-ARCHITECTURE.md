@@ -30,7 +30,7 @@ Every result includes `tier`, `score`, `passedFilters`, `gateEvidence`, `matched
 }
 ```
 
-When clarification would materially improve matching, the first response contains `needsClarification: true` and no recommendations. The client resubmits the original request with the user's confirmed or rejected concepts.
+The live research flow returns the summary and ranked resources in one response after **Find fitting resources**. The scoring engine still exposes clarification helpers for offline evaluation, but the user-facing API no longer pauses for a second clarification submission.
 
 ## Database architecture recommendation
 
