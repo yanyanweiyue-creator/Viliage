@@ -7,6 +7,7 @@ import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const DEFAULT_RESOURCE_SHEET_GID = "1709372674";
+const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
 const scoreConfig = {
   version: scoreConfigFile.version || DEFAULT_SCORE_CONFIG.version,
   weights: { ...DEFAULT_SCORE_CONFIG.weights, ...(scoreConfigFile.weights || {}) },
@@ -103,17 +104,37 @@ function dbUser(row) {
     feedback: row.feedback || "",
     likedResources: parseJson(row.liked_resources_json, []),
     dislikedResources: parseJson(row.disliked_resources_json, []),
+    isAdmin: Boolean(row.is_admin),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
 function safeUser(user) {
-  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "", likedResources: Array.isArray(user.likedResources) ? user.likedResources : [], dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : [] };
+  return { id: user.id, name: user.name, email: user.email, surveyCompleted: Boolean(user.surveyCompleted), onboardingCompleted: Boolean(user.onboardingCompleted), profile: user.profile || null, history: user.history || [], feedback: user.feedback || "", likedResources: Array.isArray(user.likedResources) ? user.likedResources : [], dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : [], isAdmin: Boolean(user.isAdmin) };
 }
 
 function guestUser() {
   return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [] };
+}
+
+async function ensureAdmin(env, user) {
+  if (!user || user.guest || user.isAdmin) return user;
+  const configured = [DEFAULT_ADMIN_EMAIL, ...String(env.ADMIN_EMAILS || "").split(",")].map((email) => email.trim().toLowerCase()).filter(Boolean);
+  if (configured.includes(user.email.toLowerCase())) {
+    await env.DB.prepare("UPDATE users SET is_admin = 1, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), user.id).run();
+    user.isAdmin = true;
+  }
+  return user;
+}
+
+function announcementInput(input) {
+  const title = String(input.title || "").trim().slice(0, 120);
+  const text = String(input.body || "").trim().slice(0, 5000);
+  const category = String(input.category || "Update").trim().slice(0, 40) || "Update";
+  if (!title) throw new Error("Please add an announcement title.");
+  if (!text) throw new Error("Please add announcement details.");
+  return { title, body: text, category, isPinned: Boolean(input.isPinned) };
 }
 
 async function allRows(statement) {
@@ -750,6 +771,7 @@ async function api(request, env, ctx) {
     const user = { id: randomBytes(12).toString("hex"), name: String(name).trim(), email: normalizedEmail, passwordHash: hashPassword(String(password)), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], createdAt: now, updatedAt: now };
     await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, liked_resources_json, disliked_resources_json, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', '[]', '[]', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
+    await ensureAdmin(env, user);
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": await createSession(env, user.id) });
   }
 
@@ -757,6 +779,7 @@ async function api(request, env, ctx) {
     const { email, password } = await body(request);
     const user = dbUser(await env.DB.prepare("SELECT * FROM users WHERE email = ? LIMIT 1").bind(String(email || "").toLowerCase()).first());
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return fail("Email or password is incorrect.", 401);
+    await ensureAdmin(env, user);
     return json({ user: safeUser(user) }, 200, { "Set-Cookie": await createSession(env, user.id) });
   }
 
@@ -770,11 +793,74 @@ async function api(request, env, ctx) {
 
   if (request.method === "GET" && url.pathname === "/api/auth/me") {
     const user = await sessionUser(request, env);
-    return user ? json({ user: safeUser(user) }) : fail("Not signed in.", 401);
+    return user ? json({ user: safeUser(await ensureAdmin(env, user)) }) : fail("Not signed in.", 401);
   }
 
-  const user = await sessionUser(request, env) || (request.headers.get("X-Village-Guest") === "1" ? guestUser() : null);
+  const user = await ensureAdmin(env, await sessionUser(request, env) || (request.headers.get("X-Village-Guest") === "1" ? guestUser() : null));
   if (!user) return fail("Please sign in first.", 401);
+
+  if (request.method === "GET" && url.pathname === "/api/announcements") {
+    const announcements = await allRows(env.DB.prepare(`SELECT a.id, a.title, a.body, a.category, a.is_pinned, a.created_at, a.updated_at, u.name AS author_name FROM announcements a JOIN users u ON u.id = a.created_by ORDER BY a.is_pinned DESC, a.created_at DESC LIMIT 100`));
+    return json({ announcements: announcements.map((item) => ({ id: item.id, title: item.title, body: item.body, category: item.category, isPinned: Boolean(item.is_pinned), createdAt: item.created_at, updatedAt: item.updated_at, authorName: item.author_name })), isAdmin: Boolean(user.isAdmin) });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/announcements") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    let input;
+    try { input = announcementInput(await body(request)); } catch (error) { return fail(error.message); }
+    const id = randomBytes(12).toString("hex");
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO announcements (id, title, body, category, is_pinned, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, input.title, input.body, input.category, input.isPinned ? 1 : 0, user.id, now, now).run();
+    return json({ announcement: { id, ...input, authorName: user.name, createdAt: now, updatedAt: now } }, 201);
+  }
+
+  const announcementDelete = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
+  if (request.method === "PATCH" && announcementDelete) {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    let input;
+    try { input = announcementInput(await body(request)); } catch (error) { return fail(error.message); }
+    const announcementId = decodeURIComponent(announcementDelete[1]);
+    const now = new Date().toISOString();
+    const result = await env.DB.prepare("UPDATE announcements SET title = ?, body = ?, category = ?, is_pinned = ?, updated_at = ? WHERE id = ?").bind(input.title, input.body, input.category, input.isPinned ? 1 : 0, now, announcementId).run();
+    if (!Number(result?.meta?.changes || 0)) return fail("Announcement not found.", 404);
+    const saved = await env.DB.prepare("SELECT a.id, a.title, a.body, a.category, a.is_pinned, a.created_at, a.updated_at, u.name AS author_name FROM announcements a JOIN users u ON u.id = a.created_by WHERE a.id = ?").bind(announcementId).first();
+    return json({ announcement: { id: saved.id, title: saved.title, body: saved.body, category: saved.category, isPinned: Boolean(saved.is_pinned), createdAt: saved.created_at, updatedAt: saved.updated_at, authorName: saved.author_name } });
+  }
+  if (request.method === "DELETE" && announcementDelete) {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const result = await env.DB.prepare("DELETE FROM announcements WHERE id = ?").bind(decodeURIComponent(announcementDelete[1])).run();
+    return Number(result?.meta?.changes || 0) ? json({ ok: true }) : fail("Announcement not found.", 404);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/users") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const users = await allRows(env.DB.prepare("SELECT id, name, email, is_admin FROM users WHERE is_admin = 1 ORDER BY name, email"));
+    return json({ users: users.map((item) => ({ id: item.id, name: item.name, email: item.email, isAdmin: true, isOwner: item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL })) });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/users") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const email = String((await body(request)).email || "").trim().toLowerCase();
+    const target = await env.DB.prepare("SELECT id, name, email FROM users WHERE email = ? LIMIT 1").bind(email).first();
+    if (!target) return fail("No registered account uses that email.", 404);
+    await env.DB.prepare("UPDATE users SET is_admin = 1, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), target.id).run();
+    return json({ user: { ...target, isAdmin: true } });
+  }
+
+  const adminDelete = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (request.method === "DELETE" && adminDelete) {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const targetId = decodeURIComponent(adminDelete[1]);
+    if (targetId === user.id) return fail("You cannot remove your own administrator access.");
+    const target = await env.DB.prepare("SELECT email FROM users WHERE id = ? LIMIT 1").bind(targetId).first();
+    if (!target) return fail("User not found.", 404);
+    const protectedEmails = [DEFAULT_ADMIN_EMAIL, ...String(env.ADMIN_EMAILS || "").split(",")].map((email) => email.trim().toLowerCase()).filter(Boolean);
+    if (protectedEmails.includes(target.email.toLowerCase())) return fail("A configured village owner cannot be removed.");
+    const adminCount = Number((await env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE is_admin = 1").first())?.count || 0);
+    if (adminCount <= 1) return fail("The village must keep at least one administrator.");
+    await env.DB.prepare("UPDATE users SET is_admin = 0, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), targetId).run();
+    return json({ ok: true });
+  }
   if (user.guest && url.pathname.startsWith("/api/community")) return fail("Village Community is available to registered members only.", 403);
 
   if (request.method === "GET" && url.pathname === "/api/community") {
@@ -1137,120 +1223,4 @@ async function api(request, env, ctx) {
     let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
     try {
       sync = await logErrorRecord(env, {
-        event: "research_not_helpful",
-        reason: source === "daily-return" ? "User chose Not really in the daily return-to-home research check-in." : "User chose Not Helpful for the completed research.",
-        user,
-        topic: String(research.category || research.topic || ""),
-        diagnosis: String(research.diagnosis || ""),
-        description,
-        requestedCount: research.requestedCount ?? "",
-        providedCount: research.providedCount ?? "",
-        highScoreCount: research.highScoreCount ?? "",
-        source,
-        primaryKeywords: research.primaryKeywords,
-        confirmedKeywords: research.confirmedKeywords,
-        predictedKeywords: research.predictedKeywords,
-        locatedKeywords: research.locatedKeywords
-      });
-    } catch (error) {
-      sync = { synced: false, reason: error.message };
-    }
-    return json({ ok: true, recorded: Boolean(sync.synced), sync });
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/feedback") {
-    if (user.guest) return fail("Create an account to save feedback.", 403);
-    user.feedback = String((await body(request)).feedback || "").slice(0, 2000);
-    await env.DB.prepare("UPDATE users SET feedback = ?, updated_at = ? WHERE id = ?").bind(user.feedback, new Date().toISOString(), user.id).run();
-    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return json({ ok: true, sync });
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/resources/like") {
-    if (user.guest) return fail("Create an account to save liked resources.", 403);
-    const { resource = {}, liked = true } = await body(request);
-    const name = String(resource.name || "").trim().slice(0, 180);
-    const urlValue = String(resource.url || "").trim().slice(0, 500);
-    if (!name || !urlValue) return fail("Choose a resource before saving it.");
-    const savedResource = {
-      name,
-      url: urlValue,
-      description: String(resource.description || "").trim().slice(0, 500),
-      topic: String(resource.topic || "").trim().slice(0, 80),
-      score: Number(resource.score || 0),
-      savedAt: new Date().toISOString()
-    };
-    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
-    const current = Array.isArray(user.likedResources) ? user.likedResources : [];
-    const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
-    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
-    user.likedResources = liked ? [savedResource, ...filtered].slice(0, 100) : filtered;
-    user.dislikedResources = liked ? currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentDisliked;
-    user.updatedAt = new Date().toISOString();
-    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
-    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync });
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/resources/dislike") {
-    if (user.guest) return fail("Create an account to mark disliked resources.", 403);
-    const { resource = {}, disliked = true } = await body(request);
-    const name = String(resource.name || "").trim().slice(0, 180);
-    const urlValue = String(resource.url || "").trim().slice(0, 500);
-    if (!name || !urlValue) return fail("Choose a resource before marking it.");
-    const dislikedResource = {
-      name,
-      url: urlValue,
-      description: String(resource.description || "").trim().slice(0, 500),
-      topic: String(resource.topic || "").trim().slice(0, 80),
-      score: Number(resource.score || 0),
-      savedAt: new Date().toISOString()
-    };
-    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
-    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
-    const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
-    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
-    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
-    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
-    user.updatedAt = new Date().toISOString();
-    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
-    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    let errorSync = { synced: false };
-    if (disliked) {
-      try {
-        errorSync = await logErrorRecord(env, {
-          event: "resource_disliked",
-          reason: "User marked a resource as disliked.",
-          user,
-          topic: dislikedResource.topic,
-          resource: dislikedResource,
-          source: "resource-card"
-        });
-      } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
-  }
-
-  return fail("API route not found.", 404);
-}
-
-export default {
-  async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return await api(request, env, ctx);
-      return env.ASSETS.fetch(request);
-    } catch (error) {
-      console.error(error);
-      return fail(error.message || "Something went wrong.", 500);
-    }
-  },
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(cleanupSystemGroupHistory(env));
-  }
-};
+        event: "re
