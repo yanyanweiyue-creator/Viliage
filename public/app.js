@@ -688,7 +688,8 @@ state.ecosystem = new EcosystemController({
   stage: $("#map-stage"),
   creatureLayer: $("#creature-layer"),
   skyLayer: $("#sky-creature-layer"),
-  onSound: (species) => state.audio?.playAnimal(species)
+  onSound: (species) => state.audio?.playAnimal(species),
+  onBuilding: (buildingId) => handleBuilding(buildingId)
 });
 state.immersive = new ImmersiveScene({
   canvas: $("#immersive-scene"),
