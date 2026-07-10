@@ -89,6 +89,8 @@ export class EcosystemController {
           event.stopPropagation();
           this.onBuilding(definition.buildingTarget);
         });
+        element.addEventListener("pointerenter", () => this.holdInteractiveActor(definition.id));
+        element.addEventListener("pointerleave", () => this.releaseInteractiveActor(definition.id));
         element.addEventListener("pointercancel", () => { pointerActivated = false; });
         element.addEventListener("click", (event) => {
           event.preventDefault();
@@ -149,6 +151,27 @@ export class EcosystemController {
   setActorState(actor, stateName) {
     [...actor.element.classList].filter((name) => name.startsWith("state-")).forEach((name) => actor.element.classList.remove(name));
     actor.element.classList.add(`state-${stateName}`);
+  }
+
+  holdInteractiveActor(actorId) {
+    const actor = this.actors.get(actorId);
+    if (!actor) return;
+    const computed = getComputedStyle(actor.element);
+    const left = computed.left;
+    const top = computed.top;
+    actor.element.style.transitionDuration = "0s, 0s, .5s, .8s, 0s";
+    actor.element.style.left = left;
+    actor.element.style.top = top;
+    actor.arriveAt = 0;
+    actor.arrivalState = "";
+    actor.nextMoveAt = Number.POSITIVE_INFINITY;
+    this.setActorState(actor, "looking");
+  }
+
+  releaseInteractiveActor(actorId) {
+    const actor = this.actors.get(actorId);
+    if (!actor) return;
+    actor.nextMoveAt = Date.now() + 650;
   }
 
   positionActor(actor, point) {
