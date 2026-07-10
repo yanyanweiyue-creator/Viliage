@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -267,6 +267,15 @@ async function sendPasswordResetEmail(email, code) {
   const result = await response.json().catch(() => ({ ok: true }));
   if (result.ok === false) throw new Error(result.error || "Password email webhook failed.");
   return true;
+}
+
+function localizedClarificationQuestions({ topic, description, language = "en", config = DEFAULT_SCORE_CONFIG }) {
+  const translations = CLARIFICATION_TRANSLATIONS[language] || CLARIFICATION_TRANSLATIONS.en || {};
+  return clarificationQuestions({ topic, description, maxQuestions: config.limits?.maximumFollowUpQuestions || 3 }).map((item) => ({
+    ...item,
+    question: translations[item.id] || item.question,
+    options: (item.options || []).map((option) => translations[option] || option)
+  }));
 }
 
 function safeUser(user) {
@@ -970,9 +979,19 @@ async function handleApi(req, res, url) {
     const next = resets.filter((item) => item.email !== normalizedEmail);
     next.push({ email: normalizedEmail, codeHash: passwordResetHash(normalizedEmail, code), expiresAt: now + 10 * 60_000, attempts: 0, requestedAt: now });
     await savePasswordResets(next);
-    try { await sendPasswordResetEmail(normalizedEmail, code); }
-    catch (error) { console.error("Password reset email failed:", error.message); }
-    return sendJson(res, 202, generic);
+    let delivered = false;
+    try {
+      delivered = await sendPasswordResetEmail(normalizedEmail, code);
+    } catch (error) {
+      await savePasswordResets(resets.filter((item) => item.email !== normalizedEmail));
+      console.error("Password reset email failed:", error.message);
+      return sendError(res, 502, "The verification email could not be sent. Please try again later or ask the site administrator for help.");
+    }
+    if (!delivered) {
+      await savePasswordResets(resets.filter((item) => item.email !== normalizedEmail));
+      return sendError(res, 503, "Email delivery is not configured yet. Please ask the site administrator for help.");
+    }
+    return sendJson(res, 202, { ...generic, delivered });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/password/confirm") {
@@ -1380,6 +1399,7 @@ async function handleApi(req, res, url) {
       ai,
       summaryGuide: buildingGuideName(topic),
       researchContext,
+      followUpQuestions: localizedClarificationQuestions({ topic, description, language, config }),
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       errorSync,
