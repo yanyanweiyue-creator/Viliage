@@ -57,6 +57,10 @@ const state = {
   communityTab: "direct",
   communityPostImage: null,
   communityPostImagePromise: null,
+  announcements: [],
+  selectedAnnouncementId: null,
+  editingAnnouncementId: null,
+  adminUsers: [],
   supportTab: "phone",
   supportIsland: null,
   voiceRecognition: null,
@@ -870,6 +874,7 @@ async function submitAuth(event) {
     state.user = user;
     if (sync) state.sheetSync = { configured: sync.synced || state.sheetSync.configured, ...sync };
     routeForUser();
+    refreshAnnouncementBadge();
   } catch (error) {
     $("#auth-error").textContent = error.message;
   } finally {
@@ -1771,9 +1776,99 @@ function profilePanel() {
       <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>
+      ${state.user?.isAdmin ? `<section class="admin-manager"><div><p class="eyebrow">Village administration</p><h3>Administrators</h3><p>Add a registered account by email. Administrators can publish and remove announcements.</p></div><form id="admin-add-form" class="admin-add-form"><label>Account email<input type="email" name="email" required placeholder="person@example.com" /></label><button class="secondary-button" type="submit">Add administrator</button><p class="form-error" role="alert"></p></form><div id="admin-user-list" class="admin-user-list"><p class="record-empty">Loading administrators…</p></div></section>` : ""}
       <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
       <button class="text-button" data-action="logout">${escapeHtml(t("logout"))}</button>`
   });
+  if (state.user?.isAdmin) loadAdminUsers();
+}
+
+function announcementLabels() {
+  if (state.settings.language === "zh") return { title: "村庄公告", eyebrow: "更新与重要事件", empty: "目前还没有公告。", publish: "发布新公告", headline: "标题", details: "公告内容", category: "类型", pinned: "置顶公告", submit: "发布公告", edit: "编辑", save: "保存修改", cancel: "取消", remove: "删除公告", by: "发布人" };
+  if (state.settings.language === "es") return { title: "Anuncios", eyebrow: "Novedades y eventos importantes", empty: "Todavía no hay anuncios.", publish: "Publicar un anuncio", headline: "Título", details: "Detalles", category: "Categoría", pinned: "Fijar anuncio", submit: "Publicar", edit: "Editar", save: "Guardar cambios", cancel: "Cancelar", remove: "Eliminar", by: "Publicado por" };
+  return { title: "Village announcements", eyebrow: "Updates & important events", empty: "There are no announcements yet.", publish: "Publish an announcement", headline: "Title", details: "Announcement details", category: "Category", pinned: "Pin this announcement", submit: "Publish announcement", edit: "Edit", save: "Save changes", cancel: "Cancel", remove: "Delete announcement", by: "Posted by" };
+}
+
+function announcementDate(value) {
+  try { return new Intl.DateTimeFormat(state.settings.language || "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+  catch { return String(value || ""); }
+}
+
+function sortAnnouncements(items) {
+  return [...(items || [])].sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function latestAnnouncementToken() {
+  const latest = [...state.announcements].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0];
+  return latest ? `${latest.id}:${latest.updatedAt || latest.createdAt}` : "none";
+}
+
+function announcementSeenKey() {
+  return `capy-announcement-seen:${state.user?.id || "visitor"}`;
+}
+
+function renderAnnouncements() {
+  const labels = announcementLabels();
+  const editing = state.announcements.find((item) => item.id === state.editingAnnouncementId) || null;
+  const selected = state.announcements.find((item) => item.id === state.selectedAnnouncementId) || state.announcements[0];
+  state.selectedAnnouncementId = selected?.id || null;
+  const list = state.announcements.length ? state.announcements.map((item) => `<button type="button" class="announcement-list-item ${item.id === selected?.id ? "active" : ""}" data-action="select-announcement" data-announcement-id="${escapeHtml(item.id)}"><small>${item.isPinned ? "✦ " : ""}${escapeHtml(item.category || "Update")}</small><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(announcementDate(item.createdAt))}</span></button>`).join("") : `<p class="announcement-empty">${escapeHtml(labels.empty)}</p>`;
+  const detail = selected ? `<article class="announcement-detail"><div class="announcement-detail-meta"><span>${selected.isPinned ? "✦ Pinned · " : ""}${escapeHtml(selected.category || "Update")}</span><time>${escapeHtml(announcementDate(selected.createdAt))}</time></div><h2>${escapeHtml(selected.title)}</h2><div class="announcement-body">${escapeHtml(selected.body).replace(/\n/g, "<br>")}</div><p>${escapeHtml(labels.by)} ${escapeHtml(selected.authorName || "Village admin")}</p>${state.user?.isAdmin ? `<div class="announcement-admin-actions"><button type="button" class="text-button" data-action="edit-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.edit)}</button><button type="button" class="text-button danger-text" data-action="delete-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.remove)}</button></div>` : ""}</article>` : `<div class="announcement-detail announcement-empty-detail"><span aria-hidden="true">📜</span><p>${escapeHtml(labels.empty)}</p></div>`;
+  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="submit">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
+  return `${form}<div class="announcement-parchment"><aside class="announcement-list">${list}</aside>${detail}</div>`;
+}
+
+async function announcementsPanel() {
+  const labels = announcementLabels();
+  openPanel({ title: labels.title, eyebrow: labels.eyebrow, html: `<div class="announcement-loading">Opening the notice board…</div>` });
+  try {
+    const data = await api("/api/announcements");
+    state.announcements = sortAnnouncements(data.announcements);
+    if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
+    $("#panel-content").innerHTML = renderAnnouncements();
+    localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
+    $("#announcement-dot")?.classList.add("hidden");
+  } catch (error) { $("#panel-content").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function refreshAnnouncementBadge() {
+  if (!state.user) return;
+  try {
+    const data = await api("/api/announcements");
+    state.announcements = sortAnnouncements(data.announcements);
+    state.user.isAdmin = Boolean(data.isAdmin);
+    const latestId = latestAnnouncementToken();
+    const lastSeen = localStorage.getItem(announcementSeenKey());
+    $("#announcement-dot")?.classList.toggle("hidden", latestId === "none" || latestId === lastSeen);
+  } catch {}
+}
+
+async function submitAnnouncement(event) {
+  event.preventDefault();
+  const form = event.target; const data = new FormData(form); const status = form.querySelector(".form-error");
+  status.textContent = "Publishing…";
+  try {
+    const id = String(data.get("id") || "");
+    const result = await api(id ? `/api/announcements/${encodeURIComponent(id)}` : "/api/announcements", { method: id ? "PATCH" : "POST", body: JSON.stringify({ title: data.get("title"), category: data.get("category"), body: data.get("body"), isPinned: data.get("isPinned") === "on" }) });
+    state.announcements = sortAnnouncements(id ? state.announcements.map((item) => item.id === id ? result.announcement : item) : [...state.announcements, result.announcement]); state.selectedAnnouncementId = result.announcement.id; state.editingAnnouncementId = null;
+    localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
+    $("#panel-content").innerHTML = renderAnnouncements(); toast(id ? "Announcement updated." : "Announcement published.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function loadAdminUsers() {
+  const container = $("#admin-user-list"); if (!container) return;
+  try {
+    state.adminUsers = (await api("/api/admin/users")).users || [];
+    container.innerHTML = state.adminUsers.map((item) => `<div class="admin-user-row"><div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></div>${item.isOwner ? `<small>Owner</small>` : item.id === state.user?.id ? `<small>You</small>` : `<button type="button" class="text-button danger-text" data-action="remove-admin" data-user-id="${escapeHtml(item.id)}">Remove</button>`}</div>`).join("");
+  } catch (error) { container.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function submitAdminAdd(event) {
+  event.preventDefault(); const form = event.target; const status = form.querySelector(".form-error");
+  status.textContent = "Adding…";
+  try { await api("/api/admin/users", { method: "POST", body: JSON.stringify({ email: new FormData(form).get("email") }) }); form.reset(); status.textContent = ""; await loadAdminUsers(); toast("Administrator added."); }
+  catch (error) { status.textContent = error.message; }
 }
 
 function handleBuilding(id) {
@@ -2499,6 +2594,12 @@ document.addEventListener("click", (event) => {
   if (action === "reset-map" || action === "home") returnHome();
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
+  if (action === "open-announcements") announcementsPanel();
+  if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
+  if (action === "edit-announcement") { state.editingAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); $("#panel-content").scrollTo({ top: 0, behavior: "smooth" }); }
+  if (action === "cancel-announcement-edit") { state.editingAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); }
+  if (action === "delete-announcement") { if (confirm("Delete this announcement?")) api(`/api/announcements/${encodeURIComponent(actionElement.dataset.announcementId)}`, { method: "DELETE" }).then(() => { state.announcements = state.announcements.filter((item) => item.id !== actionElement.dataset.announcementId); state.selectedAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); toast("Announcement deleted."); }).catch((error) => toast(error.message)); }
+  if (action === "remove-admin") { if (confirm("Remove this administrator?")) api(`/api/admin/users/${encodeURIComponent(actionElement.dataset.userId)}`, { method: "DELETE" }).then(() => loadAdminUsers()).catch((error) => toast(error.message)); }
   if (action === "open-mori") guidePanel();
   if (action === "speak-guide") speakVillage(state.lastGuideAnswer || t("guideIntro"), { force: true });
   if (action === "listen-guide") startGuideVoiceInput();
@@ -2548,6 +2649,8 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "guide-form") submitGuide(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
+  if (event.target.id === "announcement-form") submitAnnouncement(event);
+  if (event.target.id === "admin-add-form") submitAdminAdd(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);
   if (event.target.id === "community-search-form") submitCommunitySearch(event);
@@ -2569,4 +2672,5 @@ $("#original-survey-link").href = config.survey.url.replace("?embedded=true", ""
     state.user = user;
   } catch {}
   routeForUser();
+  refreshAnnouncementBadge();
 })();
