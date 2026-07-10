@@ -160,6 +160,15 @@ test("each building has a clickable AI capybara companion that remains on land",
   }
 });
 
+test("moving AI capybaras activate their own building before the pointer can drift", async () => {
+  const runtime = await readFile(new URL("../public/ecosystem-runtime.mjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(runtime, /constructor\(\{ config, stage, creatureLayer, skyLayer, onSound = \(\) => \{\}, onBuilding = \(\) => \{\} \}\)/);
+  assert.match(runtime, /addEventListener\("pointerdown"[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
+  assert.match(runtime, /addEventListener\("click"[\s\S]*if \(pointerActivated\)[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
+  assert.match(app, /onBuilding: \(buildingId\) => handleBuilding\(buildingId\)/);
+});
+
 test("villager route validation rejects shortcuts across open water", () => {
   assert.equal(villagerRouteIsWalkable([{ x: 38, y: 59 }, { x: 44, y: 57 }, { x: 50, y: 55 }, { x: 56, y: 58 }, { x: 62, y: 58 }]), true);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 65 }, { x: 75, y: 70 }]), false);
