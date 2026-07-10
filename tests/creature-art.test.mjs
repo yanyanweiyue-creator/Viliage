@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { creatureSpecies, getCreatureMarkup } from "../public/creature-art.mjs";
 
@@ -11,13 +11,18 @@ test("every configured ecosystem species has original SVG artwork", async () => 
   const context = { window: {} };
   vm.runInNewContext(source, context);
   const ecosystem = context.window.CAPY_CONFIG.ecosystem;
-  const configuredSpecies = new Set([...ecosystem.animals.map((animal) => animal.species), "dragon"]);
+  const configuredSpecies = new Set([...ecosystem.animals.filter((animal) => !animal.imageSrc).map((animal) => animal.species), "dragon"]);
 
   for (const species of configuredSpecies) {
     assert.ok(creatureSpecies.includes(species), `${species} needs an SVG illustration`);
     const markup = getCreatureMarkup(species);
     assert.match(markup, /^\s*<svg/);
     assert.equal(emojiRange.test(markup), false, `${species} artwork must not contain emoji`);
+  }
+
+  for (const animal of ecosystem.animals.filter((item) => item.imageSrc)) {
+    assert.match(animal.imageSrc, /^\/assets\/.+\.svg$/, `${animal.id} should use an owned SVG guide asset`);
+    await access(new URL(`../public${animal.imageSrc}`, import.meta.url));
   }
 });
 
