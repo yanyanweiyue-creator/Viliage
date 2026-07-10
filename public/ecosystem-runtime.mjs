@@ -40,12 +40,13 @@ export function projectActorPoint(point, island, sceneMode = "2d", offset = { x:
 }
 
 export class EcosystemController {
-  constructor({ config, stage, creatureLayer, skyLayer, onSound = () => {} }) {
+  constructor({ config, stage, creatureLayer, skyLayer, onSound = () => {}, onBuilding = () => {} }) {
     this.config = config || {};
     this.stage = stage;
     this.creatureLayer = creatureLayer;
     this.skyLayer = skyLayer;
     this.onSound = onSound;
+    this.onBuilding = onBuilding;
     this.actors = new Map();
     this.clock = { isDay: true, currentMinutes: 720, sunrise: 360, sunset: 1080, localDate: "", locationSeed: "village" };
     this.weather = "clear";
@@ -81,6 +82,23 @@ export class EcosystemController {
         element.type = "button";
         element.dataset.building = definition.buildingTarget;
         element.classList.add("interactive-actor");
+        let pointerActivated = false;
+        element.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          pointerActivated = true;
+          event.stopPropagation();
+          this.onBuilding(definition.buildingTarget);
+        });
+        element.addEventListener("pointercancel", () => { pointerActivated = false; });
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (pointerActivated) {
+            pointerActivated = false;
+            return;
+          }
+          this.onBuilding(definition.buildingTarget);
+        });
       }
       element.dataset.actorId = definition.id;
       element.dataset.species = definition.species;
