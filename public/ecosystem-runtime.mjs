@@ -3,7 +3,7 @@ import { createCreatureArt } from "./creature-art.mjs?v=land-map-20260624";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
-const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, cow: .62, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, cow: .62, capybara: .58, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
 const ISLAND_PROJECTIONS = Object.freeze({
   autism: {
     "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 },
@@ -75,21 +75,38 @@ export class EcosystemController {
       const routeIndex = clampIndex(definition.start, route.length);
       const point = route[routeIndex];
       const offset = actorOffset(definition.id);
-      const element = document.createElement("span");
+      const element = document.createElement(definition.buildingTarget ? "button" : "span");
       element.className = "ecosystem-actor state-idle";
+      if (definition.buildingTarget) {
+        element.type = "button";
+        element.dataset.building = definition.buildingTarget;
+        element.classList.add("interactive-actor");
+      }
       element.dataset.actorId = definition.id;
       element.dataset.species = definition.species;
       element.dataset.island = definition.island;
       element.dataset.flying = String(Boolean(definition.flying));
       element.title = definition.label;
-      element.setAttribute("role", "img");
-      element.setAttribute("aria-label", definition.label);
+      if (definition.buildingTarget) element.setAttribute("aria-label", `${definition.label}: open ${definition.buildingTarget.replaceAll("-", " ")}`);
+      else {
+        element.setAttribute("role", "img");
+        element.setAttribute("aria-label", definition.label);
+      }
       this.positionActor({ definition, element, route, routeIndex, offset }, point);
       element.style.setProperty("--actor-facing", definition.start % 2 ? "-1" : "1");
       element.dataset.gait = definition.species;
       const glyph = document.createElement("span");
       glyph.className = "actor-glyph";
-      glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
+      if (definition.imageSrc) {
+        const image = document.createElement("img");
+        image.className = "actor-art actor-image";
+        image.src = definition.imageSrc;
+        image.alt = "";
+        image.decoding = "async";
+        glyph.append(image);
+      } else {
+        glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
+      }
       element.append(glyph);
       (definition.flying ? this.skyLayer : this.creatureLayer).append(element);
       this.actors.set(definition.id, {
@@ -200,8 +217,10 @@ export class EcosystemController {
         }
       }
 
-      const pauseScale = actor.definition.species === "rabbit" ? .72 : actor.definition.species === "sheep" ? 1.35 : 1;
-      this.moveTo(actor, this.adjacentIndex(actor), Math.random() < .34 ? "looking" : "idle", randomBetween(3500, 8500) * pauseScale);
+      const pauseScale = actor.definition.species === "rabbit" ? .72 : actor.definition.species === "sheep" ? 1.35 : actor.definition.species === "capybara" ? 1.65 : 1;
+      const capybaraActions = Array.isArray(actor.definition.actions) && actor.definition.actions.length ? actor.definition.actions : ["looking", "idle"];
+      const arrivalState = actor.definition.species === "capybara" ? capybaraActions[Math.floor(Math.random() * capybaraActions.length)] : Math.random() < .34 ? "looking" : "idle";
+      this.moveTo(actor, this.adjacentIndex(actor), arrivalState, randomBetween(3500, 8500) * pauseScale);
     }
   }
 
