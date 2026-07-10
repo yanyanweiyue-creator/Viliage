@@ -97,7 +97,10 @@ function sendPasswordResetCode_(data) {
   var requestedFrom = String(data.fromAddress || "").trim().toLowerCase();
   var senderName = String(data.fromName || "It Takes a Village").trim() || "It Takes a Village";
   var aliases = GmailApp.getAliases().map(function(alias) { return String(alias).toLowerCase(); });
-  var senderAddress = aliases.indexOf(requestedFrom) >= 0 ? requestedFrom : senderName;
+  var canUseRequestedFrom = requestedFrom && aliases.indexOf(requestedFrom) >= 0;
+  var accountEmail = "";
+  try { accountEmail = Session.getEffectiveUser().getEmail(); } catch (error) {}
+  var senderAddress = canUseRequestedFrom ? requestedFrom : (accountEmail || "the It Takes a Village Gmail account");
   var subject = "Your It Takes a Village verification code";
   var plainText = "Your verification code is " + code + ". It expires in " + minutes + " minutes. If you did not request a password reset, you can ignore this email.";
   var html = '<div style="font-family:Arial,sans-serif;color:#243a35;max-width:520px;padding:24px">' +
@@ -106,8 +109,11 @@ function sendPasswordResetCode_(data) {
     '<p style="font-size:32px;font-weight:700;letter-spacing:8px;background:#eef5ef;padding:16px 20px;border-radius:12px;text-align:center">' + code + '</p>' +
     '<p>This code expires in ' + minutes + ' minutes. If you did not request it, you can safely ignore this email.</p>' +
     '<p style="font-size:12px;color:#6d7d78">Sent by ' + senderAddress + '</p></div>';
-  var options = { htmlBody: html, name: senderName, replyTo: requestedFrom || senderAddress };
-  if (aliases.indexOf(requestedFrom) >= 0) options.from = requestedFrom;
+  var options = { htmlBody: html, name: senderName };
+  if (canUseRequestedFrom) {
+    options.from = requestedFrom;
+    options.replyTo = requestedFrom;
+  }
   GmailApp.sendEmail(email, subject, plainText + "\n\nSent by " + senderAddress, options);
   return ContentService.createTextOutput(JSON.stringify({ ok: true, delivered: true, senderAddress: senderAddress }))
     .setMimeType(ContentService.MimeType.JSON);
