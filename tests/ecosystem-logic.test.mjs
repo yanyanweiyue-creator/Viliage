@@ -165,6 +165,9 @@ test("moving AI capybaras activate their own building before the pointer can dri
   const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
   assert.match(runtime, /constructor\(\{ config, stage, creatureLayer, skyLayer, onSound = \(\) => \{\}, onBuilding = \(\) => \{\} \}\)/);
   assert.match(runtime, /addEventListener\("pointerdown"[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
+  assert.match(runtime, /addEventListener\("pointerenter"[\s\S]*holdInteractiveActor\(definition\.id\)/);
+  assert.match(runtime, /holdInteractiveActor\(actorId\)[\s\S]*Number\.POSITIVE_INFINITY[\s\S]*setActorState\(actor, "looking"\)/);
+  assert.match(runtime, /releaseInteractiveActor\(actorId\)[\s\S]*Date\.now\(\) \+ 650/);
   assert.match(runtime, /addEventListener\("click"[\s\S]*if \(pointerActivated\)[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
   assert.match(app, /onBuilding: \(buildingId\) => handleBuilding\(buildingId\)/);
 });
