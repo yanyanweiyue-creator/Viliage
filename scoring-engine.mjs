@@ -451,4 +451,10 @@ export const CLARIFICATION_TRANSLATIONS = Object.freeze({
     Online: "En línea",
     "In person": "Presencial",
     Adult: "Adulto",
-    "All ages": "To
+    "All ages": "Todas las edades",
+    "Most relevant match": "Coincidencia más relevante",
+    "Low cost": "Bajo costo",
+    "Available soon": "Disponible pronto",
+    "Local/in-person": "Local/presencial"
+  }
+});
