@@ -21,7 +21,7 @@ window.CAPY_CONFIG = {
     contacts: [
       { title: "Immediate danger", detail: "Call 911 or your local emergency service.", href: "tel:911", action: "Call 911" },
       { title: "988 Lifeline", detail: "24/7 call, text, or chat support in the United States.", href: "https://988lifeline.org", action: "Open 988" },
-      { title: "Project team", detail: "Replace this card with your own email, hours, and contact process.", href: "mailto:hello@example.org", action: "Email us" }
+      { title: "Contact us", detail: "Ittakesavillage.capybara@gmail.com", href: "mailto:Ittakesavillage.capybara@gmail.com", action: "Email us" }
     ],
     options: [
       "Make a short list of questions before calling a provider.",
@@ -67,11 +67,8 @@ window.CAPY_CONFIG = {
       ]
     },
     animals: [
-      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", island: "autism", route: "autismMeadow", start: 0, activePeriod: "night" },
       { id: "quiet-deer", species: "deer", label: "Quiet deer", island: "autism", route: "autismMeadow", start: 5, activePeriod: "day" },
-      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", island: "autism", route: "autismMeadow", start: 2, activePeriod: "day", livestock: true, grazePoint: 3, waterPoint: 4 },
       { id: "trail-fox", species: "fox", label: "Trail fox", island: "adhd", route: "adhdMeadow", start: 2, activePeriod: "night" },
-      { id: "meadow-cow", species: "cow", label: "Meadow cow", island: "adhd", route: "adhdPasture", start: 1, activePeriod: "day", livestock: true, grazePoint: 2, waterPoint: 0 },
       { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, activePeriod: "day", flying: true },
       { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, activePeriod: "day", flying: true },
       { id: "capy-autism-school", species: "capybara", label: "Muffins at the School", island: "autism", route: "autismVillagePath", start: 0, activePeriod: "always", buildingTarget: "autism-education", characterTopic: "Education", imageSrc: "/assets/character-muffins-school.svg", actions: ["reading", "listening", "looking"] },
@@ -102,8 +99,6 @@ window.CAPY_CONFIG = {
       },
       samples: {
         bird: { src: "/audio/sfx/morning-birds.mp3", volume: 0.1, maximumDuration: 3.2 },
-        cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
-        sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
         deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
       },
       ambience: {
