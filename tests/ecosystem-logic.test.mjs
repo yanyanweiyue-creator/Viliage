@@ -143,6 +143,35 @@ test("configured livestock targets stay on their island and villagers sleep in b
   }
 });
 
+test("each building has a clickable AI capybara companion that remains on land", async () => {
+  const source = await readFile(new URL("../public/site-config.js", import.meta.url), "utf8");
+  const context = { window: {} };
+  vm.runInNewContext(source, context);
+  const config = context.window.CAPY_CONFIG;
+  const companions = config.ecosystem.animals.filter((item) => item.species === "capybara" && item.buildingTarget);
+  assert.equal(companions.length, config.buildings.length);
+  for (const building of config.buildings) {
+    const companion = companions.find((item) => item.buildingTarget === building.id);
+    assert.ok(companion, `${building.id} needs a capybara companion`);
+    assert.equal(companion.island, building.island);
+    assert.match(companion.imageSrc, /^\/assets\/character-.+\.svg$/);
+    assert.ok(Array.isArray(companion.actions) && companion.actions.length >= 2, `${companion.id} needs designed actions`);
+    assert.equal(routeIsConfined({ island: companion.island, points: config.ecosystem.routes[companion.route] }, companion.island), true);
+  }
+});
+
+test("moving AI capybaras activate their own building before the pointer can drift", async () => {
+  const runtime = await readFile(new URL("../public/ecosystem-runtime.mjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(runtime, /constructor\(\{ config, stage, creatureLayer, skyLayer, onSound = \(\) => \{\}, onBuilding = \(\) => \{\} \}\)/);
+  assert.match(runtime, /addEventListener\("pointerdown"[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
+  assert.match(runtime, /addEventListener\("pointerenter"[\s\S]*holdInteractiveActor\(definition\.id\)/);
+  assert.match(runtime, /holdInteractiveActor\(actorId\)[\s\S]*Number\.POSITIVE_INFINITY[\s\S]*setActorState\(actor, "looking"\)/);
+  assert.match(runtime, /releaseInteractiveActor\(actorId\)[\s\S]*Date\.now\(\) \+ 650/);
+  assert.match(runtime, /addEventListener\("click"[\s\S]*if \(pointerActivated\)[\s\S]*this\.onBuilding\(definition\.buildingTarget\)/);
+  assert.match(app, /onBuilding: \(buildingId\) => handleBuilding\(buildingId\)/);
+});
+
 test("villager route validation rejects shortcuts across open water", () => {
   assert.equal(villagerRouteIsWalkable([{ x: 38, y: 59 }, { x: 44, y: 57 }, { x: 50, y: 55 }, { x: 56, y: 58 }, { x: 62, y: 58 }]), true);
   assert.equal(villagerRouteIsWalkable([{ x: 20, y: 65 }, { x: 75, y: 70 }]), false);
