@@ -3,7 +3,20 @@ import { createCreatureArt } from "./creature-art.mjs?v=land-map-20260624";
 
 const clampIndex = (value, length) => Math.max(0, Math.min(length - 1, Number(value) || 0));
 const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
-const movementRate = (definition) => ({ rabbit: 1.28, fox: 1.12, deer: .92, sheep: .72, cow: .62, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+const movementRate = (definition) => ({ fox: 1.12, deer: .92, capybara: .72, villager: .82, gull: 1.16, bird: 1.3 }[definition.species] || 1);
+const POSITIVE_CHAT = Object.freeze({
+  clear: ["Lovely sunshine today.", "The sky looks bright and peaceful.", "A gentle day for exploring."],
+  cloudy: ["The clouds look soft today.", "A calm breeze is moving through the village."],
+  fog: ["The village feels quiet and cozy.", "A lovely morning for a slow stroll."],
+  rain: ["The rain makes the gardens sparkle.", "Perfect weather for a warm cup of tea."],
+  snow: ["The snow makes everything glow.", "What a cozy winter day."],
+  storm: ["We are warm and safe together.", "A cozy moment to listen to the rain."],
+  spring: ["The spring flowers are waking up.", "I spotted a tiny butterfly!"],
+  summer: ["The summer breeze feels wonderful.", "The songbirds sound cheerful today."],
+  autumn: ["The autumn leaves are dancing.", "The village looks golden today."],
+  winter: ["The village lights feel extra cozy.", "A peaceful winter walk sounds nice."],
+  night: ["The stars are keeping us company.", "The village feels peaceful tonight."]
+});
 const ISLAND_PROJECTIONS = Object.freeze({
   autism: {
     "2d": { x: 25, y: 52, rx: 22.5, ry: 30.5 },
@@ -40,21 +53,25 @@ export function projectActorPoint(point, island, sceneMode = "2d", offset = { x:
 }
 
 export class EcosystemController {
-  constructor({ config, stage, creatureLayer, skyLayer, onSound = () => {} }) {
+  constructor({ config, stage, creatureLayer, skyLayer, onSound = () => {}, onBuilding = () => {} }) {
     this.config = config || {};
     this.stage = stage;
     this.creatureLayer = creatureLayer;
     this.skyLayer = skyLayer;
     this.onSound = onSound;
+    this.onBuilding = onBuilding;
     this.actors = new Map();
     this.clock = { isDay: true, currentMinutes: 720, sunrise: 360, sunset: 1080, localDate: "", locationSeed: "village" };
     this.weather = "clear";
+    this.season = "summer";
     this.calm = false;
     this.sceneMode = "2d";
     this.timer = null;
     this.dragonShownDate = "";
     this.flockShownDate = "";
     this.initialized = false;
+    this.lastChatAt = 0;
+    this.chatTimer = null;
   }
 
   init() {
@@ -75,27 +92,70 @@ export class EcosystemController {
       const routeIndex = clampIndex(definition.start, route.length);
       const point = route[routeIndex];
       const offset = actorOffset(definition.id);
-      const element = document.createElement("span");
+      const element = document.createElement(definition.buildingTarget ? "button" : "span");
       element.className = "ecosystem-actor state-idle";
+      if (definition.buildingTarget) {
+        element.type = "button";
+        element.dataset.building = definition.buildingTarget;
+        element.classList.add("interactive-actor");
+        let pointerActivated = false;
+        element.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0) return;
+          pointerActivated = true;
+          event.stopPropagation();
+          this.onBuilding(definition.buildingTarget);
+        });
+        element.addEventListener("pointerenter", () => this.holdInteractiveActor(definition.id));
+        element.addEventListener("pointerleave", () => this.releaseInteractiveActor(definition.id));
+        element.addEventListener("pointercancel", () => { pointerActivated = false; });
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (pointerActivated) {
+            pointerActivated = false;
+            return;
+          }
+          this.onBuilding(definition.buildingTarget);
+        });
+      }
       element.dataset.actorId = definition.id;
       element.dataset.species = definition.species;
       element.dataset.island = definition.island;
       element.dataset.flying = String(Boolean(definition.flying));
       element.title = definition.label;
-      element.setAttribute("role", "img");
-      element.setAttribute("aria-label", definition.label);
+      if (definition.buildingTarget) element.setAttribute("aria-label", `${definition.label}: open ${definition.buildingTarget.replaceAll("-", " ")}`);
+      else {
+        element.setAttribute("role", "img");
+        element.setAttribute("aria-label", definition.label);
+      }
       this.positionActor({ definition, element, route, routeIndex, offset }, point);
       element.style.setProperty("--actor-facing", definition.start % 2 ? "-1" : "1");
       element.dataset.gait = definition.species;
       const glyph = document.createElement("span");
       glyph.className = "actor-glyph";
-      glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
+      if (definition.imageSrc) {
+        const image = document.createElement("img");
+        image.className = "actor-art actor-image";
+        image.src = definition.imageSrc;
+        image.alt = "";
+        image.decoding = "async";
+        glyph.append(image);
+      } else {
+        glyph.append(createCreatureArt(document, definition.species, definition.artVariant || 0));
+      }
       element.append(glyph);
+      if (definition.species === "capybara") {
+        const chat = document.createElement("span");
+        chat.className = "actor-chat-bubble";
+        chat.setAttribute("aria-hidden", "true");
+        element.append(chat);
+      }
       (definition.flying ? this.skyLayer : this.creatureLayer).append(element);
       this.actors.set(definition.id, {
         definition, element, route, routeIndex, offset,
-        nextMoveAt: now + randomBetween(1200, 4500),
+        nextMoveAt: now + randomBetween(definition.species === "capybara" ? 1800 : 1200, definition.species === "capybara" ? 6200 : 4500),
         arriveAt: 0, arrivalState: "", inside: false,
+        lastAction: "idle",
         lastGrazeAt: now,
         lastDrinkAt: now
       });
@@ -112,8 +172,67 @@ export class EcosystemController {
   }
 
   setActorState(actor, stateName) {
+    if (actor.element.classList.contains(`state-${stateName}`)) return;
     [...actor.element.classList].filter((name) => name.startsWith("state-")).forEach((name) => actor.element.classList.remove(name));
     actor.element.classList.add(`state-${stateName}`);
+    actor.element.classList.add("state-transitioning");
+    setTimeout(() => actor.element.classList.remove("state-transitioning"), 180);
+    actor.lastAction = stateName;
+  }
+
+  nextCapybaraAction(actor) {
+    const actions = Array.isArray(actor.definition.actions) && actor.definition.actions.length ? actor.definition.actions : ["looking", "idle"];
+    const choices = actions.filter((action) => action !== actor.lastAction);
+    return (choices.length ? choices : actions)[Math.floor(Math.random() * (choices.length || actions.length))];
+  }
+
+  maybeStartConversation(actor, now) {
+    if (actor.definition.species !== "capybara" || actor.arrivalState || now - this.lastChatAt < 14_000 || Math.random() > .009) return;
+    const bubble = actor.element.querySelector(".actor-chat-bubble");
+    if (!bubble) return;
+    const pool = [...(POSITIVE_CHAT[this.weather] || POSITIVE_CHAT.clear), ...(POSITIVE_CHAT[this.season] || POSITIVE_CHAT.summer), ...(!this.clock.isDay ? POSITIVE_CHAT.night : [])];
+    bubble.textContent = pool[Math.floor(Math.random() * pool.length)];
+    actor.element.classList.add("chatting");
+    this.lastChatAt = now;
+    clearTimeout(this.chatTimer);
+    this.chatTimer = setTimeout(() => actor.element.classList.remove("chatting"), 4600);
+  }
+
+  celebrate() {
+    const capybaras = [...this.actors.values()].filter((actor) => actor.definition.species === "capybara");
+    capybaras.forEach((actor, index) => {
+      setTimeout(() => {
+        this.setActorState(actor, "waving");
+        const bubble = actor.element.querySelector(".actor-chat-bubble");
+        if (bubble && index < 2) {
+          bubble.textContent = index === 0 ? "Hello from the village!" : "What a lovely surprise!";
+          actor.element.classList.add("chatting");
+          setTimeout(() => actor.element.classList.remove("chatting"), 3600);
+        }
+        actor.nextMoveAt = Date.now() + 4200;
+      }, index * 90);
+    });
+  }
+
+  holdInteractiveActor(actorId) {
+    const actor = this.actors.get(actorId);
+    if (!actor) return;
+    const computed = getComputedStyle(actor.element);
+    const left = computed.left;
+    const top = computed.top;
+    actor.element.style.transitionDuration = "0s, 0s, .5s, .8s, 0s";
+    actor.element.style.left = left;
+    actor.element.style.top = top;
+    actor.arriveAt = 0;
+    actor.arrivalState = "";
+    actor.nextMoveAt = Number.POSITIVE_INFINITY;
+    this.setActorState(actor, "looking");
+  }
+
+  releaseInteractiveActor(actorId) {
+    const actor = this.actors.get(actorId);
+    if (!actor) return;
+    actor.nextMoveAt = Date.now() + 650;
   }
 
   positionActor(actor, point) {
@@ -151,6 +270,7 @@ export class EcosystemController {
   tick(force = false) {
     const now = Date.now();
     for (const actor of this.actors.values()) {
+      this.maybeStartConversation(actor, now);
       if (actor.arrivalState && now >= actor.arriveAt) {
         this.setActorState(actor, actor.arrivalState);
         actor.inside = actor.arrivalState === "inside";
@@ -200,86 +320,4 @@ export class EcosystemController {
         }
       }
 
-      const pauseScale = actor.definition.species === "rabbit" ? .72 : actor.definition.species === "sheep" ? 1.35 : 1;
-      this.moveTo(actor, this.adjacentIndex(actor), Math.random() < .34 ? "looking" : "idle", randomBetween(3500, 8500) * pauseScale);
-    }
-  }
-
-  setClock(clock) {
-    const previousDayState = this.clock.isDay;
-    this.clock = { ...this.clock, ...clock };
-    if (previousDayState !== this.clock.isDay) this.tick(true);
-    if (this.calm) return;
-
-    const dragon = this.config.events?.dragon || {};
-    if (shouldShowDragon({
-      dateKey: this.clock.localDate,
-      seed: this.clock.locationSeed,
-      minute: this.clock.currentMinutes,
-      sunrise: this.clock.sunrise,
-      weather: this.weather,
-      lastShownDate: this.dragonShownDate,
-      probability: dragon.probability ?? .12,
-      minutesBefore: dragon.dawnBeforeMinutes ?? 20,
-      minutesAfter: dragon.dawnAfterMinutes ?? 40
-    })) this.launchDragon();
-
-    const flock = this.config.events?.sunsetFlock || {};
-    if (shouldLaunchSunsetFlock({
-      dateKey: this.clock.localDate,
-      minute: this.clock.currentMinutes,
-      sunset: this.clock.sunset,
-      lastLaunchDate: this.flockShownDate,
-      minutesBefore: flock.beforeMinutes ?? 8,
-      minutesAfter: flock.afterMinutes ?? 6
-    })) this.launchSunsetFlock(Number(flock.count || 9));
-  }
-
-  launchDragon() {
-    const dragon = this.skyLayer.querySelector("#dawn-dragon");
-    if (!dragon) return;
-    this.dragonShownDate = this.clock.localDate;
-    dragon.classList.remove("in-flight");
-    void dragon.offsetWidth;
-    dragon.classList.add("in-flight");
-    this.onSound("dragon");
-    setTimeout(() => dragon.classList.remove("in-flight"), 12_500);
-  }
-
-  launchSunsetFlock(count) {
-    this.flockShownDate = this.clock.localDate;
-    const flock = document.createElement("div");
-    flock.className = "sunset-flock";
-    for (let index = 0; index < count; index += 1) {
-      const bird = document.createElement("span");
-      bird.className = "sunset-gull";
-      bird.append(createCreatureArt(document, "gull", index % 3));
-      bird.style.setProperty("--flock-left", `${8 + (index % 4) * 7}%`);
-      bird.style.setProperty("--flock-top", `${46 + (index % 3) * 5}%`);
-      bird.style.setProperty("--flock-delay", `${index * .24}s`);
-      flock.append(bird);
-    }
-    this.skyLayer.append(flock);
-    this.onSound("gull");
-    setTimeout(() => flock.remove(), 14_000);
-  }
-
-  setWeather(kind) { this.weather = kind || "clear"; }
-  setCalm(value) { this.calm = Boolean(value); }
-  setSceneMode(mode) {
-    this.sceneMode = mode === "3d" ? "3d" : "2d";
-    for (const actor of this.actors.values()) this.positionActor(actor, actor.route[actor.routeIndex]);
-  }
-
-  audibleSpecies(selectedIsland = null) {
-    return [...this.actors.values()]
-      .filter((actor) => !actor.inside && (actor.definition.island === "sky" || actor.definition.island === "village" || !selectedIsland || actor.definition.island === selectedIsland))
-      .map((actor) => actor.definition.species);
-  }
-
-  destroy() {
-    clearInterval(this.timer);
-    this.timer = null;
-    this.initialized = false;
-  }
-}
+      const pauseScale = actor.definition.species === "capybara" ? 1
