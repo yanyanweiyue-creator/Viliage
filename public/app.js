@@ -2670,4 +2670,73 @@ document.addEventListener("click", (event) => {
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
   if (action === "toggle-voice-setting") toggleVoiceSetting(actionElement.dataset.voiceSetting);
-  if (action === "start
+  if (action === "start-voice-command") startVoiceCommand();
+  if (action === "explain-resource") showResourceExplanation(actionElement);
+  if (action === "like-resource") toggleResourceLike(actionElement);
+  if (action === "dislike-resource") toggleResourceDislike(actionElement);
+  if (action === "research-feedback") submitResearchFeedback(actionElement);
+  if (action === "apply-follow-up") applyFollowUp(actionElement);
+  if (action === "refresh-resources") loadResources(true);
+  if (action === "refresh-environment") loadEnvironment(true);
+  if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
+  if (["open-community", "community-tab", "support-tab", "send-sticker", "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room", "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user", "delete-community-post"].includes(action)) communityAction(actionElement, action);
+});
+
+document.addEventListener("input", (event) => {
+  const volume = event.target.closest("[data-volume]");
+  if (volume) updateVolume(volume);
+});
+
+document.addEventListener("change", (event) => {
+  const localMusic = event.target.closest("[data-local-music]");
+  if (localMusic) handleLocalMusicUpload(localMusic);
+  const communityImage = event.target.closest("[data-community-image]");
+  if (communityImage) handleCommunityImage(communityImage);
+});
+
+document.addEventListener("submit", (event) => {
+  if (event.target.id === "auth-form") submitAuth(event);
+  if (event.target.id === "password-request-form") submitPasswordRequest(event);
+  if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
+  if (event.target.id === "survey-form") submitSurvey(event);
+  if (event.target.id === "ai-form") submitAi(event);
+  if (event.target.id === "guide-form") submitGuide(event);
+  if (event.target.id === "feedback-form") submitFeedback(event);
+  if (event.target.id === "announcement-form") submitAnnouncement(event);
+  if (event.target.id === "activity-form") submitActivity(event);
+  if (event.target.id === "admin-add-form") submitAdminAdd(event);
+  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
+  if (event.target.id === "community-message-form") submitCommunityMessage(event);
+  if (event.target.id === "community-search-form") submitCommunitySearch(event);
+  if (event.target.id === "community-group-form") submitCommunityGroup(event);
+  if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
+  if (event.target.id === "community-post-form") submitCommunityPost(event);
+});
+
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
+$("#calm-toggle").addEventListener("click", toggleCalm);
+$("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
+
+let weatherSecretClicks = [];
+$("#environment-status")?.addEventListener("click", () => {
+  const now = Date.now();
+  weatherSecretClicks = weatherSecretClicks.filter((time) => now - time < 4200);
+  weatherSecretClicks.push(now);
+  if (weatherSecretClicks.length < 5) return;
+  weatherSecretClicks = [];
+  state.ecosystem?.celebrate();
+  state.audio?.playAnimal(state.environment?.season === "winter" ? "owl" : "bird");
+  toast("You found the village hello! Every capybara is waving.");
+});
+
+(async function boot() {
+  setAuthMode("register");
+  await hydrateLocalMusic();
+  applySettings();
+  try {
+    const { user } = await api("/api/auth/me");
+    state.user = user;
+  } catch {}
+  routeForUser();
+  refreshAnnouncementBadge();
+})();
