@@ -21,7 +21,7 @@ window.CAPY_CONFIG = {
     contacts: [
       { title: "Immediate danger", detail: "Call 911 or your local emergency service.", href: "tel:911", action: "Call 911" },
       { title: "988 Lifeline", detail: "24/7 call, text, or chat support in the United States.", href: "https://988lifeline.org", action: "Open 988" },
-      { title: "Project team", detail: "Replace this card with your own email, hours, and contact process.", href: "mailto:hello@example.org", action: "Email us" }
+      { title: "Contact us", detail: "Ittakesavillage.capybara@gmail.com", href: "mailto:Ittakesavillage.capybara@gmail.com", action: "Email us" }
     ],
     options: [
       "Make a short list of questions before calling a provider.",
@@ -67,13 +67,20 @@ window.CAPY_CONFIG = {
       ]
     },
     animals: [
-      { id: "moon-bunny", species: "rabbit", label: "Moon bunny", island: "autism", route: "autismMeadow", start: 0, activePeriod: "night" },
       { id: "quiet-deer", species: "deer", label: "Quiet deer", island: "autism", route: "autismMeadow", start: 5, activePeriod: "day" },
-      { id: "woolly-sheep", species: "sheep", label: "Woolly sheep", island: "autism", route: "autismMeadow", start: 2, activePeriod: "day", livestock: true, grazePoint: 3, waterPoint: 4 },
       { id: "trail-fox", species: "fox", label: "Trail fox", island: "adhd", route: "adhdMeadow", start: 2, activePeriod: "night" },
-      { id: "meadow-cow", species: "cow", label: "Meadow cow", island: "adhd", route: "adhdPasture", start: 1, activePeriod: "day", livestock: true, grazePoint: 2, waterPoint: 0 },
       { id: "village-gull", species: "gull", label: "Village gull", island: "sky", route: "skyLoop", start: 1, activePeriod: "day", flying: true },
       { id: "songbird", species: "bird", label: "Songbird", island: "sky", route: "skyLoop", start: 3, activePeriod: "day", flying: true },
+      { id: "capy-autism-school", species: "capybara", label: "Muffins at the School", island: "autism", route: "autismVillagePath", start: 0, activePeriod: "always", buildingTarget: "autism-education", characterTopic: "Education", imageSrc: "/assets/character-muffins-school.svg", actions: ["reading", "listening", "looking"] },
+      { id: "capy-autism-village", species: "capybara", label: "Eggy at the Village", island: "autism", route: "autismVillagePath", start: 2, activePeriod: "always", buildingTarget: "autism-support", characterTopic: "Support", imageSrc: "/assets/character-flower-support.svg", actions: ["waving", "listening", "idle"] },
+      { id: "capy-autism-woods", species: "capybara", label: "Mayor Crumpet at the Woods", island: "autism", route: "autismVillagePath", start: 3, activePeriod: "always", buildingTarget: "autism-recreation", characterTopic: "Activity", imageSrc: "/assets/character-mayor-crumpet.svg", actions: ["stretching", "waving", "looking"] },
+      { id: "capy-autism-park", species: "capybara", label: "Granola at the Park", island: "autism", route: "autismVillagePath", start: 4, activePeriod: "always", buildingTarget: "autism-activity", characterTopic: "Recreation", imageSrc: "/assets/character-granola-recreation.svg", actions: ["snacking", "looking", "idle"] },
+      { id: "capy-autism-courthouse", species: "capybara", label: "Bacon at the Courthouse", island: "autism", route: "autismVillagePath", start: 5, activePeriod: "always", buildingTarget: "autism-legal", characterTopic: "Legal", imageSrc: "/assets/character-bacon-law.svg", actions: ["reading", "listening", "looking"] },
+      { id: "capy-adhd-school", species: "capybara", label: "Muffins at the School", island: "adhd", route: "adhdVillagePath", start: 0, activePeriod: "always", buildingTarget: "adhd-education", characterTopic: "Education", imageSrc: "/assets/character-muffins-school.svg", actions: ["reading", "listening", "looking"] },
+      { id: "capy-adhd-courthouse", species: "capybara", label: "Bacon at the Courthouse", island: "adhd", route: "adhdVillagePath", start: 2, activePeriod: "always", buildingTarget: "adhd-legal", characterTopic: "Legal", imageSrc: "/assets/character-bacon-law.svg", actions: ["reading", "listening", "looking"] },
+      { id: "capy-adhd-village", species: "capybara", label: "Eggy at the Village", island: "adhd", route: "adhdVillagePath", start: 4, activePeriod: "always", buildingTarget: "adhd-support", characterTopic: "Support", imageSrc: "/assets/character-flower-support.svg", actions: ["waving", "listening", "idle"] },
+      { id: "capy-adhd-woods", species: "capybara", label: "Mayor Crumpet at the Woods", island: "adhd", route: "adhdVillagePath", start: 6, activePeriod: "always", buildingTarget: "adhd-recreation", characterTopic: "Activity", imageSrc: "/assets/character-mayor-crumpet.svg", actions: ["stretching", "waving", "looking"] },
+      { id: "capy-adhd-park", species: "capybara", label: "Granola at the Park", island: "adhd", route: "adhdVillagePath", start: 8, activePeriod: "always", buildingTarget: "adhd-activity", characterTopic: "Recreation", imageSrc: "/assets/character-granola-recreation.svg", actions: ["snacking", "looking", "idle"] },
       { id: "walker-one", species: "villager", label: "Autism Island visitor", artVariant: 0, island: "autism", route: "autismVillagePath", start: 0, villager: true, home: 0 },
       { id: "walker-two", species: "villager", label: "ADHD Island visitor", artVariant: 1, island: "adhd", route: "adhdVillagePath", start: 0, villager: true, home: 0 }
     ],
@@ -92,8 +99,6 @@ window.CAPY_CONFIG = {
       },
       samples: {
         bird: { src: "/audio/sfx/morning-birds.mp3", volume: 0.1, maximumDuration: 3.2 },
-        cow: { src: "/audio/sfx/cow.ogg", volume: 0.48 },
-        sheep: { src: "/audio/sfx/sheep.ogg", volume: 0.42 },
         deer: { src: "/audio/sfx/deer.ogg", volume: 0.3 }
       },
       ambience: {
