@@ -1,4 +1,4 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=land-map-20260624";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=activities-capy-20260710";
 import { ImmersiveScene } from "./immersive-scene.mjs?v=land-map-20260624";
 import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
@@ -58,6 +58,7 @@ const state = {
   communityPostImage: null,
   communityPostImagePromise: null,
   announcements: [],
+  activities: [],
   selectedAnnouncementId: null,
   editingAnnouncementId: null,
   adminUsers: [],
@@ -497,10 +498,11 @@ class VillageAudio {
       villager: () => this.chirp([92, 82], { type: "sine", level: .012, duration: .12, gap: .24 }),
       dragon: () => this.noiseGesture({ frequency: 1800, level: .11, duration: 1.8, type: "highpass" }),
       capybara: () => this.chirp([420, 560, 470], { type: "triangle", level: .026, duration: .2, gap: .14 }),
-      cow: () => this.chirp([105, 92], { type: "sawtooth", level: .012, duration: .6, gap: .22 }),
-      sheep: () => this.chirp([390, 330], { type: "triangle", level: .018, duration: .34, gap: .17 }),
       deer: () => this.chirp([220, 180], { type: "sine", level: .016, duration: .42, gap: .18 }),
-      gull: () => this.airyBird("gull")
+      gull: () => this.airyBird("gull"),
+      owl: () => this.chirp([330, 250, 330], { type: "sine", level: .018, duration: .38, gap: .22 }),
+      cricket: () => this.chirp([2280, 2510, 2340, 2620], { type: "sine", level: .006, duration: .055, gap: .07 }),
+      frog: () => this.chirp([145, 178], { type: "triangle", level: .012, duration: .18, gap: .13 })
     };
     (profiles[species] || profiles.bird)();
   }
@@ -516,7 +518,9 @@ class VillageAudio {
   }
 
   animalCall() {
-    const species = state.ecosystem?.audibleSpecies(state.selectedIsland) || ["bird"];
+    const present = (state.ecosystem?.audibleSpecies(state.selectedIsland) || ["bird"]).filter((species) => !["rabbit", "cow", "sheep"].includes(species));
+    const seasonalVisitors = { spring: ["bird", "frog"], summer: ["bird", "cricket", "frog"], autumn: ["bird", "owl", "fox"], winter: ["owl", "deer"] }[this.season] || ["bird"];
+    const species = [...present, ...seasonalVisitors, ...seasonalVisitors];
     if (!species.length) return;
     this.playAnimal(species[Math.floor(Math.random() * species.length)]);
   }
@@ -1315,15 +1319,54 @@ function settingsPanel() {
   });
 }
 
-function activitiesPanel() {
+function activityCards() {
+  const activities = state.activities.length ? state.activities : config.activities;
+  return activities.length ? activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p>${state.user?.isAdmin && activity.id ? `<button type="button" class="text-button danger-text activity-delete" data-action="delete-activity" data-activity-id="${escapeHtml(activity.id)}">Delete activity</button>` : ""}</div></article>`).join("") : `<p class="record-empty">There are no upcoming activities yet.</p>`;
+}
+
+function renderActivities() {
+  const adminForm = state.user?.isAdmin ? `<details class="activity-composer"><summary>Add an activity</summary><form id="activity-form" class="stack-form"><label>Date label<input name="date" maxlength="40" required placeholder="Aug 09" /></label><label>Title<input name="title" maxlength="120" required /></label><label>Location / details<input name="meta" maxlength="160" placeholder="San Jose · Free" /></label><label>Description<textarea name="description" rows="4" maxlength="1200" required></textarea></label><button class="primary-button" type="submit">Publish activity</button><p class="form-error" role="alert"></p></form></details>` : "";
+  return `<div class="mori-stage activity-character-stage">${guideCharacter("Activity", { className: "mayor-crumpet-character" })}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Activity.name))}</h3><p>${escapeHtml(t("activityGuideIntro"))}</p></div></div><p class="panel-intro">${escapeHtml(t("activityIntro"))}</p>${adminForm}<div class="card-list">${activityCards()}</div>`;
+}
+
+async function activitiesPanel() {
   openPanel({
     title: t("activityTitle"),
     eyebrow: t("activityEyebrow"),
-    html: `<div class="mori-stage activity-character-stage">${guideCharacter("Activity", { className: "mayor-crumpet-character" })}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Activity.name))}</h3><p>${escapeHtml(t("activityGuideIntro"))}</p></div></div>
-      <p class="panel-intro">${escapeHtml(t("activityIntro"))}</p>
-      <div class="card-list">${config.activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p></div></article>`).join("")}</div>
-      <p class="privacy-note">Edit activities in <code>public/site-config.js</code>; users have no editing controls.</p>`
+    html: `<p class="record-empty">Loading village activities…</p>`
   });
+  try {
+    const data = await api("/api/activities");
+    state.activities = data.activities || [];
+    if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
+    $("#panel-content").innerHTML = renderActivities();
+  } catch (error) {
+    state.activities = [];
+    $("#panel-content").innerHTML = `${renderActivities()}<p class="form-error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function submitActivity(event) {
+  event.preventDefault();
+  const form = event.target;
+  const values = new FormData(form);
+  const status = form.querySelector(".form-error");
+  status.textContent = "Publishing…";
+  try {
+    const result = await api("/api/activities", { method: "POST", body: JSON.stringify({ date: values.get("date"), title: values.get("title"), meta: values.get("meta"), description: values.get("description") }) });
+    state.activities = [...state.activities, result.activity];
+    $("#panel-content").innerHTML = renderActivities();
+    toast("Activity published.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function deleteActivity(id) {
+  try {
+    await api(`/api/activities/${encodeURIComponent(id)}`, { method: "DELETE" });
+    state.activities = state.activities.filter((activity) => activity.id !== id);
+    $("#panel-content").innerHTML = renderActivities();
+    toast("Activity deleted.");
+  } catch (error) { toast(error.message); }
 }
 
 function guidePanel() {
@@ -1587,12 +1630,14 @@ function closeDailyResearchFeedback() {
 }
 
 async function submitResearchFeedback(element) {
+  if (element.dataset.busy === "true") return;
   const scope = element.dataset.feedbackScope || "results";
   const helpful = element.dataset.helpful === "true";
   const research = scope === "daily" ? state.dailyResearchContext : state.currentResearch;
   const container = scope === "daily" ? $("#research-feedback-dialog") : element.closest(".research-result-feedback");
   const status = container?.querySelector(".research-feedback-status");
   const buttons = container ? $$("[data-action='research-feedback']", container) : [element];
+  buttons.forEach((button) => { button.dataset.busy = "true"; });
   buttons.forEach((button) => { button.disabled = true; });
   if (status) status.textContent = "Saving…";
   try {
@@ -1607,7 +1652,8 @@ async function submitResearchFeedback(element) {
     }
   } catch (error) {
     if (status) status.textContent = error.message;
-    buttons.forEach((button) => { button.disabled = false; });
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; delete button.dataset.busy; });
   }
 }
 
@@ -2466,8 +2512,8 @@ function applyEnvironment(environment, available = true) {
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
   state.audio?.setWeather(kind);
   state.audio?.setSeason(season);
-  state.ecosystem?.setWeather(kind);
   const atmosphere = { weather: kind, season, windSpeed: Number(environment.current?.windSpeed || 0), cloudCover: Number(environment.current?.cloudCover || 0) };
+  state.ecosystem?.setAtmosphere(atmosphere);
   state.immersive?.setEnvironment(atmosphere);
   state.surfaceMotion?.setEnvironment(atmosphere);
   updateCelestialScene();
@@ -2605,6 +2651,7 @@ document.addEventListener("click", (event) => {
   if (action === "edit-announcement") { state.editingAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); $("#panel-content").scrollTo({ top: 0, behavior: "smooth" }); }
   if (action === "cancel-announcement-edit") { state.editingAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); }
   if (action === "delete-announcement") { if (confirm("Delete this announcement?")) api(`/api/announcements/${encodeURIComponent(actionElement.dataset.announcementId)}`, { method: "DELETE" }).then(() => { state.announcements = state.announcements.filter((item) => item.id !== actionElement.dataset.announcementId); state.selectedAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); toast("Announcement deleted."); }).catch((error) => toast(error.message)); }
+  if (action === "delete-activity") { if (confirm("Delete this activity?")) deleteActivity(actionElement.dataset.activityId); }
   if (action === "remove-admin") { if (confirm("Remove this administrator?")) api(`/api/admin/users/${encodeURIComponent(actionElement.dataset.userId)}`, { method: "DELETE" }).then(() => loadAdminUsers()).catch((error) => toast(error.message)); }
   if (action === "open-mori") guidePanel();
   if (action === "speak-guide") speakVillage(state.lastGuideAnswer || t("guideIntro"), { force: true });
@@ -2623,60 +2670,4 @@ document.addEventListener("click", (event) => {
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
   if (action === "toggle-voice-setting") toggleVoiceSetting(actionElement.dataset.voiceSetting);
-  if (action === "start-voice-command") startVoiceCommand();
-  if (action === "explain-resource") showResourceExplanation(actionElement);
-  if (action === "like-resource") toggleResourceLike(actionElement);
-  if (action === "dislike-resource") toggleResourceDislike(actionElement);
-  if (action === "research-feedback") submitResearchFeedback(actionElement);
-  if (action === "apply-follow-up") applyFollowUp(actionElement);
-  if (action === "refresh-resources") loadResources(true);
-  if (action === "refresh-environment") loadEnvironment(true);
-  if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
-  if (["open-community", "community-tab", "support-tab", "send-sticker", "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room", "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user", "delete-community-post"].includes(action)) communityAction(actionElement, action);
-});
-
-document.addEventListener("input", (event) => {
-  const volume = event.target.closest("[data-volume]");
-  if (volume) updateVolume(volume);
-});
-
-document.addEventListener("change", (event) => {
-  const localMusic = event.target.closest("[data-local-music]");
-  if (localMusic) handleLocalMusicUpload(localMusic);
-  const communityImage = event.target.closest("[data-community-image]");
-  if (communityImage) handleCommunityImage(communityImage);
-});
-
-document.addEventListener("submit", (event) => {
-  if (event.target.id === "auth-form") submitAuth(event);
-  if (event.target.id === "password-request-form") submitPasswordRequest(event);
-  if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
-  if (event.target.id === "survey-form") submitSurvey(event);
-  if (event.target.id === "ai-form") submitAi(event);
-  if (event.target.id === "guide-form") submitGuide(event);
-  if (event.target.id === "feedback-form") submitFeedback(event);
-  if (event.target.id === "announcement-form") submitAnnouncement(event);
-  if (event.target.id === "admin-add-form") submitAdminAdd(event);
-  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
-  if (event.target.id === "community-message-form") submitCommunityMessage(event);
-  if (event.target.id === "community-search-form") submitCommunitySearch(event);
-  if (event.target.id === "community-group-form") submitCommunityGroup(event);
-  if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
-  if (event.target.id === "community-post-form") submitCommunityPost(event);
-});
-
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
-$("#calm-toggle").addEventListener("click", toggleCalm);
-$("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
-
-(async function boot() {
-  setAuthMode("register");
-  await hydrateLocalMusic();
-  applySettings();
-  try {
-    const { user } = await api("/api/auth/me");
-    state.user = user;
-  } catch {}
-  routeForUser();
-  refreshAnnouncementBadge();
-})();
+  if (action === "start
