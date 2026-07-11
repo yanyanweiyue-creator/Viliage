@@ -62,6 +62,7 @@ const state = {
   selectedAnnouncementId: null,
   editingAnnouncementId: null,
   adminUsers: [],
+  primaryKeywordBlocklist: [],
   supportTab: "phone",
   supportIsland: null,
   voiceRecognition: null,
@@ -1285,6 +1286,11 @@ function settingsPanel() {
       <label class="secondary-button local-music-picker">${escapeHtml(t("chooseAudio"))}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm" data-local-music="${slot}" /></label>
       ${record ? `<button type="button" class="text-button local-music-reset" data-action="clear-local-music" data-music-slot="${slot}">${escapeHtml(t("removeTrack"))}</button>` : ""}</div>`;
   }).join("");
+  const adminKeywordControls = state.user?.isAdmin ? `<form id="primary-keyword-blocklist-form" class="setting-group admin-keyword-settings">
+        <div><strong>Primary keyword controls</strong><small>Words listed here cannot appear as Primary Keywords or in the Error sheet Primary Keywords record.</small></div>
+        <label>Blocked words or phrases<textarea name="keywords" rows="4" placeholder="waffles&#10;village">${escapeHtml((state.primaryKeywordBlocklist || []).join("\n"))}</textarea></label>
+        <button type="submit" class="secondary-button">Save blocked keywords</button><p class="form-error" role="status"></p>
+      </form>` : "";
   openPanel({
     title: t("settingsTitle"),
     eyebrow: t("settingsEyebrow"),
@@ -1315,8 +1321,9 @@ function settingsPanel() {
         </div>
         <button type="button" class="secondary-button voice-listen" data-action="start-voice-command" ${current.voiceControl ? "" : "disabled"}>${escapeHtml(state.voiceListening ? t("voiceListening") : t("voiceListen"))}</button>
         <small>${escapeHtml(t("voiceHint"))}</small>
-      </div>`
+      </div>${adminKeywordControls}`
   });
+  if (state.user?.isAdmin) loadPrimaryKeywordBlocklist();
 }
 
 function activityCards() {
@@ -1913,6 +1920,34 @@ async function loadAdminUsers() {
     state.adminUsers = (await api("/api/admin/users")).users || [];
     container.innerHTML = state.adminUsers.map((item) => `<div class="admin-user-row"><div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></div>${item.isOwner ? `<small>Owner</small>` : item.id === state.user?.id ? `<small>You</small>` : `<button type="button" class="text-button danger-text" data-action="remove-admin" data-user-id="${escapeHtml(item.id)}">Remove</button>`}</div>`).join("");
   } catch (error) { container.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function loadPrimaryKeywordBlocklist() {
+  const form = $("#primary-keyword-blocklist-form");
+  if (!form) return;
+  const status = form.querySelector(".form-error");
+  try {
+    const data = await api("/api/admin/primary-keyword-blocklist");
+    state.primaryKeywordBlocklist = data.keywords || [];
+    form.elements.keywords.value = state.primaryKeywordBlocklist.join("\n");
+    status.textContent = "";
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+async function submitPrimaryKeywordBlocklist(event) {
+  event.preventDefault();
+  const form = event.target;
+  const status = form.querySelector(".form-error");
+  status.textContent = "Saving…";
+  try {
+    const data = await api("/api/admin/primary-keyword-blocklist", { method: "PUT", body: JSON.stringify({ text: new FormData(form).get("keywords") }) });
+    state.primaryKeywordBlocklist = data.keywords || [];
+    form.elements.keywords.value = state.primaryKeywordBlocklist.join("\n");
+    status.textContent = "Saved.";
+    toast("Primary keyword controls saved.");
+  } catch (error) { status.textContent = error.message; }
 }
 
 async function submitAdminAdd(event) {
@@ -2698,45 +2733,4 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "auth-form") submitAuth(event);
   if (event.target.id === "password-request-form") submitPasswordRequest(event);
   if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
-  if (event.target.id === "survey-form") submitSurvey(event);
-  if (event.target.id === "ai-form") submitAi(event);
-  if (event.target.id === "guide-form") submitGuide(event);
-  if (event.target.id === "feedback-form") submitFeedback(event);
-  if (event.target.id === "announcement-form") submitAnnouncement(event);
-  if (event.target.id === "activity-form") submitActivity(event);
-  if (event.target.id === "admin-add-form") submitAdminAdd(event);
-  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
-  if (event.target.id === "community-message-form") submitCommunityMessage(event);
-  if (event.target.id === "community-search-form") submitCommunitySearch(event);
-  if (event.target.id === "community-group-form") submitCommunityGroup(event);
-  if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
-  if (event.target.id === "community-post-form") submitCommunityPost(event);
-});
-
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
-$("#calm-toggle").addEventListener("click", toggleCalm);
-$("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
-
-let weatherSecretClicks = [];
-$("#environment-status")?.addEventListener("click", () => {
-  const now = Date.now();
-  weatherSecretClicks = weatherSecretClicks.filter((time) => now - time < 4200);
-  weatherSecretClicks.push(now);
-  if (weatherSecretClicks.length < 5) return;
-  weatherSecretClicks = [];
-  state.ecosystem?.celebrate();
-  state.audio?.playAnimal(state.environment?.season === "winter" ? "owl" : "bird");
-  toast("You found the village hello! Every capybara is waving.");
-});
-
-(async function boot() {
-  setAuthMode("register");
-  await hydrateLocalMusic();
-  applySettings();
-  try {
-    const { user } = await api("/api/auth/me");
-    state.user = user;
-  } catch {}
-  routeForUser();
-  refreshAnnouncementBadge();
-})();
+  if (event.target.id === "survey-form") su

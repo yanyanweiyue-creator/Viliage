@@ -436,6 +436,9 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .sound-toggle { justify-self: start; min-height: 2.7rem; }
 .volume-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .15rem .8rem; font-size: .82rem; font-weight: 700; }.volume-control output { color: var(--muted); font-variant-numeric: tabular-nums; }.volume-control input { grid-column: 1 / -1; padding: 0; accent-color: var(--sage-dark); }
 .voice-settings { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: color-mix(in srgb, var(--butter) 28%, white); }
+.admin-keyword-settings { display: grid; gap: .75rem; padding: 1rem; border: 1px solid #d9c797; border-radius: 1rem; background: #fffaf0; }
+.admin-keyword-settings small { display: block; margin-top: .25rem; color: var(--muted); line-height: 1.45; }
+.admin-keyword-settings textarea { min-height: 7rem; resize: vertical; }
 .voice-toggle-grid { display: flex; flex-wrap: wrap; gap: .5rem; }
 .voice-listen { justify-self: start; min-height: 2.6rem; }
 .voice-listen:disabled { opacity: .45; cursor: not-allowed; }
@@ -611,4 +614,4 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
 @media (max-width: 600px) {
   h1 { font-size: 2.65rem; }.simple-header, .app-header { padding: 0 1rem; }.survey-main { padding-top: 2.5rem; }.progress-rail { margin-bottom: 2.8rem; }
   .survey-grid fieldset { padding: 1rem; }.choice-grid, .choice-grid.compact { grid-template-columns: 1fr 1fr; }.form-actions { flex-direction: column-reverse; }
-  .hero-copy { margin-inline: .5rem; }.panel-top, .panel-content { padding-left: 1.2rem; padding-right: 1.2rem; }.community-search-fixed { margin-inline: -1.2rem; padding-inline: 1.2rem; }.community-direct-room, .community-room-card, .community-person-card { grid-template-columns: auto minmax(0,1fr); }.community-direct-room .community-actions, .community-room-card .community-actions, .community-person-card .community-actions { grid-column: 1 / -1; justify-content: flex-end; }.mori-dock { l
+  .hero-copy { margin-inline: .5rem; }.panel-top, .panel-content { padding-left: 1.2rem; padding-right: 1.2rem; }.community-search-fixed { margin-inline: -1.2rem; padding-i

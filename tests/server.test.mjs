@@ -9,14 +9,16 @@ const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
 const sessionsFile = join(tmpdir(), `capy-village-test-sessions-${process.pid}.json`);
 const communityFile = join(tmpdir(), `capy-village-test-community-${process.pid}.json`);
 const passwordResetsFile = join(tmpdir(), `capy-village-test-password-resets-${process.pid}.json`);
+const primaryKeywordBlocklistFile = join(tmpdir(), `capy-village-test-primary-keywords-${process.pid}.json`);
 process.env.USERS_FILE = usersFile;
 process.env.SESSIONS_FILE = sessionsFile;
 process.env.COMMUNITY_FILE = communityFile;
 process.env.PASSWORD_RESETS_FILE = passwordResetsFile;
+process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE = primaryKeywordBlocklistFile;
 process.env.PASSWORD_RESET_SECRET = "local-test-reset-secret";
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
-  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {})]);
+  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {}), unlink(primaryKeywordBlocklistFile).catch(() => {})]);
 });
 
 function httpRequest(url, options = {}) {
@@ -381,12 +383,4 @@ test("resource shortages and dislikes are appended to the Error database webhook
   } finally {
     delete process.env.ERROR_SHEET_WEBHOOK_URL;
     delete process.env.ERROR_SHEET_GID;
-    globalThis.fetch = originalFetch;
-    server.closeAllConnections();
-    webhook.closeAllConnections();
-    await Promise.all([
-      new Promise((resolve) => server.close(resolve)),
-      new Promise((resolve) => webhook.close(resolve))
-    ]);
-  }
-});
+    globalThis.fetch

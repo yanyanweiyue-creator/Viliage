@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import worker from "../cloudflare/worker.mjs";
@@ -393,6 +394,66 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
   }
 });
 
+test("Cloudflare password reset works without an explicit reset secret", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
+  const env = cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync" });
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Fallback Reset User", email: "fallback-reset@example.com", password: "old-password" })
+  }), env, ctx);
+  assert.equal(register.status, 201);
+  let mailedCode = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(String(_url), "https://sheet.example/sync");
+    mailedCode = JSON.parse(options.body).code;
+    return Response.json({ ok: true, delivered: true });
+  };
+  try {
+    const requestReset = await worker.fetch(new Request("https://village.example/api/auth/password/request", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "fallback-reset@example.com" })
+    }), env, ctx);
+    assert.equal(requestReset.status, 202);
+    assert.match(mailedCode, /^\d{6}$/);
+    const confirm = await worker.fetch(new Request("https://village.example/api/auth/password/confirm", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "fallback-reset@example.com", code: mailedCode, password: "new-password" })
+    }), env, ctx);
+    assert.equal(confirm.status, 200);
+    const login = await worker.fetch(new Request("https://village.example/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "fallback-reset@example.com", password: "new-password" })
+    }), env, ctx);
+    assert.equal(login.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Cloudflare password reset accepts pending codes generated before the fallback secret", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  database.exec(await readFile(new URL("../migrations/0005_password_resets.sql", import.meta.url), "utf8"));
+  const env = cloudflareEnv(database);
+  const email = "legacy-reset@example.com";
+  const code = "166262";
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Legacy Reset User", email, password: "old-password" })
+  }), env, ctx);
+  assert.equal(register.status, 201);
+  const legacyHash = createHash("sha256").update(`${email}\u001f${code}\u001f`).digest("hex");
+  database.prepare("INSERT INTO password_reset_codes (email, code_hash, expires_at, attempts, requested_at) VALUES (?, ?, ?, 0, ?)").run(email, legacyHash, Date.now() + 10 * 60_000, Date.now());
+  const confirm = await worker.fetch(new Request("https://village.example/api/auth/password/confirm", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code, password: "new-password" })
+  }), env, ctx);
+  assert.equal(confirm.status, 200);
+  const login = await worker.fetch(new Request("https://village.example/api/auth/login", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "new-password" })
+  }), env, ctx);
+  assert.equal(login.status, 200);
+  database.close();
+});
+
 test("opted-in users can connect, accept, and exchange a private D1 message", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
@@ -533,4 +594,18 @@ test("recommendation API applies diagnosis and category before scoring database 
   ] } };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
-  t
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, clarificationHandled: true })
+    }), env, ctx);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
+    assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});

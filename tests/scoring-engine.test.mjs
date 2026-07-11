@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SCORE_CONFIG, clarificationQuestions, descriptionGateEvidence, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources, scoreResource } from "../scoring-engine.mjs";
+import { DEFAULT_SCORE_CONFIG, clarificationQuestions, descriptionGateEvidence, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources, scoreResource } from "../scoring-engine.mjs";
 
 const resource = (overrides = {}) => ({
   name: "Resource",
@@ -11,6 +11,10 @@ const resource = (overrides = {}) => ({
   description: "Legal Medicaid assistance",
   issues: [],
   ...overrides
+});
+
+test("keyword lists normalize admin-entered blocked words", () => {
+  assert.deepEqual(normalizeKeywordList("Waffles\nvillages, resources; Waffles"), ["waffle", "village"]);
 });
 
 test("diagnosis and category are permanent hard filters", () => {
@@ -131,9 +135,4 @@ test("description gate evidence preserves primary authority over confirmed secon
   assert.deepEqual(evidence.secondaryMatches, ["iep"]);
 });
 
-test("requested resource count is rounded and clamped to configured limits", () => {
-  assert.equal(normalizeResultCount(1), 3);
-  assert.equal(normalizeResultCount(6.6), 7);
-  assert.equal(normalizeResultCount(99), 10);
-  assert.equal(normalizeResultCount("not-a-number"), 5);
-});
+test("requested resource count is rounded and clamped to configured limits", () =

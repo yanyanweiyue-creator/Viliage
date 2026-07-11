@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -17,6 +17,7 @@ const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.j
 const PASSWORD_RESETS_FILE = process.env.PASSWORD_RESETS_FILE || join(DATA_DIR, "password-resets.json");
 const ANNOUNCEMENTS_FILE = process.env.ANNOUNCEMENTS_FILE || join(DATA_DIR, "announcements.json");
 const ACTIVITIES_FILE = process.env.ACTIVITIES_FILE || join(DATA_DIR, "activities.json");
+const PRIMARY_KEYWORD_BLOCKLIST_FILE = process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE || join(DATA_DIR, "primary-keyword-blocklist.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -28,6 +29,7 @@ const environmentCache = new Map();
 const ENVIRONMENT_CACHE_MS = 10 * 60_000;
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
+const DEFAULT_PRIMARY_KEYWORD_BLOCKLIST = ["waffles"];
 const DEFAULT_ACTIVITIES = [
   { id: "seed-quiet-family-picnic", date: "Jul 12", title: "Quiet family picnic", meta: "Palo Alto · Low-stimulation area available", description: "A relaxed community meet-up with optional activities and a calm corner." },
   { id: "seed-volunteer-orientation", date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future It Takes a Village events and resource reviews." },
@@ -164,6 +166,22 @@ async function loadCommunity() {
 
 async function saveCommunity(community) {
   await saveJsonAtomically(COMMUNITY_FILE, community);
+}
+
+async function loadPrimaryKeywordBlocklist() {
+  try { return normalizeKeywordList(JSON.parse(await readFile(PRIMARY_KEYWORD_BLOCKLIST_FILE, "utf8")), 200); }
+  catch { return normalizeKeywordList(process.env.PRIMARY_KEYWORD_BLOCKLIST || DEFAULT_PRIMARY_KEYWORD_BLOCKLIST, 200); }
+}
+
+async function savePrimaryKeywordBlocklist(keywords) {
+  const normalized = normalizeKeywordList(keywords, 200);
+  await saveJsonAtomically(PRIMARY_KEYWORD_BLOCKLIST_FILE, normalized);
+  return normalized;
+}
+
+function filterPrimaryKeywords(keywords, blockedKeywords) {
+  const blocked = new Set(normalizeKeywordList(blockedKeywords, 200));
+  return normalizeKeywordList(keywords, 100).filter((keyword) => !blocked.has(keyword) && !keyword.split(" ").some((word) => blocked.has(word)));
 }
 
 function localFriends(community, firstId, secondId) {
@@ -1186,6 +1204,16 @@ async function handleApi(req, res, url) {
     target.isAdmin = true; target.updatedAt = new Date().toISOString(); await saveUsers(users);
     return sendJson(res, 200, { user: { id: target.id, name: target.name, email: target.email, isAdmin: true } });
   }
+  if (req.method === "GET" && url.pathname === "/api/admin/primary-keyword-blocklist") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    return sendJson(res, 200, { keywords: await loadPrimaryKeywordBlocklist() });
+  }
+  if (req.method === "PUT" && url.pathname === "/api/admin/primary-keyword-blocklist") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const input = await readJsonBody(req);
+    const keywords = await savePrimaryKeywordBlocklist(input.keywords ?? input.text ?? "");
+    return sendJson(res, 200, { keywords });
+  }
   const adminDelete = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
   if (req.method === "DELETE" && adminDelete) {
     if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
@@ -1456,7 +1484,8 @@ async function handleApi(req, res, url) {
     if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
     const { rows, source } = await getResources();
-    const primaryKeywords = extractKeywords([description], config.limits.maximumPrimaryKeywords);
+    const blockedPrimaryKeywords = await loadPrimaryKeywordBlocklist();
+    const primaryKeywords = filterPrimaryKeywords(extractKeywords([description], config.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, config.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], config);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], config.limits.maximumSecondaryKeywords);
     const profileAge = user.profile?.responses?.age || "";
@@ -1623,48 +1652,4 @@ async function handleApi(req, res, url) {
           source: "resource-card"
         });
       } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
-  }
-
-  sendError(res, 404, "API route not found.");
-}
-
-function serveStatic(req, res, url) {
-  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
-  const safePath = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, "");
-  let filePath = join(PUBLIC_DIR, safePath);
-  if (!filePath.startsWith(PUBLIC_DIR)) return sendError(res, 403, "Forbidden.");
-  if (!existsSync(filePath)) filePath = join(PUBLIC_DIR, "index.html");
-  const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, {
-    "Content-Type": mimeTypes[ext] || "application/octet-stream",
-    "Cache-Control": ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css" ? "no-cache" : "public, max-age=3600",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
-  });
-  createReadStream(filePath).pipe(res);
-}
-
-export function createAppServer() {
-  return http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    try {
-      if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
-      else serveStatic(req, res, url);
-    } catch (error) {
-      console.error(error);
-      if (!res.headersSent) sendError(res, 500, error.message || "Something went wrong.");
-      else res.end();
-    }
-  });
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = Number(process.env.PORT || 4173);
-  createAppServer().listen(port, "127.0.0.1", () => {
-    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
-  });
-}
+        errorSync = { synced: false, reason: error.mess

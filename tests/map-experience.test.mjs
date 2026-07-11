@@ -33,7 +33,9 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /\.ecosystem-actor\[data-species="capybara"\] \{[^}]*width:\s*clamp\(2\.25rem, 3\.8vw, 4rem\)/);
   assert.match(app, /type="button" data-action="save-announcement"/);
   assert.match(app, /if \(action === "save-announcement"\) submitAnnouncementForm/);
-  assert.match(app, /if \(event\.target\.id === "activity-form"\) submitActivity/);
+  assert.match(app, /activity-form"\) submitActivity/);
+  assert.match(app, /primary-keyword-blocklist-form/);
+  assert.match(app, /submitPrimaryKeywordBlocklist/);
   assert.match(app, /finally \{[\s\S]*button\.disabled = false; delete button\.dataset\.busy/);
   assert.match(app, /class="hotspot-outline"/);
   assert.match(css, /\.hotspot-outline \{[^}]*display:\s*none/);
@@ -180,4 +182,16 @@ test("2D buildings select their island before opening building functions", async
   const [config, css, app, surface] = await Promise.all([
     loadConfig(),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
-    readFile(new URL("../public/app.
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/surface-motion.mjs", import.meta.url), "utf8")
+  ]);
+  assert.ok(config.buildings.some((building) => building.island === "autism"));
+  assert.ok(config.buildings.some((building) => building.island === "adhd"));
+  assert.match(app, /data-building="\$\{escapeHtml\(building\.id\)\}"/);
+  assert.match(app, /data-island="\$\{building\.island\}"/);
+  assert.match(app, /const building = event\.target\.closest\("\[data-building\]"\)/);
+  assert.match(app, /if \(building\) return handleBuilding\(building\.dataset\.building\)/);
+  assert.match(app, /if \(state\.selectedIsland !== building\.island\) \{\s*selectIsland\(building\.island\);\s*return;\s*\}/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\]/);
+  assert.matc

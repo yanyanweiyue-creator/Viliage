@@ -1,13 +1,15 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
-import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
+import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const DEFAULT_RESOURCE_SHEET_GID = "1709372674";
 const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
+const PASSWORD_RESET_FALLBACK_SECRET = "local-development-only";
+const DEFAULT_PRIMARY_KEYWORD_BLOCKLIST = ["waffles"];
 const scoreConfig = {
   version: scoreConfigFile.version || DEFAULT_SCORE_CONFIG.version,
   weights: { ...DEFAULT_SCORE_CONFIG.weights, ...(scoreConfigFile.weights || {}) },
@@ -48,8 +50,15 @@ function tokenHash(token) {
   return createHash("sha256").update(String(token || "")).digest("hex");
 }
 
-function passwordResetHash(email, code, secret) {
+function passwordResetHash(email, code, secret = PASSWORD_RESET_FALLBACK_SECRET) {
   return createHash("sha256").update(`${String(email).toLowerCase()}\u001f${String(code)}\u001f${String(secret || "")}`).digest("hex");
+}
+
+function passwordResetHashCandidates(email, code, secret) {
+  const configuredSecret = String(secret || "");
+  const primary = passwordResetHash(email, code, configuredSecret || PASSWORD_RESET_FALLBACK_SECRET);
+  if (configuredSecret) return [primary];
+  return [primary, passwordResetHash(email, code, "")];
 }
 
 function resetCodeMatches(expected, actual) {
@@ -116,6 +125,27 @@ function safeUser(user) {
 
 function guestUser() {
   return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [] };
+}
+
+async function primaryKeywordBlocklist(env) {
+  const row = await env.DB.prepare("SELECT value FROM app_meta WHERE key = 'blocked_primary_keywords' LIMIT 1").first();
+  const raw = row?.value || env.PRIMARY_KEYWORD_BLOCKLIST || JSON.stringify(DEFAULT_PRIMARY_KEYWORD_BLOCKLIST);
+  try { return normalizeKeywordList(JSON.parse(raw), 200); }
+  catch { return normalizeKeywordList(raw, 200); }
+}
+
+async function savePrimaryKeywordBlocklist(env, keywords) {
+  const normalized = normalizeKeywordList(keywords, 200);
+  await env.DB.prepare(`
+    INSERT INTO app_meta (key, value, updated_at) VALUES ('blocked_primary_keywords', ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).bind(JSON.stringify(normalized), new Date().toISOString()).run();
+  return normalized;
+}
+
+function filterPrimaryKeywords(keywords, blockedKeywords) {
+  const blocked = new Set(normalizeKeywordList(blockedKeywords, 200));
+  return normalizeKeywordList(keywords, 100).filter((keyword) => !blocked.has(keyword) && !keyword.split(" ").some((word) => blocked.has(word)));
 }
 
 async function ensureAdmin(env, user) {
@@ -721,14 +751,14 @@ async function api(request, env, ctx) {
     const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (!user) {
-      passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET);
+      passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET || PASSWORD_RESET_FALLBACK_SECRET);
       return json(response, 202);
     }
     const now = Date.now();
     const prior = await env.DB.prepare("SELECT requested_at FROM password_reset_codes WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (prior && now - Number(prior.requested_at) < 60_000) return json(response, 202);
     const code = createPasswordResetCode();
-    const codeHash = passwordResetHash(normalizedEmail, code, env.PASSWORD_RESET_SECRET);
+    const codeHash = passwordResetHash(normalizedEmail, code, env.PASSWORD_RESET_SECRET || PASSWORD_RESET_FALLBACK_SECRET);
     await env.DB.prepare(`
       INSERT INTO password_reset_codes (email, code_hash, expires_at, attempts, requested_at)
       VALUES (?, ?, ?, 0, ?)
@@ -753,10 +783,9 @@ async function api(request, env, ctx) {
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail) || !/^\d{6}$/.test(String(code))) return fail("The verification code is invalid or expired.");
     if (String(password).length < 8) return fail("Password must be at least 8 characters.");
-    if (!env.PASSWORD_RESET_SECRET) return fail("Password reset is temporarily unavailable.", 503);
     const reset = await env.DB.prepare("SELECT * FROM password_reset_codes WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
-    const submittedHash = passwordResetHash(normalizedEmail, code, env.PASSWORD_RESET_SECRET);
-    if (!reset || Number(reset.expires_at) < Date.now() || Number(reset.attempts) >= 5 || !resetCodeMatches(reset.code_hash, submittedHash)) {
+    const submittedHashes = passwordResetHashCandidates(normalizedEmail, code, env.PASSWORD_RESET_SECRET);
+    if (!reset || Number(reset.expires_at) < Date.now() || Number(reset.attempts) >= 5 || !submittedHashes.some((hash) => resetCodeMatches(reset.code_hash, hash))) {
       if (reset) await env.DB.prepare("UPDATE password_reset_codes SET attempts = attempts + 1 WHERE email = ?").bind(normalizedEmail).run();
       return fail("The verification code is invalid or expired.");
     }
@@ -878,6 +907,17 @@ async function api(request, env, ctx) {
     if (!target) return fail("No registered account uses that email.", 404);
     await env.DB.prepare("UPDATE users SET is_admin = 1, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), target.id).run();
     return json({ user: { ...target, isAdmin: true } });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/primary-keyword-blocklist") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    return json({ keywords: await primaryKeywordBlocklist(env) });
+  }
+
+  if (request.method === "PUT" && url.pathname === "/api/admin/primary-keyword-blocklist") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const input = await body(request);
+    return json({ keywords: await savePrimaryKeywordBlocklist(env, input.keywords ?? input.text ?? "") });
   }
 
   const adminDelete = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
@@ -1181,7 +1221,8 @@ async function api(request, env, ctx) {
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return fail("Choose an island before searching for resources.");
     const data = await resources(env);
-    const primaryKeywords = extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords);
+    const blockedPrimaryKeywords = await primaryKeywordBlocklist(env);
+    const primaryKeywords = filterPrimaryKeywords(extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, scoreConfig.limits.maximumPrimaryKeywords);
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
     const profileAge = user.profile?.responses?.age || "";
@@ -1330,46 +1371,4 @@ async function api(request, env, ctx) {
     const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
     const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
     const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
-    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
-    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
-    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
-    user.updatedAt = new Date().toISOString();
-    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
-    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    let errorSync = { synced: false };
-    if (disliked) {
-      try {
-        errorSync = await logErrorRecord(env, {
-          event: "resource_disliked",
-          reason: "User marked a resource as disliked.",
-          user,
-          topic: dislikedResource.topic,
-          resource: dislikedResource,
-          source: "resource-card"
-        });
-      } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
-  }
-
-  return fail("API route not found.", 404);
-}
-
-export default {
-  async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return await api(request, env, ctx);
-      return env.ASSETS.fetch(request);
-    } catch (error) {
-      console.error(error);
-      return fail(error.message || "Something went wrong.", 500);
-    }
-  },
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(cleanupSystemGroupHistory(env));
-  }
-};
+    const currentLiked = Array.isArray(user.lik

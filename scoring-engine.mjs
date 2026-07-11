@@ -82,6 +82,10 @@ function uniqueNormalized(values, limit = 24) {
   return output;
 }
 
+export function normalizeKeywordList(values, limit = 100) {
+  return uniqueNormalized((Array.isArray(values) ? values : [values]).flatMap((value) => String(value || "").split(/[,;\n]/)), limit);
+}
+
 export function extractKeywords(values, limit = 20) {
   const concepts = [];
   for (const value of values.flat(Infinity).filter(Boolean)) {
@@ -447,10 +451,4 @@ export const CLARIFICATION_TRANSLATIONS = Object.freeze({
     Online: "En línea",
     "In person": "Presencial",
     Adult: "Adulto",
-    "All ages": "Todas las edades",
-    "Most relevant match": "Coincidencia más relevante",
-    "Low cost": "Bajo costo",
-    "Available soon": "Disponible pronto",
-    "Local/in-person": "Local/presencial"
-  }
-});
+    "All ages": "To
