@@ -137,6 +137,17 @@ function announcementInput(input) {
   return { title, body: text, category, isPinned: Boolean(input.isPinned) };
 }
 
+function activityInput(input) {
+  const date = String(input.date || "").trim().slice(0, 40);
+  const title = String(input.title || "").trim().slice(0, 120);
+  const meta = String(input.meta || "").trim().slice(0, 160);
+  const description = String(input.description || "").trim().slice(0, 1200);
+  if (!date) throw new Error("Please add a date label.");
+  if (!title) throw new Error("Please add an activity title.");
+  if (!description) throw new Error("Please add an activity description.");
+  return { date, title, meta, description };
+}
+
 async function allRows(statement) {
   const result = await statement.all();
   return Array.isArray(result) ? result : result?.results || [];
@@ -804,6 +815,28 @@ async function api(request, env, ctx) {
     return json({ announcements: announcements.map((item) => ({ id: item.id, title: item.title, body: item.body, category: item.category, isPinned: Boolean(item.is_pinned), createdAt: item.created_at, updatedAt: item.updated_at, authorName: item.author_name })), isAdmin: Boolean(user.isAdmin) });
   }
 
+  if (request.method === "GET" && url.pathname === "/api/activities") {
+    const activities = await allRows(env.DB.prepare("SELECT id, date_label, title, meta, description, created_at, updated_at FROM activities ORDER BY created_at, id LIMIT 200"));
+    return json({ activities: activities.map((item) => ({ id: item.id, date: item.date_label, title: item.title, meta: item.meta, description: item.description, createdAt: item.created_at, updatedAt: item.updated_at })), isAdmin: Boolean(user.isAdmin) });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/activities") {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    let input;
+    try { input = activityInput(await body(request)); } catch (error) { return fail(error.message); }
+    const id = randomBytes(12).toString("hex");
+    const now = new Date().toISOString();
+    await env.DB.prepare("INSERT INTO activities (id, date_label, title, meta, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, input.date, input.title, input.meta, input.description, user.id, now, now).run();
+    return json({ activity: { id, ...input, createdAt: now, updatedAt: now } }, 201);
+  }
+
+  const activityDelete = url.pathname.match(/^\/api\/activities\/([^/]+)$/);
+  if (request.method === "DELETE" && activityDelete) {
+    if (!user.isAdmin) return fail("Administrator access is required.", 403);
+    const result = await env.DB.prepare("DELETE FROM activities WHERE id = ?").bind(decodeURIComponent(activityDelete[1])).run();
+    return Number(result?.meta?.changes || 0) ? json({ ok: true }) : fail("Activity not found.", 404);
+  }
+
   if (request.method === "POST" && url.pathname === "/api/announcements") {
     if (!user.isAdmin) return fail("Administrator access is required.", 403);
     let input;
@@ -1295,48 +1328,4 @@ async function api(request, env, ctx) {
       savedAt: new Date().toISOString()
     };
     const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
-    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
-    const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
-    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
-    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
-    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
-    user.updatedAt = new Date().toISOString();
-    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
-    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    let errorSync = { synced: false };
-    if (disliked) {
-      try {
-        errorSync = await logErrorRecord(env, {
-          event: "resource_disliked",
-          reason: "User marked a resource as disliked.",
-          user,
-          topic: dislikedResource.topic,
-          resource: dislikedResource,
-          source: "resource-card"
-        });
-      } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
-  }
-
-  return fail("API route not found.", 404);
-}
-
-export default {
-  async fetch(request, env, ctx) {
-    try {
-      const url = new URL(request.url);
-      if (url.pathname.startsWith("/api/")) return await api(request, env, ctx);
-      return env.ASSETS.fetch(request);
-    } catch (error) {
-      console.error(error);
-      return fail(error.message || "Something went wrong.", 500);
-    }
-  },
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(cleanupSystemGroupHistory(env));
-  }
-};
+    co
