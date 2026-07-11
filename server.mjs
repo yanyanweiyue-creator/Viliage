@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
-import { DEFAULT_SCORE_CONFIG, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
 import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -15,6 +15,8 @@ const USERS_FILE = process.env.USERS_FILE || join(DATA_DIR, "users.json");
 const SESSIONS_FILE = process.env.SESSIONS_FILE || join(DATA_DIR, "sessions.json");
 const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.json");
 const PASSWORD_RESETS_FILE = process.env.PASSWORD_RESETS_FILE || join(DATA_DIR, "password-resets.json");
+const ANNOUNCEMENTS_FILE = process.env.ANNOUNCEMENTS_FILE || join(DATA_DIR, "announcements.json");
+const ACTIVITIES_FILE = process.env.ACTIVITIES_FILE || join(DATA_DIR, "activities.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -25,6 +27,12 @@ let resourceCache = { time: 0, rows: [] };
 const environmentCache = new Map();
 const ENVIRONMENT_CACHE_MS = 10 * 60_000;
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
+const DEFAULT_ACTIVITIES = [
+  { id: "seed-quiet-family-picnic", date: "Jul 12", title: "Quiet family picnic", meta: "Palo Alto · Low-stimulation area available", description: "A relaxed community meet-up with optional activities and a calm corner." },
+  { id: "seed-volunteer-orientation", date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future It Takes a Village events and resource reviews." },
+  { id: "seed-iep-workshop", date: "Aug 09", title: "IEP preparation workshop", meta: "San Jose · Free", description: "Bring your questions and leave with a one-page meeting plan." }
+];
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -269,6 +277,15 @@ async function sendPasswordResetEmail(email, code) {
   return true;
 }
 
+function localizedClarificationQuestions({ topic, description, language = "en", config = DEFAULT_SCORE_CONFIG }) {
+  const translations = CLARIFICATION_TRANSLATIONS[language] || CLARIFICATION_TRANSLATIONS.en || {};
+  return clarificationQuestions({ topic, description, maxQuestions: config.limits?.maximumFollowUpQuestions || 3 }).map((item) => ({
+    ...item,
+    question: translations[item.id] || item.question,
+    options: (item.options || []).map((option) => translations[option] || option)
+  }));
+}
+
 function safeUser(user) {
   return {
     id: user.id,
@@ -280,8 +297,55 @@ function safeUser(user) {
     history: user.history || [],
     feedback: user.feedback || "",
     likedResources: Array.isArray(user.likedResources) ? user.likedResources : [],
-    dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : []
+    dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : [],
+    isAdmin: Boolean(user.isAdmin)
   };
+}
+
+async function ensureLocalAdmin(user) {
+  if (!user || user.guest || user.isAdmin) return user;
+  const users = await loadUsers();
+  const configured = [DEFAULT_ADMIN_EMAIL, ...String(process.env.ADMIN_EMAILS || "").split(",")].map((email) => email.trim().toLowerCase()).filter(Boolean);
+  if (configured.includes(user.email.toLowerCase())) {
+    const stored = users.find((item) => item.id === user.id);
+    if (stored) { stored.isAdmin = true; stored.updatedAt = new Date().toISOString(); await saveUsers(users); }
+    user.isAdmin = true;
+  }
+  return user;
+}
+
+async function loadAnnouncements() {
+  try { const items = JSON.parse(await readFile(ANNOUNCEMENTS_FILE, "utf8")); return Array.isArray(items) ? items : []; }
+  catch { return []; }
+}
+
+async function saveAnnouncements(items) { await saveJsonAtomically(ANNOUNCEMENTS_FILE, items); }
+
+function announcementInput(input) {
+  const title = String(input.title || "").trim().slice(0, 120);
+  const text = String(input.body || "").trim().slice(0, 5000);
+  const category = String(input.category || "Update").trim().slice(0, 40) || "Update";
+  if (!title) throw new Error("Please add an announcement title.");
+  if (!text) throw new Error("Please add announcement details.");
+  return { title, body: text, category, isPinned: Boolean(input.isPinned) };
+}
+
+async function loadActivities() {
+  try { const items = JSON.parse(await readFile(ACTIVITIES_FILE, "utf8")); return Array.isArray(items) ? items : DEFAULT_ACTIVITIES; }
+  catch { return DEFAULT_ACTIVITIES.map((item) => ({ ...item })); }
+}
+
+async function saveActivities(items) { await saveJsonAtomically(ACTIVITIES_FILE, items); }
+
+function activityInput(input) {
+  const date = String(input.date || "").trim().slice(0, 40);
+  const title = String(input.title || "").trim().slice(0, 120);
+  const meta = String(input.meta || "").trim().slice(0, 160);
+  const description = String(input.description || "").trim().slice(0, 1200);
+  if (!date) throw new Error("Please add a date label.");
+  if (!title) throw new Error("Please add an activity title.");
+  if (!description) throw new Error("Please add an activity description.");
+  return { date, title, meta, description };
 }
 
 function guestUser() {
@@ -970,9 +1034,19 @@ async function handleApi(req, res, url) {
     const next = resets.filter((item) => item.email !== normalizedEmail);
     next.push({ email: normalizedEmail, codeHash: passwordResetHash(normalizedEmail, code), expiresAt: now + 10 * 60_000, attempts: 0, requestedAt: now });
     await savePasswordResets(next);
-    try { await sendPasswordResetEmail(normalizedEmail, code); }
-    catch (error) { console.error("Password reset email failed:", error.message); }
-    return sendJson(res, 202, generic);
+    let delivered = false;
+    try {
+      delivered = await sendPasswordResetEmail(normalizedEmail, code);
+    } catch (error) {
+      await savePasswordResets(resets.filter((item) => item.email !== normalizedEmail));
+      console.error("Password reset email failed:", error.message);
+      return sendError(res, 502, "The verification email could not be sent. Please try again later or ask the site administrator for help.");
+    }
+    if (!delivered) {
+      await savePasswordResets(resets.filter((item) => item.email !== normalizedEmail));
+      return sendError(res, 503, "Email delivery is not configured yet. Please ask the site administrator for help.");
+    }
+    return sendJson(res, 202, { ...generic, delivered });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/password/confirm") {
@@ -1009,7 +1083,9 @@ async function handleApi(req, res, url) {
     if (String(password || "").length < 8) return sendError(res, 400, "Password must be at least 8 characters.");
     const users = await loadUsers();
     if (users.some((user) => user.email.toLowerCase() === email.toLowerCase())) return sendError(res, 409, "An account with this email already exists.");
-    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: email.toLowerCase(), passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], createdAt: new Date().toISOString() };
+    const normalizedEmail = email.toLowerCase();
+    const configuredAdmins = [DEFAULT_ADMIN_EMAIL, ...String(process.env.ADMIN_EMAILS || "").split(",")].map((item) => item.trim().toLowerCase()).filter(Boolean);
+    const user = { id: randomBytes(12).toString("hex"), name: name.trim(), email: normalizedEmail, passwordHash: hashPassword(password), surveyCompleted: false, onboardingCompleted: false, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], isAdmin: configuredAdmins.includes(normalizedEmail), createdAt: new Date().toISOString() };
     users.push(user);
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
@@ -1022,6 +1098,7 @@ async function handleApi(req, res, url) {
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === String(email || "").toLowerCase());
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return sendError(res, 401, "Email or password is incorrect.");
+    await ensureLocalAdmin(user);
     return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": await setSession(user.id) });
   }
 
@@ -1036,7 +1113,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/auth/me") {
     const user = await getSessionUser(req);
-    return user ? sendJson(res, 200, { user: safeUser(user) }) : sendError(res, 401, "Not signed in.");
+    return user ? sendJson(res, 200, { user: safeUser(await ensureLocalAdmin(user)) }) : sendError(res, 401, "Not signed in.");
   }
 
   if (req.method === "GET" && url.pathname === "/api/resources") {
@@ -1044,8 +1121,83 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { resources: data.rows, source: data.source, warning: data.warning || null, updatedAt: new Date().toISOString() });
   }
 
-  const user = await getSessionUser(req) || (req.headers["x-village-guest"] === "1" ? guestUser() : null);
+  const user = await ensureLocalAdmin(await getSessionUser(req) || (req.headers["x-village-guest"] === "1" ? guestUser() : null));
   if (!user) return sendError(res, 401, "Please sign in first.");
+
+  if (req.method === "GET" && url.pathname === "/api/announcements") {
+    const announcements = (await loadAnnouncements()).sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 100);
+    return sendJson(res, 200, { announcements, isAdmin: Boolean(user.isAdmin) });
+  }
+  if (req.method === "GET" && url.pathname === "/api/activities") {
+    return sendJson(res, 200, { activities: await loadActivities(), isAdmin: Boolean(user.isAdmin) });
+  }
+  if (req.method === "POST" && url.pathname === "/api/activities") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    let input;
+    try { input = activityInput(await readJsonBody(req)); } catch (error) { return sendError(res, 400, error.message); }
+    const now = new Date().toISOString();
+    const activity = { id: randomBytes(12).toString("hex"), ...input, createdBy: user.id, createdAt: now, updatedAt: now };
+    const activities = await loadActivities(); activities.push(activity); await saveActivities(activities);
+    return sendJson(res, 201, { activity });
+  }
+  const activityDelete = url.pathname.match(/^\/api\/activities\/([^/]+)$/);
+  if (req.method === "DELETE" && activityDelete) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const activities = await loadActivities();
+    const next = activities.filter((item) => item.id !== decodeURIComponent(activityDelete[1]));
+    if (next.length === activities.length) return sendError(res, 404, "Activity not found.");
+    await saveActivities(next); return sendJson(res, 200, { ok: true });
+  }
+  if (req.method === "POST" && url.pathname === "/api/announcements") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    let input;
+    try { input = announcementInput(await readJsonBody(req)); } catch (error) { return sendError(res, 400, error.message); }
+    const now = new Date().toISOString();
+    const announcement = { id: randomBytes(12).toString("hex"), ...input, authorName: user.name, createdAt: now, updatedAt: now };
+    const announcements = await loadAnnouncements(); announcements.push(announcement); await saveAnnouncements(announcements);
+    return sendJson(res, 201, { announcement });
+  }
+  const announcementDelete = url.pathname.match(/^\/api\/announcements\/([^/]+)$/);
+  if (req.method === "PATCH" && announcementDelete) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    let input;
+    try { input = announcementInput(await readJsonBody(req)); } catch (error) { return sendError(res, 400, error.message); }
+    const id = decodeURIComponent(announcementDelete[1]); const announcements = await loadAnnouncements(); const announcement = announcements.find((item) => item.id === id);
+    if (!announcement) return sendError(res, 404, "Announcement not found.");
+    Object.assign(announcement, input, { updatedAt: new Date().toISOString() }); await saveAnnouncements(announcements);
+    return sendJson(res, 200, { announcement });
+  }
+  if (req.method === "DELETE" && announcementDelete) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const announcements = await loadAnnouncements();
+    const next = announcements.filter((item) => item.id !== decodeURIComponent(announcementDelete[1]));
+    if (next.length === announcements.length) return sendError(res, 404, "Announcement not found.");
+    await saveAnnouncements(next); return sendJson(res, 200, { ok: true });
+  }
+  if (req.method === "GET" && url.pathname === "/api/admin/users") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    return sendJson(res, 200, { users: (await loadUsers()).filter((item) => item.isAdmin).map((item) => ({ id: item.id, name: item.name, email: item.email, isAdmin: true, isOwner: item.email.toLowerCase() === DEFAULT_ADMIN_EMAIL })).sort((a, b) => a.name.localeCompare(b.name)) });
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/users") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const email = String((await readJsonBody(req)).email || "").trim().toLowerCase();
+    const users = await loadUsers(); const target = users.find((item) => item.email.toLowerCase() === email);
+    if (!target) return sendError(res, 404, "No registered account uses that email.");
+    target.isAdmin = true; target.updatedAt = new Date().toISOString(); await saveUsers(users);
+    return sendJson(res, 200, { user: { id: target.id, name: target.name, email: target.email, isAdmin: true } });
+  }
+  const adminDelete = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (req.method === "DELETE" && adminDelete) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const targetId = decodeURIComponent(adminDelete[1]);
+    if (targetId === user.id) return sendError(res, 400, "You cannot remove your own administrator access.");
+    const users = await loadUsers(); const target = users.find((item) => item.id === targetId);
+    if (!target) return sendError(res, 404, "User not found.");
+    const protectedEmails = [DEFAULT_ADMIN_EMAIL, ...String(process.env.ADMIN_EMAILS || "").split(",")].map((email) => email.trim().toLowerCase()).filter(Boolean);
+    if (protectedEmails.includes(target.email.toLowerCase())) return sendError(res, 400, "A configured village owner cannot be removed.");
+    target.isAdmin = false; target.updatedAt = new Date().toISOString(); await saveUsers(users);
+    return sendJson(res, 200, { ok: true });
+  }
   if (user.guest && url.pathname.startsWith("/api/community")) return sendError(res, 403, "Village Community is available to registered members only.");
 
   if (req.method === "GET" && url.pathname === "/api/community") {
@@ -1380,6 +1532,7 @@ async function handleApi(req, res, url) {
       ai,
       summaryGuide: buildingGuideName(topic),
       researchContext,
+      followUpQuestions: localizedClarificationQuestions({ topic, description, language, config }),
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       errorSync,
@@ -1449,69 +1602,4 @@ async function handleApi(req, res, url) {
     const dislikedResource = resourceSnapshot(resource);
     if (!dislikedResource) return sendError(res, 400, "Choose a resource before marking it.");
     const key = resourceIdentityKey(dislikedResource);
-    const saved = await updateUser(user.id, (item) => {
-      const current = Array.isArray(item.dislikedResources) ? item.dislikedResources : [];
-      const filtered = current.filter((entry) => resourceIdentityKey(entry) !== key);
-      const liked = Array.isArray(item.likedResources) ? item.likedResources : [];
-      const filteredLiked = disliked ? liked.filter((entry) => resourceIdentityKey(entry) !== key) : liked;
-      return { ...item, likedResources: filteredLiked, dislikedResources: disliked ? [dislikedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
-    });
-    let sync = { synced: false };
-    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
-    let errorSync = { synced: false };
-    if (disliked) {
-      try {
-        errorSync = await logErrorRecord({
-          event: "resource_disliked",
-          reason: "User marked a resource as disliked.",
-          user: saved,
-          topic: dislikedResource.topic,
-          resource: dislikedResource,
-          source: "resource-card"
-        });
-      } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
-  }
-
-  sendError(res, 404, "API route not found.");
-}
-
-function serveStatic(req, res, url) {
-  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
-  const safePath = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, "");
-  let filePath = join(PUBLIC_DIR, safePath);
-  if (!filePath.startsWith(PUBLIC_DIR)) return sendError(res, 403, "Forbidden.");
-  if (!existsSync(filePath)) filePath = join(PUBLIC_DIR, "index.html");
-  const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, {
-    "Content-Type": mimeTypes[ext] || "application/octet-stream",
-    "Cache-Control": ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css" ? "no-cache" : "public, max-age=3600",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
-  });
-  createReadStream(filePath).pipe(res);
-}
-
-export function createAppServer() {
-  return http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    try {
-      if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
-      else serveStatic(req, res, url);
-    } catch (error) {
-      console.error(error);
-      if (!res.headersSent) sendError(res, 500, error.message || "Something went wrong.");
-      else res.end();
-    }
-  });
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = Number(process.env.PORT || 4173);
-  createAppServer().listen(port, "127.0.0.1", () => {
-    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
-  });
-}
+    const saved = await updateUser(us
