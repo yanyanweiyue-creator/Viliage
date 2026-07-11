@@ -24,11 +24,15 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=announcements-20260710/);
-  assert.match(html, /app\.js\?v=announcements-20260710/);
+  assert.match(html, /styles\.css\?v=announcements-fix-20260710/);
+  assert.match(html, /app\.js\?v=announcements-fix-20260710/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\],[\s\S]*?border:\s*1\.5px dashed rgba\(255,255,255,\.82\) !important/);
+  assert.match(css, /\.ecosystem-actor\[data-species="capybara"\] \{[^}]*width:\s*clamp\(2\.25rem, 3\.8vw, 4rem\)/);
+  assert.match(app, /type="button" data-action="save-announcement"/);
+  assert.match(app, /if \(action === "save-announcement"\) submitAnnouncementForm/);
   assert.match(app, /class="hotspot-outline"/);
   assert.match(css, /\.hotspot-outline \{[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
