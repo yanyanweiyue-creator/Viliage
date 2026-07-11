@@ -1814,7 +1814,7 @@ function renderAnnouncements() {
   state.selectedAnnouncementId = selected?.id || null;
   const list = state.announcements.length ? state.announcements.map((item) => `<button type="button" class="announcement-list-item ${item.id === selected?.id ? "active" : ""}" data-action="select-announcement" data-announcement-id="${escapeHtml(item.id)}"><small>${item.isPinned ? "✦ " : ""}${escapeHtml(item.category || "Update")}</small><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(announcementDate(item.createdAt))}</span></button>`).join("") : `<p class="announcement-empty">${escapeHtml(labels.empty)}</p>`;
   const detail = selected ? `<article class="announcement-detail"><div class="announcement-detail-meta"><span>${selected.isPinned ? "✦ Pinned · " : ""}${escapeHtml(selected.category || "Update")}</span><time>${escapeHtml(announcementDate(selected.createdAt))}</time></div><h2>${escapeHtml(selected.title)}</h2><div class="announcement-body">${escapeHtml(selected.body).replace(/\n/g, "<br>")}</div><p>${escapeHtml(labels.by)} ${escapeHtml(selected.authorName || "Village admin")}</p>${state.user?.isAdmin ? `<div class="announcement-admin-actions"><button type="button" class="text-button" data-action="edit-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.edit)}</button><button type="button" class="text-button danger-text" data-action="delete-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.remove)}</button></div>` : ""}</article>` : `<div class="announcement-detail announcement-empty-detail"><span aria-hidden="true">📜</span><p>${escapeHtml(labels.empty)}</p></div>`;
-  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="submit">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
+  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="button" data-action="save-announcement">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
   return `${form}<div class="announcement-parchment"><aside class="announcement-list">${list}</aside>${detail}</div>`;
 }
 
@@ -1843,9 +1843,9 @@ async function refreshAnnouncementBadge() {
   } catch {}
 }
 
-async function submitAnnouncement(event) {
-  event.preventDefault();
-  const form = event.target; const data = new FormData(form); const status = form.querySelector(".form-error");
+async function submitAnnouncementForm(form) {
+  if (!form || !form.reportValidity()) return;
+  const data = new FormData(form); const status = form.querySelector(".form-error");
   status.textContent = "Publishing…";
   try {
     const id = String(data.get("id") || "");
@@ -1854,6 +1854,11 @@ async function submitAnnouncement(event) {
     localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
     $("#panel-content").innerHTML = renderAnnouncements(); toast(id ? "Announcement updated." : "Announcement published.");
   } catch (error) { status.textContent = error.message; }
+}
+
+function submitAnnouncement(event) {
+  event.preventDefault();
+  submitAnnouncementForm(event.target);
 }
 
 async function loadAdminUsers() {
@@ -2596,6 +2601,7 @@ document.addEventListener("click", (event) => {
   if (action === "open-settings") settingsPanel();
   if (action === "open-announcements") announcementsPanel();
   if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
+  if (action === "save-announcement") submitAnnouncementForm(actionElement.closest("form"));
   if (action === "edit-announcement") { state.editingAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); $("#panel-content").scrollTo({ top: 0, behavior: "smooth" }); }
   if (action === "cancel-announcement-edit") { state.editingAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); }
   if (action === "delete-announcement") { if (confirm("Delete this announcement?")) api(`/api/announcements/${encodeURIComponent(actionElement.dataset.announcementId)}`, { method: "DELETE" }).then(() => { state.announcements = state.announcements.filter((item) => item.id !== actionElement.dataset.announcementId); state.selectedAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); toast("Announcement deleted."); }).catch((error) => toast(error.message)); }
