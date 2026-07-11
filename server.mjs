@@ -16,6 +16,7 @@ const SESSIONS_FILE = process.env.SESSIONS_FILE || join(DATA_DIR, "sessions.json
 const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.json");
 const PASSWORD_RESETS_FILE = process.env.PASSWORD_RESETS_FILE || join(DATA_DIR, "password-resets.json");
 const ANNOUNCEMENTS_FILE = process.env.ANNOUNCEMENTS_FILE || join(DATA_DIR, "announcements.json");
+const ACTIVITIES_FILE = process.env.ACTIVITIES_FILE || join(DATA_DIR, "activities.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -27,6 +28,11 @@ const environmentCache = new Map();
 const ENVIRONMENT_CACHE_MS = 10 * 60_000;
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
+const DEFAULT_ACTIVITIES = [
+  { id: "seed-quiet-family-picnic", date: "Jul 12", title: "Quiet family picnic", meta: "Palo Alto · Low-stimulation area available", description: "A relaxed community meet-up with optional activities and a calm corner." },
+  { id: "seed-volunteer-orientation", date: "Jul 27", title: "Volunteer orientation", meta: "Online · 45 minutes", description: "Learn how to support future It Takes a Village events and resource reviews." },
+  { id: "seed-iep-workshop", date: "Aug 09", title: "IEP preparation workshop", meta: "San Jose · Free", description: "Bring your questions and leave with a one-page meeting plan." }
+];
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -322,6 +328,24 @@ function announcementInput(input) {
   if (!title) throw new Error("Please add an announcement title.");
   if (!text) throw new Error("Please add announcement details.");
   return { title, body: text, category, isPinned: Boolean(input.isPinned) };
+}
+
+async function loadActivities() {
+  try { const items = JSON.parse(await readFile(ACTIVITIES_FILE, "utf8")); return Array.isArray(items) ? items : DEFAULT_ACTIVITIES; }
+  catch { return DEFAULT_ACTIVITIES.map((item) => ({ ...item })); }
+}
+
+async function saveActivities(items) { await saveJsonAtomically(ACTIVITIES_FILE, items); }
+
+function activityInput(input) {
+  const date = String(input.date || "").trim().slice(0, 40);
+  const title = String(input.title || "").trim().slice(0, 120);
+  const meta = String(input.meta || "").trim().slice(0, 160);
+  const description = String(input.description || "").trim().slice(0, 1200);
+  if (!date) throw new Error("Please add a date label.");
+  if (!title) throw new Error("Please add an activity title.");
+  if (!description) throw new Error("Please add an activity description.");
+  return { date, title, meta, description };
 }
 
 function guestUser() {
@@ -1104,6 +1128,26 @@ async function handleApi(req, res, url) {
     const announcements = (await loadAnnouncements()).sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 100);
     return sendJson(res, 200, { announcements, isAdmin: Boolean(user.isAdmin) });
   }
+  if (req.method === "GET" && url.pathname === "/api/activities") {
+    return sendJson(res, 200, { activities: await loadActivities(), isAdmin: Boolean(user.isAdmin) });
+  }
+  if (req.method === "POST" && url.pathname === "/api/activities") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    let input;
+    try { input = activityInput(await readJsonBody(req)); } catch (error) { return sendError(res, 400, error.message); }
+    const now = new Date().toISOString();
+    const activity = { id: randomBytes(12).toString("hex"), ...input, createdBy: user.id, createdAt: now, updatedAt: now };
+    const activities = await loadActivities(); activities.push(activity); await saveActivities(activities);
+    return sendJson(res, 201, { activity });
+  }
+  const activityDelete = url.pathname.match(/^\/api\/activities\/([^/]+)$/);
+  if (req.method === "DELETE" && activityDelete) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const activities = await loadActivities();
+    const next = activities.filter((item) => item.id !== decodeURIComponent(activityDelete[1]));
+    if (next.length === activities.length) return sendError(res, 404, "Activity not found.");
+    await saveActivities(next); return sendJson(res, 200, { ok: true });
+  }
   if (req.method === "POST" && url.pathname === "/api/announcements") {
     if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
     let input;
@@ -1558,69 +1602,4 @@ async function handleApi(req, res, url) {
     const dislikedResource = resourceSnapshot(resource);
     if (!dislikedResource) return sendError(res, 400, "Choose a resource before marking it.");
     const key = resourceIdentityKey(dislikedResource);
-    const saved = await updateUser(user.id, (item) => {
-      const current = Array.isArray(item.dislikedResources) ? item.dislikedResources : [];
-      const filtered = current.filter((entry) => resourceIdentityKey(entry) !== key);
-      const liked = Array.isArray(item.likedResources) ? item.likedResources : [];
-      const filteredLiked = disliked ? liked.filter((entry) => resourceIdentityKey(entry) !== key) : liked;
-      return { ...item, likedResources: filteredLiked, dislikedResources: disliked ? [dislikedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
-    });
-    let sync = { synced: false };
-    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
-    let errorSync = { synced: false };
-    if (disliked) {
-      try {
-        errorSync = await logErrorRecord({
-          event: "resource_disliked",
-          reason: "User marked a resource as disliked.",
-          user: saved,
-          topic: dislikedResource.topic,
-          resource: dislikedResource,
-          source: "resource-card"
-        });
-      } catch (error) {
-        errorSync = { synced: false, reason: error.message };
-      }
-    }
-    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
-  }
-
-  sendError(res, 404, "API route not found.");
-}
-
-function serveStatic(req, res, url) {
-  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
-  const safePath = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, "");
-  let filePath = join(PUBLIC_DIR, safePath);
-  if (!filePath.startsWith(PUBLIC_DIR)) return sendError(res, 403, "Forbidden.");
-  if (!existsSync(filePath)) filePath = join(PUBLIC_DIR, "index.html");
-  const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, {
-    "Content-Type": mimeTypes[ext] || "application/octet-stream",
-    "Cache-Control": ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css" ? "no-cache" : "public, max-age=3600",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin"
-  });
-  createReadStream(filePath).pipe(res);
-}
-
-export function createAppServer() {
-  return http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    try {
-      if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
-      else serveStatic(req, res, url);
-    } catch (error) {
-      console.error(error);
-      if (!res.headersSent) sendError(res, 500, error.message || "Something went wrong.");
-      else res.end();
-    }
-  });
-}
-
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = Number(process.env.PORT || 4173);
-  createAppServer().listen(port, "127.0.0.1", () => {
-    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
-  });
-}
+    const saved = await updateUser(us
