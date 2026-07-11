@@ -185,7 +185,7 @@ body.scene-2d .habitat-feature { display: none; }
 .ecosystem-actor .actor-art { transform: scaleX(var(--actor-facing, 1)); transform-origin: 50% 70%; transition: transform .3s ease; }
 .ecosystem-actor .actor-art * { vector-effect: non-scaling-stroke; transform-box: fill-box; }
 .ecosystem-actor[data-species="cow"], .ecosystem-actor[data-species="deer"] { width: clamp(3rem, 5.2vw, 5.5rem); }
-.ecosystem-actor[data-species="capybara"] { width: clamp(3.1rem, 5.4vw, 5.8rem); }
+.ecosystem-actor[data-species="capybara"] { width: clamp(2.25rem, 3.8vw, 4rem); }
 .ecosystem-actor[data-species="villager"] { width: clamp(1.9rem, 3.2vw, 3.2rem); }
 .ecosystem-actor[data-species="villager"] .actor-art[data-variant="1"] { --skin: #8e573c; --coat: #6a8fa2; --hair: #302b2a; }
 .ecosystem-actor[data-species="villager"] .actor-art[data-variant="2"] { --skin: #d9a17d; --coat: #8b79aa; --hair: #6d4937; }
@@ -347,11 +347,11 @@ body.scene-3d .celestial { display: none; }
 .map-hotspot { border: 0; border-radius: .55rem; clip-path: none; }
 body.scene-2d .map-hotspot { width: calc(var(--hotspot-width) * .72); height: calc(var(--hotspot-height) * .62); border: 0 !important; }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"],
-body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"] { border: 0 !important; outline: 0; background: transparent !important; }
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"] { border: 1.5px dashed rgba(255,255,255,.82) !important; outline: 1px dashed rgba(27,67,57,.42); outline-offset: -.28rem; background: rgba(255,255,255,.035) !important; }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover,
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover,
-body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { border: 0 !important; outline: 0; background: transparent !important; }
+body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { border-color: rgba(255,236,151,.95) !important; outline-color: rgba(37,82,70,.72); background: rgba(255,255,255,.08) !important; }
 .hotspot-outline { display: none; }
 .map-hotspot::after { top: calc(100% + .2rem); }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover::after,
