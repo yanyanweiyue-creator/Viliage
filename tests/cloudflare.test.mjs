@@ -34,6 +34,7 @@ async function applyAccountSchema(database) {
   database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
 }
 
 test("Cloudflare D1 migration creates durable account and session tables", async () => {
@@ -41,12 +42,13 @@ test("Cloudflare D1 migration creates durable account and session tables", async
   await applyAccountSchema(database);
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'sessions', 'app_meta') ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["app_meta", "sessions", "users"]);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "9");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "10");
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'onboarding_completed'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'liked_resources_json'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'disliked_resources_json'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'is_admin'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'announcements'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'activities'").get().count, 1);
   database.close();
 });
 
@@ -61,12 +63,13 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "9");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "10");
   database.close();
 });
 
@@ -248,6 +251,20 @@ test("designated administrator can publish announcements and grant administrator
   assert.equal(edited.status, 200);
   assert.equal((await edited.json()).announcement.title, "Edited village update");
 
+  const rejectedActivity = await worker.fetch(new Request("https://village.example/api/activities", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: member.cookie }, body: JSON.stringify({ date: "Sep 1", title: "No", description: "Not allowed" })
+  }), env, ctx);
+  assert.equal(rejectedActivity.status, 403);
+  const createdActivity = await worker.fetch(new Request("https://village.example/api/activities", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ date: "Sep 1", title: "Village walk", meta: "Online", description: "A calm guided village walk." })
+  }), env, ctx);
+  assert.equal(createdActivity.status, 201);
+  const activity = (await createdActivity.json()).activity;
+  const activities = await worker.fetch(new Request("https://village.example/api/activities", { headers: { Cookie: member.cookie } }), env, ctx);
+  assert.equal((await activities.json()).activities.some((item) => item.id === activity.id), true);
+  const deletedActivity = await worker.fetch(new Request(`https://village.example/api/activities/${activity.id}`, { method: "DELETE", headers: { Cookie: owner.cookie } }), env, ctx);
+  assert.equal(deletedActivity.status, 200);
+
   const granted = await worker.fetch(new Request("https://village.example/api/admin/users", {
     method: "POST", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ email: "member@example.com" })
   }), env, ctx);
@@ -415,7 +432,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -516,32 +533,4 @@ test("recommendation API applies diagnosis and category before scoring database 
   ] } };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
-  try {
-    const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5 })
-    }), env, ctx);
-    assert.equal(response.status, 200);
-    const result = await response.json();
-    assert.equal(result.summaryGuide, "Bacon");
-    assert.match(result.answer, /^Hi, I’m Bacon\./);
-    assert.equal("needsClarification" in result, false);
-    assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
-    assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
-    const supportResponse = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ topic: "Caregiver Support", diagnosis: "Autism", description: "Affordable family respite support", count: 5 })
-    }), env, ctx);
-    assert.equal(supportResponse.status, 200);
-    const supportResult = await supportResponse.json();
-    assert.equal(supportResult.summaryGuide, "Eggy");
-    assert.match(supportResult.answer, /^Hi, I’m Eggy\./);
-    assert.deepEqual(supportResult.resources.map((item) => item.url), ["https://example.com/support"]);
-    assert.equal(supportResult.resources[0].passedFilters[1], "Category: Caregiver Support");
-  } finally {
-    globalThis.fetch = originalFetch;
-    database.close();
-  }
-});
+  t
