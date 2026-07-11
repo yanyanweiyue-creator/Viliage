@@ -1,4 +1,4 @@
-import { EcosystemController } from "./ecosystem-runtime.mjs?v=land-map-20260624";
+import { EcosystemController } from "./ecosystem-runtime.mjs?v=activities-capy-20260710";
 import { ImmersiveScene } from "./immersive-scene.mjs?v=land-map-20260624";
 import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
@@ -57,6 +57,11 @@ const state = {
   communityTab: "direct",
   communityPostImage: null,
   communityPostImagePromise: null,
+  announcements: [],
+  activities: [],
+  selectedAnnouncementId: null,
+  editingAnnouncementId: null,
+  adminUsers: [],
   supportTab: "phone",
   supportIsland: null,
   voiceRecognition: null,
@@ -92,7 +97,7 @@ const i18n = {
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     communityTitle: "Village Community", communityIntro: "Join group conversations or connect privately with people who chose to participate.", communityOpen: "Open community chats", communityPrivacy: "Your email and private survey note are never shown. Waffles matches only shared interests, age group, and journey stage. You can leave at any time.", communityEnable: "Join the community", communityDisable: "Leave community matching", communityDisplayName: "Community display name", communityGroups: "Group chats", communitySuggestions: "People Waffles suggests", communityIncoming: "Connection requests", communityDirect: "Private chats", communityJoin: "Join group", communityOpenRoom: "Open chat", communityConnect: "Say hello", communityPending: "Request sent", communityAccept: "Accept", communityDecline: "Decline", communitySend: "Send", communityMessagePlaceholder: "Write a kind message…", communityEmpty: "No messages yet. You can start gently.", communityLoading: "Opening the community…", communitySafety: "Community messages are stored securely but are not end-to-end encrypted. They are peer conversation, not professional or emergency support. Do not share passwords, addresses, or urgent medical details.",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.", activityGuideIntro: "Mayor Crumpet keeps the village’s volunteer opportunities and upcoming activities in one place.", supportGuideIntro: "Eggy can help you find a steadier next step.",
-    aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceDislike: "Dislike", resourceDisliked: "Disliked", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.", resourceDislikeSaved: "Resource added to disliked list.", resourceDislikeRemoved: "Resource removed from disliked list.", savedResourcesTitle: "Saved resources", dislikedResourcesTitle: "Disliked resources", noSavedResources: "No saved resources yet.", noDislikedResources: "No disliked resources yet.", clarificationTitle: "A quick detail will improve these matches", clarificationNone: "None of these", clarificationContinue: "Continue search", clarificationRequired: "Choose any relevant option, or select “None of these.”", sourceLabel: "Database source", scoringLabel: "scoring", aiExpandedKeywords: "AI-expanded keywords", localExpandedKeywords: "local synonym expansion", supportSearchTitle: "Search the support database", supportSearchIntro: "Eggy checks the live resource database and ranks each match with the same transparent scoring system used in the Education buildings.", supportSearchDisclaimer: "Eggy provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", supportContactTab: "Contact", supportFindTab: "Find resources", communityPrivateTab: "Private chat", communityGroupsTab: "Groups", communityMomentsTab: "Moments", communityRequestsTab: "Requests",
+    aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceDislike: "Dislike", resourceDisliked: "Disliked", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.", resourceDislikeSaved: "Resource added to disliked list.", resourceDislikeRemoved: "Resource removed from disliked list.", savedResourcesTitle: "Saved resources", dislikedResourcesTitle: "Disliked resources", noSavedResources: "No saved resources yet.", noDislikedResources: "No disliked resources yet.", clarificationTitle: "A quick detail will improve these matches", clarificationNone: "None of these", clarificationContinue: "Continue search", clarificationRequired: "Choose any relevant option, or select “None of these.”", clarificationOptional: "Optional: choose one to refine the search and run it again.", sourceLabel: "Database source", scoringLabel: "scoring", aiExpandedKeywords: "AI-expanded keywords", localExpandedKeywords: "local synonym expansion", supportSearchTitle: "Search the support database", supportSearchIntro: "Eggy checks the live resource database and ranks each match with the same transparent scoring system used in the Education buildings.", supportSearchDisclaimer: "Eggy provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", supportContactTab: "Contact", supportFindTab: "Find resources", communityPrivateTab: "Private chat", communityGroupsTab: "Groups", communityMomentsTab: "Moments", communityRequestsTab: "Requests",
     voiceTools: "Voice assistant", voiceAssistant: "Narrate clicks and places", voiceControl: "Microphone commands", voiceListen: "Listen for a command", voiceListening: "Listening…", voiceHint: "Try natural phrases like “research 504 plans,” “open Waffles,” or “find school support.” Waffles may ask a follow-up question. Voice recognition captures your words in the browser; Waffles uses the AI API for spoken audio and smarter command routing.",
     recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
     sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
@@ -114,7 +119,7 @@ const i18n = {
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     communityTitle: "村庄社区", communityIntro: "加入不同群聊，或与自愿参与且经历相似的用户私聊。", communityOpen: "打开社区聊天", communityPrivacy: "不会展示你的邮箱或问卷私人备注。Waffles 只比较共同关注领域、年龄组和经历阶段；你可以随时退出。", communityEnable: "加入社区", communityDisable: "退出社区匹配", communityDisplayName: "社区显示名称", communityGroups: "群聊", communitySuggestions: "Waffles 推荐认识的人", communityIncoming: "好友申请", communityDirect: "私聊", communityJoin: "加入群聊", communityOpenRoom: "打开聊天", communityConnect: "打个招呼", communityPending: "已发送申请", communityAccept: "接受", communityDecline: "拒绝", communitySend: "发送", communityMessagePlaceholder: "写一条友善的消息……", communityEmpty: "还没有消息，可以轻轻地开始。", communityLoading: "正在打开社区……", communitySafety: "社区消息会安全保存，但不是端到端加密。这里属于用户互助，不是专业或紧急服务；请勿发送密码、住址或紧急医疗隐私。",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。", activityGuideIntro: "Mayor Crumpet 会把村庄里的志愿者机会和即将开始的活动整理在一起。", supportGuideIntro: "Eggy 会帮助你找到更稳妥的下一步。",
-    aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceDislike: "不喜欢", resourceDisliked: "已不喜欢", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。", resourceDislikeSaved: "已加入不喜欢资源列表。", resourceDislikeRemoved: "已从不喜欢资源中移除。", savedResourcesTitle: "收藏的资源", dislikedResourcesTitle: "不喜欢的资源", noSavedResources: "还没有收藏资源。", noDislikedResources: "还没有不喜欢的资源。", clarificationTitle: "补充一个小细节，匹配会更准确", clarificationNone: "以上都不是", clarificationContinue: "继续搜索", clarificationRequired: "请选择一个相关选项，或选择“以上都不是”。", sourceLabel: "数据库来源", scoringLabel: "评分版本", aiExpandedKeywords: "AI 扩展关键词", localExpandedKeywords: "本地同义词扩展", supportSearchTitle: "搜索支持资源数据库", supportSearchIntro: "Eggy 会检查实时资源数据库，并用与教育建筑相同的透明评分系统排序。", supportSearchDisclaimer: "Eggy 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", supportContactTab: "联系", supportFindTab: "找资源", communityPrivateTab: "私聊", communityGroupsTab: "群组", communityMomentsTab: "动态", communityRequestsTab: "请求",
+    aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceDislike: "不喜欢", resourceDisliked: "已不喜欢", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。", resourceDislikeSaved: "已加入不喜欢资源列表。", resourceDislikeRemoved: "已从不喜欢资源中移除。", savedResourcesTitle: "收藏的资源", dislikedResourcesTitle: "不喜欢的资源", noSavedResources: "还没有收藏资源。", noDislikedResources: "还没有不喜欢的资源。", clarificationTitle: "补充一个小细节，匹配会更准确", clarificationNone: "以上都不是", clarificationContinue: "继续搜索", clarificationRequired: "请选择一个相关选项，或选择“以上都不是”。", clarificationOptional: "可选：点一个选项会补充到搜索里并重新查找。", sourceLabel: "数据库来源", scoringLabel: "评分版本", aiExpandedKeywords: "AI 扩展关键词", localExpandedKeywords: "本地同义词扩展", supportSearchTitle: "搜索支持资源数据库", supportSearchIntro: "Eggy 会检查实时资源数据库，并用与教育建筑相同的透明评分系统排序。", supportSearchDisclaimer: "Eggy 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", supportContactTab: "联系", supportFindTab: "找资源", communityPrivateTab: "私聊", communityGroupsTab: "群组", communityMomentsTab: "动态", communityRequestsTab: "请求",
     voiceTools: "语音助手", voiceAssistant: "点击时自动讲解", voiceControl: "麦克风语音操作", voiceListen: "听取指令", voiceListening: "正在听…", voiceHint: "可以自然地说：“research 504 plans”、“open Waffles” 或“find school support”。如果不清楚，Waffles 会追问。浏览器负责听写你的话；Waffles 会使用 AI API 生成语音并更聪明地理解指令。",
     recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
     sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
@@ -136,7 +141,7 @@ const i18n = {
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     communityTitle: "Comunidad de la aldea", communityIntro: "Únete a grupos o conecta en privado con personas que aceptaron participar.", communityOpen: "Abrir chats", communityPrivacy: "Tu correo y tus notas privadas nunca se muestran. Waffles compara solo intereses, edad y etapa del recorrido.", communityEnable: "Unirme a la comunidad", communityDisable: "Salir de la comunidad", communityDisplayName: "Nombre visible", communityGroups: "Chats grupales", communitySuggestions: "Personas sugeridas por Waffles", communityIncoming: "Solicitudes", communityDirect: "Chats privados", communityJoin: "Unirme", communityOpenRoom: "Abrir chat", communityConnect: "Saludar", communityPending: "Solicitud enviada", communityAccept: "Aceptar", communityDecline: "Rechazar", communitySend: "Enviar", communityMessagePlaceholder: "Escribe un mensaje amable…", communityEmpty: "Aún no hay mensajes.", communityLoading: "Abriendo la comunidad…", communitySafety: "Los mensajes se guardan de forma segura, pero no tienen cifrado de extremo a extremo. Son apoyo entre pares, no atención profesional ni de emergencia. No compartas contraseñas, direcciones ni datos médicos urgentes.",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.", activityGuideIntro: "Mayor Crumpet reúne las oportunidades de voluntariado y las próximas actividades de la aldea.", supportGuideIntro: "Eggy puede ayudarte a encontrar un siguiente paso más tranquilo.",
-    aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceDislike: "No me sirve", resourceDisliked: "Marcado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.", resourceDislikeSaved: "Recurso marcado como no útil.", resourceDislikeRemoved: "Recurso quitado de no útiles.", savedResourcesTitle: "Recursos guardados", dislikedResourcesTitle: "Recursos no útiles", noSavedResources: "Aún no hay recursos guardados.", noDislikedResources: "Aún no hay recursos marcados.", clarificationTitle: "Un detalle rápido mejorará estas coincidencias", clarificationNone: "Ninguna de estas", clarificationContinue: "Continuar búsqueda", clarificationRequired: "Elige una opción relevante o selecciona “Ninguna de estas”.", sourceLabel: "Fuente de datos", scoringLabel: "puntuación", aiExpandedKeywords: "palabras ampliadas por IA", localExpandedKeywords: "expansión local de sinónimos", supportSearchTitle: "Buscar en la base de apoyo", supportSearchIntro: "Eggy revisa la base de recursos en vivo y ordena cada resultado con el mismo sistema de puntuación transparente usado en Educación.", supportSearchDisclaimer: "Eggy orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", supportContactTab: "Contacto", supportFindTab: "Buscar recursos", communityPrivateTab: "Chat privado", communityGroupsTab: "Grupos", communityMomentsTab: "Momentos", communityRequestsTab: "Solicitudes",
+    aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceDislike: "No me sirve", resourceDisliked: "Marcado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.", resourceDislikeSaved: "Recurso marcado como no útil.", resourceDislikeRemoved: "Recurso quitado de no útiles.", savedResourcesTitle: "Recursos guardados", dislikedResourcesTitle: "Recursos no útiles", noSavedResources: "Aún no hay recursos guardados.", noDislikedResources: "Aún no hay recursos marcados.", clarificationTitle: "Un detalle rápido mejorará estas coincidencias", clarificationNone: "Ninguna de estas", clarificationContinue: "Continuar búsqueda", clarificationRequired: "Elige una opción relevante o selecciona “Ninguna de estas”.", clarificationOptional: "Opcional: elige una para refinar y buscar de nuevo.", sourceLabel: "Fuente de datos", scoringLabel: "puntuación", aiExpandedKeywords: "palabras ampliadas por IA", localExpandedKeywords: "expansión local de sinónimos", supportSearchTitle: "Buscar en la base de apoyo", supportSearchIntro: "Eggy revisa la base de recursos en vivo y ordena cada resultado con el mismo sistema de puntuación transparente usado en Educación.", supportSearchDisclaimer: "Eggy orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", supportContactTab: "Contacto", supportFindTab: "Buscar recursos", communityPrivateTab: "Chat privado", communityGroupsTab: "Grupos", communityMomentsTab: "Momentos", communityRequestsTab: "Solicitudes",
     voiceTools: "Asistente de voz", voiceAssistant: "Narrar clics y lugares", voiceControl: "Comandos por micrófono", voiceListen: "Escuchar comando", voiceListening: "Escuchando…", voiceHint: "Prueba frases naturales como “research 504 plans”, “open Waffles” o “find school support”. Waffles puede hacer una pregunta de seguimiento. El navegador transcribe tu voz; Waffles usa la API de IA para el audio hablado y el enrutamiento inteligente.",
     recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
     sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
@@ -493,10 +498,11 @@ class VillageAudio {
       villager: () => this.chirp([92, 82], { type: "sine", level: .012, duration: .12, gap: .24 }),
       dragon: () => this.noiseGesture({ frequency: 1800, level: .11, duration: 1.8, type: "highpass" }),
       capybara: () => this.chirp([420, 560, 470], { type: "triangle", level: .026, duration: .2, gap: .14 }),
-      cow: () => this.chirp([105, 92], { type: "sawtooth", level: .012, duration: .6, gap: .22 }),
-      sheep: () => this.chirp([390, 330], { type: "triangle", level: .018, duration: .34, gap: .17 }),
       deer: () => this.chirp([220, 180], { type: "sine", level: .016, duration: .42, gap: .18 }),
-      gull: () => this.airyBird("gull")
+      gull: () => this.airyBird("gull"),
+      owl: () => this.chirp([330, 250, 330], { type: "sine", level: .018, duration: .38, gap: .22 }),
+      cricket: () => this.chirp([2280, 2510, 2340, 2620], { type: "sine", level: .006, duration: .055, gap: .07 }),
+      frog: () => this.chirp([145, 178], { type: "triangle", level: .012, duration: .18, gap: .13 })
     };
     (profiles[species] || profiles.bird)();
   }
@@ -512,7 +518,9 @@ class VillageAudio {
   }
 
   animalCall() {
-    const species = state.ecosystem?.audibleSpecies(state.selectedIsland) || ["bird"];
+    const present = (state.ecosystem?.audibleSpecies(state.selectedIsland) || ["bird"]).filter((species) => !["rabbit", "cow", "sheep"].includes(species));
+    const seasonalVisitors = { spring: ["bird", "frog"], summer: ["bird", "cricket", "frog"], autumn: ["bird", "owl", "fox"], winter: ["owl", "deer"] }[this.season] || ["bird"];
+    const species = [...present, ...seasonalVisitors, ...seasonalVisitors];
     if (!species.length) return;
     this.playAnimal(species[Math.floor(Math.random() * species.length)]);
   }
@@ -688,7 +696,8 @@ state.ecosystem = new EcosystemController({
   stage: $("#map-stage"),
   creatureLayer: $("#creature-layer"),
   skyLayer: $("#sky-creature-layer"),
-  onSound: (species) => state.audio?.playAnimal(species)
+  onSound: (species) => state.audio?.playAnimal(species),
+  onBuilding: (buildingId) => handleBuilding(buildingId)
 });
 state.immersive = new ImmersiveScene({
   canvas: $("#immersive-scene"),
@@ -869,6 +878,7 @@ async function submitAuth(event) {
     state.user = user;
     if (sync) state.sheetSync = { configured: sync.synced || state.sheetSync.configured, ...sync };
     routeForUser();
+    refreshAnnouncementBadge();
   } catch (error) {
     $("#auth-error").textContent = error.message;
   } finally {
@@ -1309,15 +1319,54 @@ function settingsPanel() {
   });
 }
 
-function activitiesPanel() {
+function activityCards() {
+  const activities = state.activities.length ? state.activities : config.activities;
+  return activities.length ? activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p>${state.user?.isAdmin && activity.id ? `<button type="button" class="text-button danger-text activity-delete" data-action="delete-activity" data-activity-id="${escapeHtml(activity.id)}">Delete activity</button>` : ""}</div></article>`).join("") : `<p class="record-empty">There are no upcoming activities yet.</p>`;
+}
+
+function renderActivities() {
+  const adminForm = state.user?.isAdmin ? `<details class="activity-composer"><summary>Add an activity</summary><form id="activity-form" class="stack-form"><label>Date label<input name="date" maxlength="40" required placeholder="Aug 09" /></label><label>Title<input name="title" maxlength="120" required /></label><label>Location / details<input name="meta" maxlength="160" placeholder="San Jose · Free" /></label><label>Description<textarea name="description" rows="4" maxlength="1200" required></textarea></label><button class="primary-button" type="submit">Publish activity</button><p class="form-error" role="alert"></p></form></details>` : "";
+  return `<div class="mori-stage activity-character-stage">${guideCharacter("Activity", { className: "mayor-crumpet-character" })}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Activity.name))}</h3><p>${escapeHtml(t("activityGuideIntro"))}</p></div></div><p class="panel-intro">${escapeHtml(t("activityIntro"))}</p>${adminForm}<div class="card-list">${activityCards()}</div>`;
+}
+
+async function activitiesPanel() {
   openPanel({
     title: t("activityTitle"),
     eyebrow: t("activityEyebrow"),
-    html: `<div class="mori-stage activity-character-stage">${guideCharacter("Activity", { className: "mayor-crumpet-character" })}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Activity.name))}</h3><p>${escapeHtml(t("activityGuideIntro"))}</p></div></div>
-      <p class="panel-intro">${escapeHtml(t("activityIntro"))}</p>
-      <div class="card-list">${config.activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p></div></article>`).join("")}</div>
-      <p class="privacy-note">Edit activities in <code>public/site-config.js</code>; users have no editing controls.</p>`
+    html: `<p class="record-empty">Loading village activities…</p>`
   });
+  try {
+    const data = await api("/api/activities");
+    state.activities = data.activities || [];
+    if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
+    $("#panel-content").innerHTML = renderActivities();
+  } catch (error) {
+    state.activities = [];
+    $("#panel-content").innerHTML = `${renderActivities()}<p class="form-error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function submitActivity(event) {
+  event.preventDefault();
+  const form = event.target;
+  const values = new FormData(form);
+  const status = form.querySelector(".form-error");
+  status.textContent = "Publishing…";
+  try {
+    const result = await api("/api/activities", { method: "POST", body: JSON.stringify({ date: values.get("date"), title: values.get("title"), meta: values.get("meta"), description: values.get("description") }) });
+    state.activities = [...state.activities, result.activity];
+    $("#panel-content").innerHTML = renderActivities();
+    toast("Activity published.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function deleteActivity(id) {
+  try {
+    await api(`/api/activities/${encodeURIComponent(id)}`, { method: "DELETE" });
+    state.activities = state.activities.filter((activity) => activity.id !== id);
+    $("#panel-content").innerHTML = renderActivities();
+    toast("Activity deleted.");
+  } catch (error) { toast(error.message); }
 }
 
 function guidePanel() {
@@ -1550,10 +1599,21 @@ function renderResearchFeedback() {
   return `<section class="research-result-feedback" aria-label="Research feedback"><p>Was this research helpful?</p><div class="research-feedback-actions"><button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="results" data-helpful="true">Like this research</button><button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="results" data-helpful="false">Not Helpful</button></div><p class="research-feedback-status" role="status"></p></section>`;
 }
 
+function renderFollowUpQuestions(questions = []) {
+  const valid = (Array.isArray(questions) ? questions : [])
+    .filter((item) => String(item?.question || "").trim() && Array.isArray(item.options) && item.options.length)
+    .slice(0, 3);
+  if (!valid.length) return "";
+  return `<section class="research-followup" aria-label="${escapeHtml(t("clarificationTitle"))}">
+    <div><h3>${escapeHtml(t("clarificationTitle"))}</h3><p>${escapeHtml(t("clarificationOptional"))}</p></div>
+    ${valid.map((item) => `<article class="followup-question"><strong>${escapeHtml(item.question)}</strong><div class="followup-options">${item.options.slice(0, 4).map((option) => `<button type="button" class="secondary-button" data-action="apply-follow-up" data-followup-question="${escapeHtml(item.question)}" data-followup-option="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join("")}</div></article>`).join("")}
+  </section>`;
+}
+
 function renderCompletedResearch(data, payload, fallbackVersion) {
   registerCompletedResearch(data, payload);
   const expanded = data.keywordExpansion?.suggested || [];
-  return `<div class="ai-response">${escapeHtml(data.answer)}</div>${renderResearchFeedback()}${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, fallbackVersion)}`;
+  return `<div class="ai-response">${escapeHtml(data.answer)}</div>${renderFollowUpQuestions(data.followUpQuestions)}${renderResearchFeedback()}${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, fallbackVersion)}`;
 }
 
 function showDailyResearchFeedback() {
@@ -1570,12 +1630,14 @@ function closeDailyResearchFeedback() {
 }
 
 async function submitResearchFeedback(element) {
+  if (element.dataset.busy === "true") return;
   const scope = element.dataset.feedbackScope || "results";
   const helpful = element.dataset.helpful === "true";
   const research = scope === "daily" ? state.dailyResearchContext : state.currentResearch;
   const container = scope === "daily" ? $("#research-feedback-dialog") : element.closest(".research-result-feedback");
   const status = container?.querySelector(".research-feedback-status");
   const buttons = container ? $$("[data-action='research-feedback']", container) : [element];
+  buttons.forEach((button) => { button.dataset.busy = "true"; });
   buttons.forEach((button) => { button.disabled = true; });
   if (status) status.textContent = "Saving…";
   try {
@@ -1590,8 +1652,20 @@ async function submitResearchFeedback(element) {
     }
   } catch (error) {
     if (status) status.textContent = error.message;
-    buttons.forEach((button) => { button.disabled = false; });
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; delete button.dataset.busy; });
   }
+}
+
+function applyFollowUp(element) {
+  const question = String(element.dataset.followupQuestion || "").trim();
+  const option = String(element.dataset.followupOption || "").trim();
+  const field = $('#ai-form textarea[name="description"]');
+  if (!field || !option) return;
+  const addition = [question, option].filter(Boolean).join(" ");
+  const current = String(field.value || "").trim();
+  field.value = current.includes(addition) ? current : `${current}${current ? "\n" : ""}${addition}`;
+  $("#ai-form")?.requestSubmit?.();
 }
 
 function returnHome() {
@@ -1748,9 +1822,104 @@ function profilePanel() {
       <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>
+      ${state.user?.isAdmin ? `<section class="admin-manager"><div><p class="eyebrow">Village administration</p><h3>Administrators</h3><p>Add a registered account by email. Administrators can publish, edit, and remove announcements.</p></div><form id="admin-add-form" class="admin-add-form"><label>Account email<input type="email" name="email" required placeholder="person@example.com" /></label><button class="secondary-button" type="submit">Add administrator</button><p class="form-error" role="alert"></p></form><div id="admin-user-list" class="admin-user-list"><p class="record-empty">Loading administrators…</p></div></section>` : ""}
       <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
       <button class="text-button" data-action="logout">${escapeHtml(t("logout"))}</button>`
   });
+  if (state.user?.isAdmin) loadAdminUsers();
+}
+
+function announcementLabels() {
+  if (state.settings.language === "zh") return { title: "村庄公告", eyebrow: "更新与重要事件", empty: "目前还没有公告。", publish: "发布新公告", headline: "标题", details: "公告内容", category: "类型", pinned: "置顶公告", submit: "发布公告", edit: "编辑", save: "保存修改", cancel: "取消", remove: "删除公告", by: "发布人" };
+  if (state.settings.language === "es") return { title: "Anuncios", eyebrow: "Novedades y eventos importantes", empty: "Todavía no hay anuncios.", publish: "Publicar un anuncio", headline: "Título", details: "Detalles", category: "Categoría", pinned: "Fijar anuncio", submit: "Publicar", edit: "Editar", save: "Guardar cambios", cancel: "Cancelar", remove: "Eliminar", by: "Publicado por" };
+  return { title: "Village announcements", eyebrow: "Updates & important events", empty: "There are no announcements yet.", publish: "Publish an announcement", headline: "Title", details: "Announcement details", category: "Category", pinned: "Pin this announcement", submit: "Publish announcement", edit: "Edit", save: "Save changes", cancel: "Cancel", remove: "Delete announcement", by: "Posted by" };
+}
+
+function announcementDate(value) {
+  try { return new Intl.DateTimeFormat(state.settings.language || "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+  catch { return String(value || ""); }
+}
+
+function sortAnnouncements(items) {
+  return [...(items || [])].sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function latestAnnouncementToken() {
+  const latest = [...state.announcements].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0];
+  return latest ? `${latest.id}:${latest.updatedAt || latest.createdAt}` : "none";
+}
+
+function announcementSeenKey() {
+  return `capy-announcement-seen:${state.user?.id || "visitor"}`;
+}
+
+function renderAnnouncements() {
+  const labels = announcementLabels();
+  const editing = state.announcements.find((item) => item.id === state.editingAnnouncementId) || null;
+  const selected = state.announcements.find((item) => item.id === state.selectedAnnouncementId) || state.announcements[0];
+  state.selectedAnnouncementId = selected?.id || null;
+  const list = state.announcements.length ? state.announcements.map((item) => `<button type="button" class="announcement-list-item ${item.id === selected?.id ? "active" : ""}" data-action="select-announcement" data-announcement-id="${escapeHtml(item.id)}"><small>${item.isPinned ? "✦ " : ""}${escapeHtml(item.category || "Update")}</small><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(announcementDate(item.createdAt))}</span></button>`).join("") : `<p class="announcement-empty">${escapeHtml(labels.empty)}</p>`;
+  const detail = selected ? `<article class="announcement-detail"><div class="announcement-detail-meta"><span>${selected.isPinned ? "✦ Pinned · " : ""}${escapeHtml(selected.category || "Update")}</span><time>${escapeHtml(announcementDate(selected.createdAt))}</time></div><h2>${escapeHtml(selected.title)}</h2><div class="announcement-body">${escapeHtml(selected.body).replace(/\n/g, "<br>")}</div><p>${escapeHtml(labels.by)} ${escapeHtml(selected.authorName || "Village admin")}</p>${state.user?.isAdmin ? `<div class="announcement-admin-actions"><button type="button" class="text-button" data-action="edit-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.edit)}</button><button type="button" class="text-button danger-text" data-action="delete-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.remove)}</button></div>` : ""}</article>` : `<div class="announcement-detail announcement-empty-detail"><span aria-hidden="true">📜</span><p>${escapeHtml(labels.empty)}</p></div>`;
+  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="button" data-action="save-announcement">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
+  return `${form}<div class="announcement-parchment"><aside class="announcement-list">${list}</aside>${detail}</div>`;
+}
+
+async function announcementsPanel() {
+  const labels = announcementLabels();
+  openPanel({ title: labels.title, eyebrow: labels.eyebrow, html: `<div class="announcement-loading">Opening the notice board…</div>` });
+  try {
+    const data = await api("/api/announcements");
+    state.announcements = sortAnnouncements(data.announcements);
+    if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
+    $("#panel-content").innerHTML = renderAnnouncements();
+    localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
+    $("#announcement-dot")?.classList.add("hidden");
+  } catch (error) { $("#panel-content").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function refreshAnnouncementBadge() {
+  if (!state.user) return;
+  try {
+    const data = await api("/api/announcements");
+    state.announcements = sortAnnouncements(data.announcements);
+    state.user.isAdmin = Boolean(data.isAdmin);
+    const latestId = latestAnnouncementToken();
+    const lastSeen = localStorage.getItem(announcementSeenKey());
+    $("#announcement-dot")?.classList.toggle("hidden", latestId === "none" || latestId === lastSeen);
+  } catch {}
+}
+
+async function submitAnnouncementForm(form) {
+  if (!form || !form.reportValidity()) return;
+  const data = new FormData(form); const status = form.querySelector(".form-error");
+  status.textContent = "Publishing…";
+  try {
+    const id = String(data.get("id") || "");
+    const result = await api(id ? `/api/announcements/${encodeURIComponent(id)}` : "/api/announcements", { method: id ? "PATCH" : "POST", body: JSON.stringify({ title: data.get("title"), category: data.get("category"), body: data.get("body"), isPinned: data.get("isPinned") === "on" }) });
+    state.announcements = sortAnnouncements(id ? state.announcements.map((item) => item.id === id ? result.announcement : item) : [...state.announcements, result.announcement]); state.selectedAnnouncementId = result.announcement.id; state.editingAnnouncementId = null;
+    localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
+    $("#panel-content").innerHTML = renderAnnouncements(); toast(id ? "Announcement updated." : "Announcement published.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+function submitAnnouncement(event) {
+  event.preventDefault();
+  submitAnnouncementForm(event.target);
+}
+
+async function loadAdminUsers() {
+  const container = $("#admin-user-list"); if (!container) return;
+  try {
+    state.adminUsers = (await api("/api/admin/users")).users || [];
+    container.innerHTML = state.adminUsers.map((item) => `<div class="admin-user-row"><div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></div>${item.isOwner ? `<small>Owner</small>` : item.id === state.user?.id ? `<small>You</small>` : `<button type="button" class="text-button danger-text" data-action="remove-admin" data-user-id="${escapeHtml(item.id)}">Remove</button>`}</div>`).join("");
+  } catch (error) { container.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function submitAdminAdd(event) {
+  event.preventDefault(); const form = event.target; const status = form.querySelector(".form-error");
+  status.textContent = "Adding…";
+  try { await api("/api/admin/users", { method: "POST", body: JSON.stringify({ email: new FormData(form).get("email") }) }); form.reset(); status.textContent = ""; await loadAdminUsers(); toast("Administrator added."); }
+  catch (error) { status.textContent = error.message; }
 }
 
 function handleBuilding(id) {
@@ -2343,8 +2512,8 @@ function applyEnvironment(environment, available = true) {
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
   state.audio?.setWeather(kind);
   state.audio?.setSeason(season);
-  state.ecosystem?.setWeather(kind);
   const atmosphere = { weather: kind, season, windSpeed: Number(environment.current?.windSpeed || 0), cloudCover: Number(environment.current?.cloudCover || 0) };
+  state.ecosystem?.setAtmosphere(atmosphere);
   state.immersive?.setEnvironment(atmosphere);
   state.surfaceMotion?.setEnvironment(atmosphere);
   updateCelestialScene();
@@ -2476,6 +2645,14 @@ document.addEventListener("click", (event) => {
   if (action === "reset-map" || action === "home") returnHome();
   if (action === "open-profile") profilePanel();
   if (action === "open-settings") settingsPanel();
+  if (action === "open-announcements") announcementsPanel();
+  if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
+  if (action === "save-announcement") submitAnnouncementForm(actionElement.closest("form"));
+  if (action === "edit-announcement") { state.editingAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); $("#panel-content").scrollTo({ top: 0, behavior: "smooth" }); }
+  if (action === "cancel-announcement-edit") { state.editingAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); }
+  if (action === "delete-announcement") { if (confirm("Delete this announcement?")) api(`/api/announcements/${encodeURIComponent(actionElement.dataset.announcementId)}`, { method: "DELETE" }).then(() => { state.announcements = state.announcements.filter((item) => item.id !== actionElement.dataset.announcementId); state.selectedAnnouncementId = null; $("#panel-content").innerHTML = renderAnnouncements(); toast("Announcement deleted."); }).catch((error) => toast(error.message)); }
+  if (action === "delete-activity") { if (confirm("Delete this activity?")) deleteActivity(actionElement.dataset.activityId); }
+  if (action === "remove-admin") { if (confirm("Remove this administrator?")) api(`/api/admin/users/${encodeURIComponent(actionElement.dataset.userId)}`, { method: "DELETE" }).then(() => loadAdminUsers()).catch((error) => toast(error.message)); }
   if (action === "open-mori") guidePanel();
   if (action === "speak-guide") speakVillage(state.lastGuideAnswer || t("guideIntro"), { force: true });
   if (action === "listen-guide") startGuideVoiceInput();
@@ -2493,56 +2670,4 @@ document.addEventListener("click", (event) => {
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
   if (action === "toggle-voice-setting") toggleVoiceSetting(actionElement.dataset.voiceSetting);
-  if (action === "start-voice-command") startVoiceCommand();
-  if (action === "explain-resource") showResourceExplanation(actionElement);
-  if (action === "like-resource") toggleResourceLike(actionElement);
-  if (action === "dislike-resource") toggleResourceDislike(actionElement);
-  if (action === "research-feedback") submitResearchFeedback(actionElement);
-  if (action === "refresh-resources") loadResources(true);
-  if (action === "refresh-environment") loadEnvironment(true);
-  if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
-  if (["open-community", "community-tab", "support-tab", "send-sticker", "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room", "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user", "delete-community-post"].includes(action)) communityAction(actionElement, action);
-});
-
-document.addEventListener("input", (event) => {
-  const volume = event.target.closest("[data-volume]");
-  if (volume) updateVolume(volume);
-});
-
-document.addEventListener("change", (event) => {
-  const localMusic = event.target.closest("[data-local-music]");
-  if (localMusic) handleLocalMusicUpload(localMusic);
-  const communityImage = event.target.closest("[data-community-image]");
-  if (communityImage) handleCommunityImage(communityImage);
-});
-
-document.addEventListener("submit", (event) => {
-  if (event.target.id === "auth-form") submitAuth(event);
-  if (event.target.id === "password-request-form") submitPasswordRequest(event);
-  if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
-  if (event.target.id === "survey-form") submitSurvey(event);
-  if (event.target.id === "ai-form") submitAi(event);
-  if (event.target.id === "guide-form") submitGuide(event);
-  if (event.target.id === "feedback-form") submitFeedback(event);
-  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
-  if (event.target.id === "community-message-form") submitCommunityMessage(event);
-  if (event.target.id === "community-search-form") submitCommunitySearch(event);
-  if (event.target.id === "community-group-form") submitCommunityGroup(event);
-  if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
-  if (event.target.id === "community-post-form") submitCommunityPost(event);
-});
-
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
-$("#calm-toggle").addEventListener("click", toggleCalm);
-$("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
-
-(async function boot() {
-  setAuthMode("register");
-  await hydrateLocalMusic();
-  applySettings();
-  try {
-    const { user } = await api("/api/auth/me");
-    state.user = user;
-  } catch {}
-  routeForUser();
-})();
+  if (action === "start
