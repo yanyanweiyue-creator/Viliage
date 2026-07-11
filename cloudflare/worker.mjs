@@ -1223,4 +1223,120 @@ async function api(request, env, ctx) {
     let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
     try {
       sync = await logErrorRecord(env, {
-        event: "re
+        event: "research_not_helpful",
+        reason: source === "daily-return" ? "User chose Not really in the daily return-to-home research check-in." : "User chose Not Helpful for the completed research.",
+        user,
+        topic: String(research.category || research.topic || ""),
+        diagnosis: String(research.diagnosis || ""),
+        description,
+        requestedCount: research.requestedCount ?? "",
+        providedCount: research.providedCount ?? "",
+        highScoreCount: research.highScoreCount ?? "",
+        source,
+        primaryKeywords: research.primaryKeywords,
+        confirmedKeywords: research.confirmedKeywords,
+        predictedKeywords: research.predictedKeywords,
+        locatedKeywords: research.locatedKeywords
+      });
+    } catch (error) {
+      sync = { synced: false, reason: error.message };
+    }
+    return json({ ok: true, recorded: Boolean(sync.synced), sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/feedback") {
+    if (user.guest) return fail("Create an account to save feedback.", 403);
+    user.feedback = String((await body(request)).feedback || "").slice(0, 2000);
+    await env.DB.prepare("UPDATE users SET feedback = ?, updated_at = ? WHERE id = ?").bind(user.feedback, new Date().toISOString(), user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/resources/like") {
+    if (user.guest) return fail("Create an account to save liked resources.", 403);
+    const { resource = {}, liked = true } = await body(request);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return fail("Choose a resource before saving it.");
+    const savedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const current = Array.isArray(user.likedResources) ? user.likedResources : [];
+    const filtered = current.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
+    user.likedResources = liked ? [savedResource, ...filtered].slice(0, 100) : filtered;
+    user.dislikedResources = liked ? currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentDisliked;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/resources/dislike") {
+    if (user.guest) return fail("Create an account to mark disliked resources.", 403);
+    const { resource = {}, disliked = true } = await body(request);
+    const name = String(resource.name || "").trim().slice(0, 180);
+    const urlValue = String(resource.url || "").trim().slice(0, 500);
+    if (!name || !urlValue) return fail("Choose a resource before marking it.");
+    const dislikedResource = {
+      name,
+      url: urlValue,
+      description: String(resource.description || "").trim().slice(0, 500),
+      topic: String(resource.topic || "").trim().slice(0, 80),
+      score: Number(resource.score || 0),
+      savedAt: new Date().toISOString()
+    };
+    const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
+    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
+    const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
+    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
+    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    let errorSync = { synced: false };
+    if (disliked) {
+      try {
+        errorSync = await logErrorRecord(env, {
+          event: "resource_disliked",
+          reason: "User marked a resource as disliked.",
+          user,
+          topic: dislikedResource.topic,
+          resource: dislikedResource,
+          source: "resource-card"
+        });
+      } catch (error) {
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
+  }
+
+  return fail("API route not found.", 404);
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const url = new URL(request.url);
+      if (url.pathname.startsWith("/api/")) return await api(request, env, ctx);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      console.error(error);
+      return fail(error.message || "Something went wrong.", 500);
+    }
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(cleanupSystemGroupHistory(env));
+  }
+};
