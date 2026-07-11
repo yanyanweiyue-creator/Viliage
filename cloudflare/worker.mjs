@@ -1328,4 +1328,48 @@ async function api(request, env, ctx) {
       savedAt: new Date().toISOString()
     };
     const key = `${name.toLowerCase()}|${urlValue.toLowerCase()}`;
-    co
+    const currentDisliked = Array.isArray(user.dislikedResources) ? user.dislikedResources : [];
+    const filteredDisliked = currentDisliked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key);
+    const currentLiked = Array.isArray(user.likedResources) ? user.likedResources : [];
+    user.likedResources = disliked ? currentLiked.filter((entry) => `${String(entry.name || "").toLowerCase()}|${String(entry.url || "").toLowerCase()}` !== key) : currentLiked;
+    user.dislikedResources = disliked ? [dislikedResource, ...filteredDisliked].slice(0, 100) : filteredDisliked;
+    user.updatedAt = new Date().toISOString();
+    await env.DB.prepare("UPDATE users SET liked_resources_json = ?, disliked_resources_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.likedResources), JSON.stringify(user.dislikedResources), user.updatedAt, user.id).run();
+    let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
+    try { sync = await syncUser(env, user); } catch (error) { sync = { synced: false, reason: error.message }; }
+    let errorSync = { synced: false };
+    if (disliked) {
+      try {
+        errorSync = await logErrorRecord(env, {
+          event: "resource_disliked",
+          reason: "User marked a resource as disliked.",
+          user,
+          topic: dislikedResource.topic,
+          resource: dislikedResource,
+          source: "resource-card"
+        });
+      } catch (error) {
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return json({ ok: true, likedResources: user.likedResources, dislikedResources: user.dislikedResources, sync, errorSync });
+  }
+
+  return fail("API route not found.", 404);
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const url = new URL(request.url);
+      if (url.pathname.startsWith("/api/")) return await api(request, env, ctx);
+      return env.ASSETS.fetch(request);
+    } catch (error) {
+      console.error(error);
+      return fail(error.message || "Something went wrong.", 500);
+    }
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(cleanupSystemGroupHistory(env));
+  }
+};
