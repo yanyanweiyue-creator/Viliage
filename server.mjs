@@ -1602,4 +1602,69 @@ async function handleApi(req, res, url) {
     const dislikedResource = resourceSnapshot(resource);
     if (!dislikedResource) return sendError(res, 400, "Choose a resource before marking it.");
     const key = resourceIdentityKey(dislikedResource);
-    const saved = await updateUser(us
+    const saved = await updateUser(user.id, (item) => {
+      const current = Array.isArray(item.dislikedResources) ? item.dislikedResources : [];
+      const filtered = current.filter((entry) => resourceIdentityKey(entry) !== key);
+      const liked = Array.isArray(item.likedResources) ? item.likedResources : [];
+      const filteredLiked = disliked ? liked.filter((entry) => resourceIdentityKey(entry) !== key) : liked;
+      return { ...item, likedResources: filteredLiked, dislikedResources: disliked ? [dislikedResource, ...filtered].slice(0, 100) : filtered, updatedAt: new Date().toISOString() };
+    });
+    let sync = { synced: false };
+    try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
+    let errorSync = { synced: false };
+    if (disliked) {
+      try {
+        errorSync = await logErrorRecord({
+          event: "resource_disliked",
+          reason: "User marked a resource as disliked.",
+          user: saved,
+          topic: dislikedResource.topic,
+          resource: dislikedResource,
+          source: "resource-card"
+        });
+      } catch (error) {
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
+  }
+
+  sendError(res, 404, "API route not found.");
+}
+
+function serveStatic(req, res, url) {
+  const relative = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+  const safePath = normalize(relative).replace(/^(\.\.(\/|\\|$))+/, "");
+  let filePath = join(PUBLIC_DIR, safePath);
+  if (!filePath.startsWith(PUBLIC_DIR)) return sendError(res, 403, "Forbidden.");
+  if (!existsSync(filePath)) filePath = join(PUBLIC_DIR, "index.html");
+  const ext = extname(filePath).toLowerCase();
+  res.writeHead(200, {
+    "Content-Type": mimeTypes[ext] || "application/octet-stream",
+    "Cache-Control": ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css" ? "no-cache" : "public, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  });
+  createReadStream(filePath).pipe(res);
+}
+
+export function createAppServer() {
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    try {
+      if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
+      else serveStatic(req, res, url);
+    } catch (error) {
+      console.error(error);
+      if (!res.headersSent) sendError(res, 500, error.message || "Something went wrong.");
+      else res.end();
+    }
+  });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT || 4173);
+  createAppServer().listen(port, "127.0.0.1", () => {
+    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
+  });
+}
