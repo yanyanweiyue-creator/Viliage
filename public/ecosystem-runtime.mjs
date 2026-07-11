@@ -320,4 +320,92 @@ export class EcosystemController {
         }
       }
 
-      const pauseScale = actor.definition.species === "capybara" ? 1
+      const pauseScale = actor.definition.species === "capybara" ? 1.3 : 1;
+      const arrivalState = actor.definition.species === "capybara" ? this.nextCapybaraAction(actor) : Math.random() < .34 ? "looking" : "idle";
+      this.moveTo(actor, this.adjacentIndex(actor), arrivalState, randomBetween(3500, 8500) * pauseScale);
+    }
+  }
+
+  setClock(clock) {
+    const previousDayState = this.clock.isDay;
+    this.clock = { ...this.clock, ...clock };
+    if (previousDayState !== this.clock.isDay) this.tick(true);
+    if (this.calm) return;
+
+    const dragon = this.config.events?.dragon || {};
+    if (shouldShowDragon({
+      dateKey: this.clock.localDate,
+      seed: this.clock.locationSeed,
+      minute: this.clock.currentMinutes,
+      sunrise: this.clock.sunrise,
+      weather: this.weather,
+      lastShownDate: this.dragonShownDate,
+      probability: dragon.probability ?? .12,
+      minutesBefore: dragon.dawnBeforeMinutes ?? 20,
+      minutesAfter: dragon.dawnAfterMinutes ?? 40
+    })) this.launchDragon();
+
+    const flock = this.config.events?.sunsetFlock || {};
+    if (shouldLaunchSunsetFlock({
+      dateKey: this.clock.localDate,
+      minute: this.clock.currentMinutes,
+      sunset: this.clock.sunset,
+      lastLaunchDate: this.flockShownDate,
+      minutesBefore: flock.beforeMinutes ?? 8,
+      minutesAfter: flock.afterMinutes ?? 6
+    })) this.launchSunsetFlock(Number(flock.count || 9));
+  }
+
+  launchDragon() {
+    const dragon = this.skyLayer.querySelector("#dawn-dragon");
+    if (!dragon) return;
+    this.dragonShownDate = this.clock.localDate;
+    dragon.classList.remove("in-flight");
+    void dragon.offsetWidth;
+    dragon.classList.add("in-flight");
+    this.onSound("dragon");
+    setTimeout(() => dragon.classList.remove("in-flight"), 12_500);
+  }
+
+  launchSunsetFlock(count) {
+    this.flockShownDate = this.clock.localDate;
+    const flock = document.createElement("div");
+    flock.className = "sunset-flock";
+    for (let index = 0; index < count; index += 1) {
+      const bird = document.createElement("span");
+      bird.className = "sunset-gull";
+      bird.append(createCreatureArt(document, "gull", index % 3));
+      bird.style.setProperty("--flock-left", `${8 + (index % 4) * 7}%`);
+      bird.style.setProperty("--flock-top", `${46 + (index % 3) * 5}%`);
+      bird.style.setProperty("--flock-delay", `${index * .24}s`);
+      flock.append(bird);
+    }
+    this.skyLayer.append(flock);
+    this.onSound("gull");
+    setTimeout(() => flock.remove(), 14_000);
+  }
+
+  setWeather(kind) { this.weather = kind || "clear"; }
+  setAtmosphere({ weather, season } = {}) {
+    this.weather = weather || this.weather;
+    this.season = ["spring", "summer", "autumn", "winter"].includes(season) ? season : this.season;
+  }
+  setCalm(value) { this.calm = Boolean(value); }
+  setSceneMode(mode) {
+    this.sceneMode = mode === "3d" ? "3d" : "2d";
+    for (const actor of this.actors.values()) this.positionActor(actor, actor.route[actor.routeIndex]);
+  }
+
+  audibleSpecies(selectedIsland = null) {
+    return [...this.actors.values()]
+      .filter((actor) => !actor.inside && (actor.definition.island === "sky" || actor.definition.island === "village" || !selectedIsland || actor.definition.island === selectedIsland))
+      .map((actor) => actor.definition.species);
+  }
+
+  destroy() {
+    clearInterval(this.timer);
+    clearTimeout(this.chatTimer);
+    this.timer = null;
+    this.initialized = false;
+  }
+}
