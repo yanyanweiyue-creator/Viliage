@@ -122,7 +122,6 @@ export class EcosystemController {
       element.dataset.species = definition.species;
       element.dataset.island = definition.island;
       element.dataset.flying = String(Boolean(definition.flying));
-      element.title = definition.label;
       if (definition.buildingTarget) element.setAttribute("aria-label", `${definition.label}: open ${definition.buildingTarget.replaceAll("-", " ")}`);
       else {
         element.setAttribute("role", "img");

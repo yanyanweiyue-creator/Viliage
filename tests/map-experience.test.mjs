@@ -30,7 +30,7 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\],[\s\S]*?border:\s*1\.5px dashed rgba\(255,255,255,\.82\) !important/);
-  assert.match(css, /\.ecosystem-actor\[data-species="capybara"\] \{[^}]*width:\s*clamp\(2\.25rem, 3\.8vw, 4rem\)/);
+  assert.match(css, /\.ecosystem-actor\[data-species="capybara"\] \{[^}]*width:\s*clamp\(1\.45rem, 2\.45vw, 2\.65rem\)/);
   assert.match(app, /type="button" data-action="save-announcement"/);
   assert.match(app, /if \(action === "save-announcement"\) submitAnnouncementForm/);
   assert.match(app, /activity-form"\) submitActivity/);
@@ -41,6 +41,9 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /\.hotspot-outline \{[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
   assert.match(css, /\.building::after \{[^}]*opacity:\s*0/);
+  assert.match(css, /\.ecosystem-actor\.interactive-actor:is\(:hover,:focus-visible\)::before \{[^}]*content:\s*none/);
+  assert.match(css, /body\.scene-2d \.map-hotspot::after \{[^}]*content:\s*none/);
+  assert.doesNotMatch(await readFile(new URL("../public/ecosystem-runtime.mjs", import.meta.url), "utf8"), /element\.title = definition\.label/);
   assert.doesNotMatch(css, /\.map-hotspot:hover::after,\s*\.map-hotspot:focus-visible::after\s*\{[^}]*opacity:\s*1/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]:hover::after/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\]:hover::after/);
@@ -194,4 +197,5 @@ test("2D buildings select their island before opening building functions", async
   assert.match(app, /if \(state\.selectedIsland !== building\.island\) \{\s*selectIsland\(building\.island\);\s*return;\s*\}/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\]/);
-  assert.matc
+  assert.match(surface, /closest\?\.\("\.island-hit-area, \.building, \.map-hotspot"\)/);
+});

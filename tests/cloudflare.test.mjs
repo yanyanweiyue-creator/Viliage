@@ -609,3 +609,49 @@ test("recommendation API applies diagnosis and category before scoring database 
     database.close();
   }
 });
+
+test("administrator blocklist removes noisy primary keywords from scoring and Error sheet records", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  const env = cloudflareEnv(database, { ERROR_SHEET_WEBHOOK_URL: "https://error.example/sync", ERROR_SHEET_GID: "1952899933" });
+  const register = async (name, email) => {
+    const response = await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" })
+    }), env, ctx);
+    return response.headers.get("set-cookie").split(";")[0];
+  };
+  const adminCookie = await register("Owner", "yanyanweiyue@gmail.com");
+  const userCookie = await register("Search User", "keyword-filter@example.com");
+  const saved = await worker.fetch(new Request("https://village.example/api/admin/primary-keyword-blocklist", {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: adminCookie }, body: JSON.stringify({ text: "waffles\nassistance" })
+  }), env, ctx);
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await saved.json()).keywords, ["waffle", "assistance"]);
+
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1", "Tag2"];
+  const row = (url, description, diagnosis, category, tag) => ({ c: [url, description, diagnosis, category, "", "All ages", tag, ""].map((v) => ({ v })) });
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    row("https://example.com/allowed", "Medicaid legal assistance", "Autism", "Legal", "Medicaid")
+  ] } };
+  const errorPayloads = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("docs.google.com/spreadsheets")) return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+    if (String(url).includes("error.example")) { errorPayloads.push(JSON.parse(options.body)); return Response.json({ ok: true }); }
+    return originalFetch(url, options);
+  };
+  try {
+    const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: userCookie },
+      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Waffles Medicaid assistance", count: 5 })
+    }), env, ctx);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.deepEqual(result.researchContext.primaryKeywords, ["medicaid"]);
+    assert.equal(errorPayloads[0]["Primary Keywords"], "medicaid");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});

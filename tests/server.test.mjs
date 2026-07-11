@@ -383,4 +383,63 @@ test("resource shortages and dislikes are appended to the Error database webhook
   } finally {
     delete process.env.ERROR_SHEET_WEBHOOK_URL;
     delete process.env.ERROR_SHEET_GID;
-    globalThis.fetch
+    globalThis.fetch = originalFetch;
+    server.closeAllConnections();
+    webhook.closeAllConnections();
+    await Promise.all([
+      new Promise((resolve) => server.close(resolve)),
+      new Promise((resolve) => webhook.close(resolve))
+    ]);
+  }
+});
+
+test("admin primary keyword blocklist filters local recommendation keywords", async () => {
+  const originalFetch = globalThis.fetch;
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1"];
+  const row = (url, description, diagnosis, category, tag) => ({ c: [url, description, diagnosis, category, "", "All ages", tag].map((v) => ({ v })) });
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    row("https://example.com/allowed", "Medicaid legal assistance", "Autism", "Legal", "Medicaid")
+  ] } };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("docs.google.com/spreadsheets")) return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+    return originalFetch(url, options);
+  };
+
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const register = async (name, email) => {
+      const body = JSON.stringify({ name, email, password: "safe-password" });
+      const response = await httpRequest(`http://127.0.0.1:${port}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        body
+      });
+      return response.headers["set-cookie"][0].split(";")[0];
+    };
+    const adminCookie = await register("Village Owner", "yanyanweiyue@gmail.com");
+    const userCookie = await register("Keyword User", `keyword-${Date.now()}@example.com`);
+    const blocklistBody = JSON.stringify({ text: "waffles\nassistance" });
+    const saved = await httpRequest(`http://127.0.0.1:${port}/api/admin/primary-keyword-blocklist`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(blocklistBody), Cookie: adminCookie },
+      body: blocklistBody
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(JSON.parse(saved.text).keywords, ["waffle", "assistance"]);
+
+    const recommendBody = JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Waffles Medicaid assistance", count: 5 });
+    const recommend = await httpRequest(`http://127.0.0.1:${port}/api/ai/recommend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(recommendBody), Cookie: userCookie },
+      body: recommendBody
+    });
+    assert.equal(recommend.status, 200);
+    assert.deepEqual(JSON.parse(recommend.text).researchContext.primaryKeywords, ["medicaid"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

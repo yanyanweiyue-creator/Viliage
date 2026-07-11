@@ -2733,4 +2733,46 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "auth-form") submitAuth(event);
   if (event.target.id === "password-request-form") submitPasswordRequest(event);
   if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
-  if (event.target.id === "survey-form") su
+  if (event.target.id === "survey-form") submitSurvey(event);
+  if (event.target.id === "ai-form") submitAi(event);
+  if (event.target.id === "guide-form") submitGuide(event);
+  if (event.target.id === "feedback-form") submitFeedback(event);
+  if (event.target.id === "announcement-form") submitAnnouncement(event);
+  if (event.target.id === "activity-form") submitActivity(event);
+  if (event.target.id === "admin-add-form") submitAdminAdd(event);
+  if (event.target.id === "primary-keyword-blocklist-form") submitPrimaryKeywordBlocklist(event);
+  if (event.target.id === "community-settings-form") submitCommunitySettings(event);
+  if (event.target.id === "community-message-form") submitCommunityMessage(event);
+  if (event.target.id === "community-search-form") submitCommunitySearch(event);
+  if (event.target.id === "community-group-form") submitCommunityGroup(event);
+  if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
+  if (event.target.id === "community-post-form") submitCommunityPost(event);
+});
+
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
+$("#calm-toggle").addEventListener("click", toggleCalm);
+$("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
+
+let weatherSecretClicks = [];
+$("#environment-status")?.addEventListener("click", () => {
+  const now = Date.now();
+  weatherSecretClicks = weatherSecretClicks.filter((time) => now - time < 4200);
+  weatherSecretClicks.push(now);
+  if (weatherSecretClicks.length < 5) return;
+  weatherSecretClicks = [];
+  state.ecosystem?.celebrate();
+  state.audio?.playAnimal(state.environment?.season === "winter" ? "owl" : "bird");
+  toast("You found the village hello! Every capybara is waving.");
+});
+
+(async function boot() {
+  setAuthMode("register");
+  await hydrateLocalMusic();
+  applySettings();
+  try {
+    const { user } = await api("/api/auth/me");
+    state.user = user;
+  } catch {}
+  routeForUser();
+  refreshAnnouncementBadge();
+})();
