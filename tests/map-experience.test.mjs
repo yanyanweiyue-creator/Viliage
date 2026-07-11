@@ -24,17 +24,19 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=research-feedback-20260703/);
-  assert.match(html, /app\.js\?v=research-feedback-20260703/);
+  assert.match(html, /styles\.css\?v=activities-capy-20260710/);
+  assert.match(html, /app\.js\?v=activities-capy-20260710/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
+  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\],[\s\S]*?border:\s*1\.5px dashed rgba\(255,255,255,\.82\) !important/);
+  assert.match(css, /\.ecosystem-actor\[data-species="capybara"\] \{[^}]*width:\s*clamp\(2\.25rem, 3\.8vw, 4rem\)/);
+  assert.match(app, /type="button" data-action="save-announcement"/);
+  assert.match(app, /if \(action === "save-announcement"\) submitAnnouncementForm/);
+  assert.match(app, /if \(event\.target\.id === "activity-form"\) submitActivity/);
+  assert.match(app, /finally \{[\s\S]*button\.disabled = false; delete button\.dataset\.busy/);
   assert.match(app, /class="hotspot-outline"/);
-  assert.match(css, /\.hotspot-outline polygon \{[^}]*stroke:\s*rgba\(255,255,255,\.96\)/);
-  assert.match(css, /\.hotspot-outline polygon \{[^}]*stroke-width:\s*4\.8/);
-  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\] \.hotspot-outline/);
-  assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\] \.hotspot-outline/);
-  assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\][^}]*clip-path:\s*var\(--hit-polygon\)/);
+  assert.match(css, /\.hotspot-outline \{[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
   assert.match(css, /\.building::after \{[^}]*opacity:\s*0/);
   assert.doesNotMatch(css, /\.map-hotspot:hover::after,\s*\.map-hotspot:focus-visible::after\s*\{[^}]*opacity:\s*1/);
@@ -46,7 +48,7 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /\.island-hit-area\.adhd[^}]*clip-path:\s*polygon\(49\.2% 58\.2%/);
   assert.match(css, /\.island-label[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.island-label[^}]*display:\s*grid/);
-  assert.match(css, /\.map-hotspot \{[^}]*border-radius:\s*50%/);
+  assert.match(css, /\.map-hotspot \{[^}]*border-radius:\s*\.55rem/);
   assert.match(html, /id="waffles-intro"/);
   assert.match(css, /island-transition\.active/);
   assert.match(css, /island-transition\.disperse/);
@@ -68,6 +70,21 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(app, /autoSubmit/);
   assert.match(css, /\.guide-chat/);
   assert.match(css, /\.guide-message/);
+});
+
+test("village animals and contact details match the current experience", async () => {
+  const [config, runtime, css] = await Promise.all([
+    loadConfig(),
+    readFile(new URL("../public/ecosystem-runtime.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  ]);
+  const species = config.ecosystem.animals.map((animal) => animal.species);
+  for (const removed of ["rabbit", "cow", "sheep"]) assert.equal(species.includes(removed), false);
+  assert.equal(config.support.contacts.at(-1).href, "mailto:Ittakesavillage.capybara@gmail.com");
+  assert.match(runtime, /POSITIVE_CHAT/);
+  assert.match(runtime, /maybeStartConversation/);
+  assert.match(runtime, /celebrate\(\)/);
+  assert.match(css, /\.actor-chat-bubble/);
 });
 
 test("header logo fits its lockup without the old oversized crop", async () => {
@@ -163,14 +180,4 @@ test("2D buildings select their island before opening building functions", async
   const [config, css, app, surface] = await Promise.all([
     loadConfig(),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
-    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
-    readFile(new URL("../public/surface-motion.mjs", import.meta.url), "utf8")
-  ]);
-  const autismSupport = config.buildings.find((building) => building.id === "autism-support");
-  assert.ok(autismSupport.hitWidth >= 15, "Autism Village support hotspot should cover the visible building group");
-  assert.ok(autismSupport.hitHeight >= 12, "Autism Village support hotspot should be easy to click");
-  assert.match(css, /\.map-stage:not\(\.focus-autism\):not\(\.focus-adhd\) \.building[^}]*pointer-events:\s*auto/);
-  assert.match(app, /if \(state\.selectedIsland !== building\.island\) \{\s*selectIsland\(building\.island\);\s*return;\s*\}/);
-  assert.ok(app.indexOf("const building = event.target.closest(\"[data-building]\");") < app.indexOf("const islandButton = event.target.closest(\"[data-island]:not(.building)\");"));
-  assert.match(surface, /closest\?\.\("\.island-hit-area, \.building, \.map-hotspot"\)/);
-});
+    readFile(new URL("../public/app.
