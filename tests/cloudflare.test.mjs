@@ -33,6 +33,7 @@ async function applyAccountSchema(database) {
   database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
 }
 
 test("Cloudflare D1 migration creates durable account and session tables", async () => {
@@ -40,10 +41,12 @@ test("Cloudflare D1 migration creates durable account and session tables", async
   await applyAccountSchema(database);
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'sessions', 'app_meta') ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["app_meta", "sessions", "users"]);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "8");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "9");
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'onboarding_completed'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'liked_resources_json'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'disliked_resources_json'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('users') WHERE name = 'is_admin'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'announcements'").get().count, 1);
   database.close();
 });
 
@@ -57,12 +60,13 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0006_new_user_onboarding.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0007_liked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "8");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "9");
   database.close();
 });
 
@@ -200,6 +204,59 @@ test("Cloudflare account and hashed session remain usable independently of code 
     body: JSON.stringify({ email: "cloud@example.com", password: "safe-password" })
   }), cloudflareEnv(database), ctx);
   assert.equal(login.status, 200);
+  database.close();
+});
+
+test("designated administrator can publish announcements and grant administrator access", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  const env = cloudflareEnv(database);
+  const register = async (name, email) => {
+    const response = await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" })
+    }), env, ctx);
+    return { response, payload: await response.json(), cookie: response.headers.get("set-cookie").split(";")[0] };
+  };
+  const member = await register("Village Member", "member@example.com");
+  const owner = await register("Village Owner", "yanyanweiyue@gmail.com");
+  assert.equal(owner.response.status, 201);
+  assert.equal(owner.payload.user.isAdmin, true);
+  assert.equal(member.payload.user.isAdmin, false);
+
+  const rejected = await worker.fetch(new Request("https://village.example/api/announcements", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: member.cookie }, body: JSON.stringify({ title: "No", body: "Not allowed" })
+  }), env, ctx);
+  assert.equal(rejected.status, 403);
+
+  const published = await worker.fetch(new Request("https://village.example/api/announcements", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ title: "Village update", body: "The notice board is live.", category: "Update", isPinned: true })
+  }), env, ctx);
+  assert.equal(published.status, 201);
+  const listing = await worker.fetch(new Request("https://village.example/api/announcements", { headers: { Cookie: member.cookie } }), env, ctx);
+  const listingPayload = await listing.json();
+  assert.equal(listingPayload.announcements[0].title, "Village update");
+  assert.equal(listingPayload.announcements[0].isPinned, true);
+
+  const announcementId = listingPayload.announcements[0].id;
+  const rejectedEdit = await worker.fetch(new Request(`https://village.example/api/announcements/${announcementId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json", Cookie: member.cookie }, body: JSON.stringify({ title: "No", body: "Still not allowed" })
+  }), env, ctx);
+  assert.equal(rejectedEdit.status, 403);
+  const edited = await worker.fetch(new Request(`https://village.example/api/announcements/${announcementId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ title: "Edited village update", body: "Everyone can read this.", category: "Event", isPinned: false })
+  }), env, ctx);
+  assert.equal(edited.status, 200);
+  assert.equal((await edited.json()).announcement.title, "Edited village update");
+
+  const granted = await worker.fetch(new Request("https://village.example/api/admin/users", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ email: "member@example.com" })
+  }), env, ctx);
+  assert.equal(granted.status, 200);
+  const memberAdminView = await worker.fetch(new Request("https://village.example/api/admin/users", { headers: { Cookie: member.cookie } }), env, ctx);
+  assert.equal(memberAdminView.status, 200);
+  const adminList = await memberAdminView.json();
+  assert.equal(adminList.users.every((item) => item.isAdmin), true);
+  assert.equal(adminList.users.some((item) => item.email === "member@example.com"), true);
   database.close();
 });
 
@@ -358,7 +415,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
