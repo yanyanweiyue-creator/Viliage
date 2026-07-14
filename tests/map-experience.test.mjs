@@ -42,7 +42,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
   assert.match(css, /\.building::after \{[^}]*opacity:\s*0/);
   assert.match(css, /\.ecosystem-actor\.interactive-actor:is\(:hover,:focus-visible\)::before \{[^}]*content:\s*none/);
-  assert.match(css, /body\.scene-2d \.map-hotspot::after \{[^}]*content:\s*none/);
+  assert.match(css, /\.map-hotspot::after \{[^}]*content:\s*attr\(data-label\)/);
+  assert.match(css, /body\.scene-2d \.map-hotspot::after \{[^}]*display:\s*block/);
   assert.doesNotMatch(await readFile(new URL("../public/ecosystem-runtime.mjs", import.meta.url), "utf8"), /element\.title = definition\.label/);
   assert.doesNotMatch(css, /\.map-hotspot:hover::after,\s*\.map-hotspot:focus-visible::after\s*\{[^}]*opacity:\s*1/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]:hover::after/);

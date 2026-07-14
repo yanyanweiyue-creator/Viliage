@@ -17,6 +17,7 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents || "{}");
     if (data.action === "send-password-reset") return sendPasswordResetCode_(data);
     if (data.action === "log-resource-error") return appendResourceError_(data);
+    if (data.action === "record-user-count") return updateUserCount_(data);
     delete data.password;
     data["Password"] = "Not stored — secure hash only";
 
@@ -85,6 +86,39 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: error.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function updateUserCount_(data) {
+  var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+  var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
+  if (!headers.some(String)) throw new Error("User Count sheet needs row-1 headers.");
+
+  var metrics = data.metrics || {};
+  var recognized = [
+    "Total Guest Logins",
+    "Total Accounts Created",
+    "Most Number of Online Users at a Time (Guest and Registered Accounts)",
+    "How many poeple feel helpful about research",
+    "How many people feel helpful about research"
+  ];
+  var date = String(data.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "America/Los_Angeles", "yyyy-MM-dd"));
+  var key = "user-count-row:" + sheet.getParent().getId() + ":" + sheet.getSheetId() + ":" + date;
+  var properties = PropertiesService.getScriptProperties();
+  var storedRow = Number(properties.getProperty(key) || 0);
+  var targetRow = storedRow > 1 && storedRow <= Math.max(sheet.getMaxRows(), sheet.getLastRow()) ? storedRow : Math.max(sheet.getLastRow() + 1, 2);
+  if (targetRow > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), targetRow - sheet.getMaxRows());
+  properties.setProperty(key, String(targetRow));
+
+  for (var column = 1; column <= headers.length; column++) {
+    var header = String(headers[column - 1]).trim();
+    if (recognized.indexOf(header) < 0) continue;
+    var value = Number(metrics[header] || 0);
+    if (!isFinite(value)) value = 0;
+    sheet.getRange(targetRow, column).setValue(value);
+  }
+  sheet.getRange(targetRow, 1, 1, Math.min(headers.length, 4)).setNumberFormat("0");
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, row: targetRow }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function sendPasswordResetCode_(data) {

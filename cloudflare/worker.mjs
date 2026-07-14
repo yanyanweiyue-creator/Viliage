@@ -7,9 +7,15 @@ import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const DEFAULT_RESOURCE_SHEET_GID = "1709372674";
+const DEFAULT_USER_COUNT_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const DEFAULT_USER_COUNT_SHEET_GID = "1958570867";
 const DEFAULT_ADMIN_EMAIL = "yanyanweiyue@gmail.com";
 const PASSWORD_RESET_FALLBACK_SECRET = "local-development-only";
 const DEFAULT_PRIMARY_KEYWORD_BLOCKLIST = ["waffles"];
+const COUNT_TOTAL_GUEST_LOGINS = "Total Guest Logins";
+const COUNT_TOTAL_ACCOUNTS_CREATED = "Total Accounts Created";
+const COUNT_MAX_ONLINE_USERS = "Most Number of Online Users at a Time (Guest and Registered Accounts)";
+const COUNT_HELPFUL_RESEARCH = "How many poeple feel helpful about research";
 const scoreConfig = {
   version: scoreConfigFile.version || DEFAULT_SCORE_CONFIG.version,
   weights: { ...DEFAULT_SCORE_CONFIG.weights, ...(scoreConfigFile.weights || {}) },
@@ -623,6 +629,87 @@ async function syncUser(env, user) {
   return { synced: true, row: result.row || null };
 }
 
+function dailyCountDate(env) {
+  const timeZone = env.USER_COUNT_TIME_ZONE || "America/Los_Angeles";
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function emptyUserCountMetrics() {
+  return {
+    [COUNT_TOTAL_GUEST_LOGINS]: 0,
+    [COUNT_TOTAL_ACCOUNTS_CREATED]: 0,
+    [COUNT_MAX_ONLINE_USERS]: 0,
+    [COUNT_HELPFUL_RESEARCH]: 0
+  };
+}
+
+async function activeSessionCount(env, extraGuests = 0) {
+  const now = Date.now();
+  await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now).run();
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM sessions WHERE expires_at > ?").bind(now).first();
+  return Number(row?.count || 0) + extraGuests;
+}
+
+async function loadUserCountMetrics(env, date = dailyCountDate(env)) {
+  const row = await env.DB.prepare("SELECT value FROM app_meta WHERE key = ? LIMIT 1").bind(`user_count_metrics:${date}`).first();
+  const saved = parseJson(row?.value, {});
+  return { ...emptyUserCountMetrics(), ...(saved && typeof saved === "object" ? saved : {}) };
+}
+
+async function saveUserCountMetrics(env, date, metrics) {
+  await env.DB.prepare(`
+    INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).bind(`user_count_metrics:${date}`, JSON.stringify(metrics), new Date().toISOString()).run();
+}
+
+async function recordUserCountMetrics(env, increments = {}, extraGuests = 0) {
+  if (!env.DB) return emptyUserCountMetrics();
+  const date = dailyCountDate(env);
+  const metrics = await loadUserCountMetrics(env, date);
+  for (const [key, value] of Object.entries(increments)) metrics[key] = Number(metrics[key] || 0) + Number(value || 0);
+  metrics[COUNT_MAX_ONLINE_USERS] = Math.max(Number(metrics[COUNT_MAX_ONLINE_USERS] || 0), await activeSessionCount(env, extraGuests));
+  await saveUserCountMetrics(env, date, metrics);
+  return metrics;
+}
+
+async function syncUserCountMetrics(env) {
+  if (!env.DB) return { synced: false, reason: "D1 database is not configured." };
+  if (!env.USER_COUNT_SHEET_WEBHOOK_URL) return { synced: false, reason: "USER_COUNT_SHEET_WEBHOOK_URL is not configured." };
+  const date = dailyCountDate(env);
+  const metrics = await loadUserCountMetrics(env, date);
+  const response = await fetch(env.USER_COUNT_SHEET_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "record-user-count",
+      spreadsheetId: env.USER_COUNT_SHEET_ID || DEFAULT_USER_COUNT_SHEET_ID,
+      sheetGid: env.USER_COUNT_SHEET_GID || DEFAULT_USER_COUNT_SHEET_GID,
+      date,
+      metrics
+    }),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`User count sheet webhook returned ${response.status}.`);
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "User count sheet rejected the update.");
+  return { synced: true, row: result.row || null };
+}
+
+async function recordUserCountSafely(env, increments = {}, extraGuests = 0) {
+  try { return await recordUserCountMetrics(env, increments, extraGuests); }
+  catch (error) {
+    console.error("User count update failed:", error.message);
+    return null;
+  }
+}
+
 function keywordText(value) {
   const values = Array.isArray(value) ? value : String(value || "").split(",");
   return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 50).join(", ");
@@ -812,7 +899,9 @@ async function api(request, env, ctx) {
     await env.DB.prepare("INSERT INTO users (id, name, email, password_hash, survey_completed, onboarding_completed, profile_json, history_json, feedback, liked_resources_json, disliked_resources_json, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, NULL, '[]', '', '[]', '[]', ?, ?)").bind(user.id, user.name, user.email, user.passwordHash, now, now).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
     await ensureAdmin(env, user);
-    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": await createSession(env, user.id) });
+    const cookie = await createSession(env, user.id);
+    await recordUserCountSafely(env, { [COUNT_TOTAL_ACCOUNTS_CREATED]: 1 });
+    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": cookie });
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/login") {
@@ -820,10 +909,15 @@ async function api(request, env, ctx) {
     const user = dbUser(await env.DB.prepare("SELECT * FROM users WHERE email = ? LIMIT 1").bind(String(email || "").toLowerCase()).first());
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return fail("Email or password is incorrect.", 401);
     await ensureAdmin(env, user);
-    return json({ user: safeUser(user) }, 200, { "Set-Cookie": await createSession(env, user.id) });
+    const cookie = await createSession(env, user.id);
+    await recordUserCountSafely(env);
+    return json({ user: safeUser(user) }, 200, { "Set-Cookie": cookie });
   }
 
-  if (request.method === "POST" && url.pathname === "/api/auth/guest") return json({ user: guestUser() });
+  if (request.method === "POST" && url.pathname === "/api/auth/guest") {
+    await recordUserCountSafely(env, { [COUNT_TOTAL_GUEST_LOGINS]: 1 }, 1);
+    return json({ user: guestUser() });
+  }
 
   if (request.method === "POST" && url.pathname === "/api/auth/logout") {
     const token = cookies(request).capy_session;
@@ -1291,7 +1385,10 @@ async function api(request, env, ctx) {
 
   if (request.method === "POST" && url.pathname === "/api/research-feedback") {
     const { helpful = true, source = "research-results", research = {} } = await body(request);
-    if (Boolean(helpful)) return json({ ok: true, recorded: false });
+    if (Boolean(helpful)) {
+      await recordUserCountSafely(env, { [COUNT_HELPFUL_RESEARCH]: 1 }, user.guest ? 1 : 0);
+      return json({ ok: true, recorded: false });
+    }
     const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);
     if (!description) return fail("Research context is required before feedback can be recorded.", 400);
     let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
@@ -1412,5 +1509,6 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil(cleanupSystemGroupHistory(env));
+    ctx.waitUntil(syncUserCountMetrics(env).catch((error) => console.error("Hourly user count sync failed:", error.message)));
   }
 };

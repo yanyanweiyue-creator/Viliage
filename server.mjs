@@ -17,11 +17,19 @@ const COMMUNITY_FILE = process.env.COMMUNITY_FILE || join(DATA_DIR, "community.j
 const PASSWORD_RESETS_FILE = process.env.PASSWORD_RESETS_FILE || join(DATA_DIR, "password-resets.json");
 const ANNOUNCEMENTS_FILE = process.env.ANNOUNCEMENTS_FILE || join(DATA_DIR, "announcements.json");
 const ACTIVITIES_FILE = process.env.ACTIVITIES_FILE || join(DATA_DIR, "activities.json");
+const USER_COUNT_FILE = process.env.USER_COUNT_FILE || join(DATA_DIR, "user-counts.json");
 const PRIMARY_KEYWORD_BLOCKLIST_FILE = process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE || join(DATA_DIR, "primary-keyword-blocklist.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
+const USER_COUNT_SHEET_ID = process.env.USER_COUNT_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const USER_COUNT_SHEET_GID = process.env.USER_COUNT_SHEET_GID || "1958570867";
+const COUNT_TOTAL_GUEST_LOGINS = "Total Guest Logins";
+const COUNT_TOTAL_ACCOUNTS_CREATED = "Total Accounts Created";
+const COUNT_MAX_ONLINE_USERS = "Most Number of Online Users at a Time (Guest and Registered Accounts)";
+const COUNT_HELPFUL_RESEARCH = "How many poeple feel helpful about research";
+const USER_COUNT_SYNC_INTERVAL_MS = Math.max(100, Number(process.env.USER_COUNT_SYNC_INTERVAL_MS || 60 * 60_000));
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
@@ -896,6 +904,90 @@ async function syncUserRecord(user) {
   return { synced: true, row: result.row || null };
 }
 
+function dailyCountDate() {
+  const timeZone = process.env.USER_COUNT_TIME_ZONE || "America/Los_Angeles";
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function activeSessionCount(extraGuests = 0) {
+  const now = Date.now();
+  for (const [key, session] of sessions.entries()) {
+    if (!session || session.expiresAt <= now) sessions.delete(key);
+  }
+  return sessions.size + extraGuests;
+}
+
+async function loadUserCountState() {
+  try {
+    const saved = JSON.parse(await readFile(USER_COUNT_FILE, "utf8"));
+    return saved && typeof saved === "object" ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveUserCountState(state) {
+  await saveJsonAtomically(USER_COUNT_FILE, state);
+}
+
+function emptyUserCountMetrics() {
+  return {
+    [COUNT_TOTAL_GUEST_LOGINS]: 0,
+    [COUNT_TOTAL_ACCOUNTS_CREATED]: 0,
+    [COUNT_MAX_ONLINE_USERS]: 0,
+    [COUNT_HELPFUL_RESEARCH]: 0
+  };
+}
+
+let userCountMetricsQueue = Promise.resolve();
+
+function recordUserCountMetrics(increments = {}, extraGuests = 0) {
+  const run = async () => {
+    const date = dailyCountDate();
+    const state = await loadUserCountState();
+    const metrics = { ...emptyUserCountMetrics(), ...(state[date] || {}) };
+    for (const [key, value] of Object.entries(increments)) metrics[key] = Number(metrics[key] || 0) + Number(value || 0);
+    metrics[COUNT_MAX_ONLINE_USERS] = Math.max(Number(metrics[COUNT_MAX_ONLINE_USERS] || 0), activeSessionCount(extraGuests));
+    state[date] = metrics;
+    await saveUserCountState(state);
+    return metrics;
+  };
+  userCountMetricsQueue = userCountMetricsQueue.then(run, run);
+  return userCountMetricsQueue;
+}
+
+async function syncUserCountMetrics(metrics = null) {
+  const webhook = process.env.USER_COUNT_SHEET_WEBHOOK_URL;
+  if (!webhook) return { synced: false, reason: "USER_COUNT_SHEET_WEBHOOK_URL is not configured." };
+  await userCountMetricsQueue.catch(() => {});
+  const date = dailyCountDate();
+  const state = metrics ? null : await loadUserCountState();
+  const todayMetrics = metrics || { ...emptyUserCountMetrics(), ...(state[date] || {}) };
+  const payload = {
+    action: "record-user-count",
+    spreadsheetId: USER_COUNT_SHEET_ID,
+    sheetGid: USER_COUNT_SHEET_GID,
+    date,
+    metrics: todayMetrics
+  };
+  const response = await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`User count sheet webhook returned ${response.status}.`);
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "User count sheet rejected the update.");
+  return { synced: true, row: result.row || null };
+}
+
 function keywordText(value) {
   const values = Array.isArray(value) ? value : String(value || "").split(",");
   return [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 50).join(", ");
@@ -1108,7 +1200,9 @@ async function handleApi(req, res, url) {
     await saveUsers(users);
     let sync = { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
     try { sync = await syncUserRecord(user); } catch (error) { sync = { synced: false, reason: error.message }; }
-    return sendJson(res, 201, { user: safeUser(user), sync }, { "Set-Cookie": await setSession(user.id) });
+    const cookie = await setSession(user.id);
+    recordUserCountMetrics({ [COUNT_TOTAL_ACCOUNTS_CREATED]: 1 }).catch((error) => console.warn(`User count update failed: ${error.message}`));
+    return sendJson(res, 201, { user: safeUser(user), sync }, { "Set-Cookie": cookie });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
@@ -1117,10 +1211,15 @@ async function handleApi(req, res, url) {
     const user = users.find((item) => item.email.toLowerCase() === String(email || "").toLowerCase());
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return sendError(res, 401, "Email or password is incorrect.");
     await ensureLocalAdmin(user);
-    return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": await setSession(user.id) });
+    const cookie = await setSession(user.id);
+    recordUserCountMetrics().catch((error) => console.warn(`User count update failed: ${error.message}`));
+    return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": cookie });
   }
 
-  if (req.method === "POST" && url.pathname === "/api/auth/guest") return sendJson(res, 200, { user: guestUser() });
+  if (req.method === "POST" && url.pathname === "/api/auth/guest") {
+    recordUserCountMetrics({ [COUNT_TOTAL_GUEST_LOGINS]: 1 }, 1).catch((error) => console.warn(`User count update failed: ${error.message}`));
+    return sendJson(res, 200, { user: guestUser() });
+  }
 
   if (req.method === "POST" && url.pathname === "/api/auth/logout") {
     const token = parseCookies(req).capy_session;
@@ -1571,7 +1670,10 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/research-feedback") {
     const { helpful = true, source = "research-results", research = {} } = await readJsonBody(req);
-    if (Boolean(helpful)) return sendJson(res, 200, { ok: true, recorded: false });
+    if (Boolean(helpful)) {
+      recordUserCountMetrics({ [COUNT_HELPFUL_RESEARCH]: 1 }, user.guest ? 1 : 0).catch((error) => console.warn(`User count update failed: ${error.message}`));
+      return sendJson(res, 200, { ok: true, recorded: false });
+    }
     const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);
     if (!description) return sendError(res, 400, "Research context is required before feedback can be recorded.");
     let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
@@ -1652,4 +1754,57 @@ async function handleApi(req, res, url) {
           source: "resource-card"
         });
       } catch (error) {
-        errorSync = { synced: false, reason: error.mess
+        errorSync = { synced: false, reason: error.message };
+      }
+    }
+    return sendJson(res, 200, { ok: true, likedResources: saved.likedResources || [], dislikedResources: saved.dislikedResources || [], sync, errorSync });
+  }
+
+  return sendError(res, 404, "API route not found.");
+}
+
+function safeStaticPath(pathname) {
+  const decoded = decodeURIComponent(pathname);
+  const normalized = normalize(decoded).replace(/^(\.\.[/\\])+/, "");
+  const relative = normalized === "/" ? "/index.html" : normalized;
+  const filePath = join(PUBLIC_DIR, relative);
+  return filePath.startsWith(PUBLIC_DIR) ? filePath : join(PUBLIC_DIR, "index.html");
+}
+
+async function handleRequest(req, res) {
+  const url = new URL(req.url || "/", "http://localhost");
+  try {
+    if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
+    let filePath = safeStaticPath(url.pathname);
+    if (!existsSync(filePath)) filePath = join(PUBLIC_DIR, "index.html");
+    const type = mimeTypes[extname(filePath).toLowerCase()] || "application/octet-stream";
+    res.writeHead(200, { "Content-Type": type, "Cache-Control": type.startsWith("text/html") ? "no-store" : "public, max-age=3600" });
+    createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error(error);
+    if (!res.headersSent) return sendError(res, 500, error.message || "Something went wrong.");
+    res.end();
+  }
+}
+
+let userCountSyncTimer = null;
+
+function scheduleUserCountSync() {
+  if (userCountSyncTimer) return;
+  userCountSyncTimer = setInterval(() => {
+    syncUserCountMetrics().catch((error) => console.warn(`Hourly user count sync failed: ${error.message}`));
+  }, USER_COUNT_SYNC_INTERVAL_MS);
+  userCountSyncTimer.unref?.();
+}
+
+export function createAppServer() {
+  scheduleUserCountSync();
+  return http.createServer(handleRequest);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const port = Number(process.env.PORT || 4173);
+  createAppServer().listen(port, () => {
+    console.log(`It Takes a Village is running at http://127.0.0.1:${port}`);
+  });
+}

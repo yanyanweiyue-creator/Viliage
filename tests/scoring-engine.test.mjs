@@ -135,4 +135,10 @@ test("description gate evidence preserves primary authority over confirmed secon
   assert.deepEqual(evidence.secondaryMatches, ["iep"]);
 });
 
-test("requested resource count is rounded and clamped to configured limits", () =
+test("requested resource count is rounded and clamped to configured limits", () => {
+  const config = { limits: { ...DEFAULT_SCORE_CONFIG.limits, minimumResults: 3, maximumResults: 10, defaultResults: 5 } };
+  assert.equal(normalizeResultCount(4.6, config), 5);
+  assert.equal(normalizeResultCount(1, config), 3);
+  assert.equal(normalizeResultCount(99, config), 10);
+  assert.equal(normalizeResultCount(undefined, config), 5);
+});

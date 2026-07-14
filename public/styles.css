@@ -195,7 +195,7 @@ body.scene-2d .habitat-feature { display: none; }
 .ecosystem-actor.interactive-actor { cursor: pointer; pointer-events: auto; }
 .ecosystem-actor.interactive-actor:is(:hover,:focus-visible) { filter: drop-shadow(0 .35rem .4rem rgba(39,57,36,.32)) brightness(1.08); outline: none; }
 .ecosystem-actor.interactive-actor:is(:hover,:focus-visible)::before { content: none; display: none; }
-.actor-chat-bubble { position: absolute; z-index: 5; left: 50%; bottom: 102%; width: max-content; max-width: 10.5rem; padding: .46rem .62rem; border: 1px solid rgba(67,105,91,.18); border-radius: .85rem .85rem .85rem .2rem; background: rgba(255,255,250,.96); box-shadow: 0 .45rem 1rem rgba(42,69,59,.18); color: var(--ink); font: 750 .67rem/1.3 var(--sans); opacity: 0; pointer-events: none; transform: translate(-50%, .4rem) scale(.94); transition: opacity .28s ease, transform .32s cubic-bezier(.2,.8,.2,1); }
+.actor-chat-bubble { position: absolute; z-index: 5; left: 50%; bottom: 102%; width: max-content; max-width: 6.8rem; padding: .32rem .44rem; border: 1px solid rgba(67,105,91,.18); border-radius: .62rem .62rem .62rem .16rem; background: rgba(255,255,250,.96); box-shadow: 0 .34rem .7rem rgba(42,69,59,.16); color: var(--ink); font: 750 .5rem/1.22 var(--sans); opacity: 0; pointer-events: none; transform: translate(-50%, .3rem) scale(.9); transition: opacity .28s ease, transform .32s cubic-bezier(.2,.8,.2,1); }
 .ecosystem-actor.chatting .actor-chat-bubble { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .ecosystem-actor.chatting:is(:hover,:focus-visible)::before { display: none; }
 .ecosystem-actor[data-gait="rabbit"].state-walking .actor-glyph { animation-duration: .46s; }
@@ -357,8 +357,8 @@ body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-v
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:focus-visible { border-color: rgba(255,236,151,.95) !important; outline-color: rgba(37,82,70,.72); background: rgba(255,255,255,.08) !important; }
 .hotspot-outline { display: none; }
-.map-hotspot::after { top: calc(100% + .2rem); }
-body.scene-2d .map-hotspot::after { content: none; display: none; }
+.map-hotspot::after { content: attr(data-label); position: absolute; left: 50%; top: calc(100% + .2rem); z-index: 8; width: max-content; max-width: 9.5rem; padding: .32rem .52rem; border: 1px solid rgba(31,70,59,.18); border-radius: .55rem; background: rgba(255,255,247,.95); box-shadow: 0 .4rem .9rem rgba(37,68,58,.18); color: #243a35; font: 800 .58rem/1.18 var(--sans); text-align: center; opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(.24rem); transition: opacity .18s ease, transform .2s ease; }
+body.scene-2d .map-hotspot::after { display: block; }
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:hover::after,
 body.scene-2d .map-stage.focus-autism .map-hotspot[data-island="autism"]:focus-visible::after,
 body.scene-2d .map-stage.focus-adhd .map-hotspot[data-island="adhd"]:hover::after,

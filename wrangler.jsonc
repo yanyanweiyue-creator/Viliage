@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*"]
   },
   "triggers": {
-    "crons": ["0 */12 * * *"]
+    "crons": ["0 * * * *"]
   },
   "d1_databases": [
     {
@@ -26,6 +26,9 @@
     "RESOURCE_SHEET_ID": "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
     "RESOURCE_SHEET_GID": "1709372674",
     "ERROR_SHEET_ID": "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
-    "ERROR_SHEET_GID": "1952899933"
+    "ERROR_SHEET_GID": "1952899933",
+    "USER_COUNT_SHEET_ID": "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0",
+    "USER_COUNT_SHEET_GID": "1958570867",
+    "USER_COUNT_TIME_ZONE": "America/Los_Angeles"
   }
 }

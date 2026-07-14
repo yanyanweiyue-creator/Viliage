@@ -9,16 +9,19 @@ const usersFile = join(tmpdir(), `capy-village-test-users-${process.pid}.json`);
 const sessionsFile = join(tmpdir(), `capy-village-test-sessions-${process.pid}.json`);
 const communityFile = join(tmpdir(), `capy-village-test-community-${process.pid}.json`);
 const passwordResetsFile = join(tmpdir(), `capy-village-test-password-resets-${process.pid}.json`);
+const userCountFile = join(tmpdir(), `capy-village-test-user-counts-${process.pid}.json`);
 const primaryKeywordBlocklistFile = join(tmpdir(), `capy-village-test-primary-keywords-${process.pid}.json`);
 process.env.USERS_FILE = usersFile;
 process.env.SESSIONS_FILE = sessionsFile;
 process.env.COMMUNITY_FILE = communityFile;
 process.env.PASSWORD_RESETS_FILE = passwordResetsFile;
+process.env.USER_COUNT_FILE = userCountFile;
+process.env.USER_COUNT_SYNC_INTERVAL_MS = "100";
 process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE = primaryKeywordBlocklistFile;
 process.env.PASSWORD_RESET_SECRET = "local-test-reset-secret";
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
-  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {}), unlink(primaryKeywordBlocklistFile).catch(() => {})]);
+  await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {}), unlink(userCountFile).catch(() => {}), unlink(primaryKeywordBlocklistFile).catch(() => {})]);
 });
 
 function httpRequest(url, options = {}) {
@@ -32,6 +35,10 @@ function httpRequest(url, options = {}) {
     if (options.body) req.write(options.body);
     req.end();
   });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test("health endpoint and homepage are available", async () => {
@@ -285,6 +292,62 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.match(latestSheetWrite["Chat History"], /Village Commons/);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
+    server.closeAllConnections();
+    webhook.closeAllConnections();
+    await Promise.all([
+      new Promise((resolve) => server.close(resolve)),
+      new Promise((resolve) => webhook.close(resolve))
+    ]);
+  }
+});
+
+test("hourly user count sync fills the User Count sheet with numeric metrics only", async () => {
+  await unlink(userCountFile).catch(() => {});
+  const received = [];
+  const webhook = createHttpServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    received.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, row: 2 }));
+  });
+  await new Promise((resolve) => webhook.listen(0, "127.0.0.1", resolve));
+  process.env.USER_COUNT_SHEET_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
+
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  try {
+    const guest = await httpRequest(`http://127.0.0.1:${port}/api/auth/guest`, { method: "POST" });
+    assert.equal(guest.status, 200);
+
+    const registerBody = JSON.stringify({ name: "Counter Test", email: `counter-${Date.now()}@example.com`, password: "safe-password" });
+    const register = await httpRequest(`http://127.0.0.1:${port}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(registerBody) },
+      body: registerBody
+    });
+    assert.equal(register.status, 201);
+
+    const helpfulBody = JSON.stringify({ helpful: true, source: "research-results" });
+    const helpful = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(helpfulBody), "X-Village-Guest": "1" },
+      body: helpfulBody
+    });
+    assert.equal(helpful.status, 200);
+
+    await delay(250);
+    const latest = received.at(-1);
+    assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.sheetGid, "1958570867");
+    assert.equal(latest.metrics["Total Guest Logins"], 1);
+    assert.equal(latest.metrics["Total Accounts Created"], 1);
+    assert.ok(latest.metrics["Most Number of Online Users at a Time (Guest and Registered Accounts)"] >= 1);
+    assert.equal(latest.metrics["How many poeple feel helpful about research"], 1);
+    assert.deepEqual(Object.values(latest.metrics).map((value) => typeof value), ["number", "number", "number", "number"]);
+  } finally {
+    delete process.env.USER_COUNT_SHEET_WEBHOOK_URL;
     server.closeAllConnections();
     webhook.closeAllConnections();
     await Promise.all([
