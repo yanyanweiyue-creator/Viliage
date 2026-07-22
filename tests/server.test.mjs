@@ -59,6 +59,15 @@ test("health endpoint and homepage are available", async () => {
   }
 });
 
+test("Google Sheet resource fetch pins the header row for live sync", async () => {
+  const [serverCode, workerCode] = await Promise.all([
+    readFile(new URL("../server.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../cloudflare/worker.mjs", import.meta.url), "utf8")
+  ]);
+  assert.match(serverCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(RESOURCE_SHEET_GID\)\}&headers=1/);
+  assert.match(workerCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(gid\)\}&headers=1/);
+});
+
 test("local guest entry is temporary and Community stays registered-only", async () => {
   const server = createAppServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

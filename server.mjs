@@ -479,7 +479,7 @@ async function getResources(force = false) {
     return { rows: resourceCache.rows, source: "google-sheet-cache" };
   }
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${RESOURCE_SHEET_ID}/gviz/tq?tqx=out:json&gid=${encodeURIComponent(RESOURCE_SHEET_GID)}`;
+    const url = `https://docs.google.com/spreadsheets/d/${RESOURCE_SHEET_ID}/gviz/tq?tqx=out:json&gid=${encodeURIComponent(RESOURCE_SHEET_GID)}&headers=1`;
     const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error(`Sheet returned ${response.status}.`);
     const payload = stripGviz(await response.text());

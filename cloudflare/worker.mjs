@@ -348,7 +348,7 @@ async function resources(env, force = false) {
   try {
     const sheetId = env.RESOURCE_SHEET_ID || DEFAULT_RESOURCE_SHEET_ID;
     const gid = env.RESOURCE_SHEET_GID || DEFAULT_RESOURCE_SHEET_GID;
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&gid=${encodeURIComponent(gid)}${force ? `&cache=${Date.now()}` : ""}`;
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&gid=${encodeURIComponent(gid)}&headers=1${force ? `&cache=${Date.now()}` : ""}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(8000), cf: { cacheTtl: force ? 0 : 60, cacheEverything: true } });
     if (!response.ok) throw new Error(`Sheet returned ${response.status}.`);
     const rows = normalizeSheetRows(stripGviz(await response.text()).table);
