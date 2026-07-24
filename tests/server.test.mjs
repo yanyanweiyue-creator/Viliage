@@ -338,6 +338,15 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     });
     assert.equal(register.status, 201);
 
+    const searchBody = JSON.stringify({ topic: "Education", diagnosis: "Autism", description: "inclusive school support", count: 3, allowFollowUpQuestions: false });
+    const search = await httpRequest(`http://127.0.0.1:${port}/api/ai/recommend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(searchBody), "X-Village-Guest": "1" },
+      body: searchBody
+    });
+    assert.equal(search.status, 200);
+    assert.deepEqual(JSON.parse(search.text).followUpQuestions, []);
+
     const helpfulBody = JSON.stringify({ helpful: true, source: "research-results" });
     const helpful = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
       method: "POST",
@@ -350,10 +359,10 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     const latest = received.at(-1);
     assert.equal(latest.action, "record-user-count");
     assert.equal(latest.sheetGid, "1958570867");
-    assert.equal(latest.metrics["Total Guest Logins"], 1);
+    assert.equal(latest.metrics["Total Guest Sessions"], 1);
     assert.equal(latest.metrics["Total Accounts Created"], 1);
-    assert.ok(latest.metrics["Most Number of Online Users at a Time (Guest and Registered Accounts)"] >= 1);
-    assert.equal(latest.metrics["How many poeple feel helpful about research"], 1);
+    assert.equal(latest.metrics["Total Searches Completed"], 1);
+    assert.equal(latest.metrics["Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)"], 5);
     assert.deepEqual(Object.values(latest.metrics).map((value) => typeof value), ["number", "number", "number", "number"]);
   } finally {
     delete process.env.USER_COUNT_SHEET_WEBHOOK_URL;

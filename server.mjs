@@ -25,10 +25,12 @@ const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
 const USER_COUNT_SHEET_ID = process.env.USER_COUNT_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const USER_COUNT_SHEET_GID = process.env.USER_COUNT_SHEET_GID || "1958570867";
-const COUNT_TOTAL_GUEST_LOGINS = "Total Guest Logins";
+const COUNT_TOTAL_GUEST_SESSIONS = "Total Guest Sessions";
 const COUNT_TOTAL_ACCOUNTS_CREATED = "Total Accounts Created";
-const COUNT_MAX_ONLINE_USERS = "Most Number of Online Users at a Time (Guest and Registered Accounts)";
-const COUNT_HELPFUL_RESEARCH = "How many poeple feel helpful about research";
+const COUNT_TOTAL_SEARCHES_COMPLETED = "Total Searches Completed";
+const COUNT_RECOMMENDATION_USEFULNESS = "Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)";
+const COUNT_USEFULNESS_SCORE_TOTAL = "__recommendation_usefulness_score_total";
+const COUNT_USEFULNESS_RESPONSE_COUNT = "__recommendation_usefulness_response_count";
 const USER_COUNT_SYNC_INTERVAL_MS = Math.max(100, Number(process.env.USER_COUNT_SYNC_INTERVAL_MS || 60 * 60_000));
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
@@ -913,14 +915,6 @@ function dailyCountDate() {
   }
 }
 
-function activeSessionCount(extraGuests = 0) {
-  const now = Date.now();
-  for (const [key, session] of sessions.entries()) {
-    if (!session || session.expiresAt <= now) sessions.delete(key);
-  }
-  return sessions.size + extraGuests;
-}
-
 async function loadUserCountState() {
   try {
     const saved = JSON.parse(await readFile(USER_COUNT_FILE, "utf8"));
@@ -936,22 +930,36 @@ async function saveUserCountState(state) {
 
 function emptyUserCountMetrics() {
   return {
-    [COUNT_TOTAL_GUEST_LOGINS]: 0,
+    [COUNT_TOTAL_GUEST_SESSIONS]: 0,
     [COUNT_TOTAL_ACCOUNTS_CREATED]: 0,
-    [COUNT_MAX_ONLINE_USERS]: 0,
-    [COUNT_HELPFUL_RESEARCH]: 0
+    [COUNT_TOTAL_SEARCHES_COMPLETED]: 0,
+    [COUNT_RECOMMENDATION_USEFULNESS]: 0,
+    [COUNT_USEFULNESS_SCORE_TOTAL]: 0,
+    [COUNT_USEFULNESS_RESPONSE_COUNT]: 0
+  };
+}
+
+function userCountSheetMetrics(metrics = {}) {
+  return {
+    [COUNT_TOTAL_GUEST_SESSIONS]: Number(metrics[COUNT_TOTAL_GUEST_SESSIONS] || 0),
+    [COUNT_TOTAL_ACCOUNTS_CREATED]: Number(metrics[COUNT_TOTAL_ACCOUNTS_CREATED] || 0),
+    [COUNT_TOTAL_SEARCHES_COMPLETED]: Number(metrics[COUNT_TOTAL_SEARCHES_COMPLETED] || 0),
+    [COUNT_RECOMMENDATION_USEFULNESS]: Number(metrics[COUNT_RECOMMENDATION_USEFULNESS] || 0)
   };
 }
 
 let userCountMetricsQueue = Promise.resolve();
 
-function recordUserCountMetrics(increments = {}, extraGuests = 0) {
+function recordUserCountMetrics(increments = {}) {
   const run = async () => {
     const date = dailyCountDate();
     const state = await loadUserCountState();
     const metrics = { ...emptyUserCountMetrics(), ...(state[date] || {}) };
     for (const [key, value] of Object.entries(increments)) metrics[key] = Number(metrics[key] || 0) + Number(value || 0);
-    metrics[COUNT_MAX_ONLINE_USERS] = Math.max(Number(metrics[COUNT_MAX_ONLINE_USERS] || 0), activeSessionCount(extraGuests));
+    const usefulnessResponses = Number(metrics[COUNT_USEFULNESS_RESPONSE_COUNT] || 0);
+    metrics[COUNT_RECOMMENDATION_USEFULNESS] = usefulnessResponses
+      ? Number((Number(metrics[COUNT_USEFULNESS_SCORE_TOTAL] || 0) / usefulnessResponses).toFixed(2))
+      : 0;
     state[date] = metrics;
     await saveUserCountState(state);
     return metrics;
@@ -972,7 +980,7 @@ async function syncUserCountMetrics(metrics = null) {
     spreadsheetId: USER_COUNT_SHEET_ID,
     sheetGid: USER_COUNT_SHEET_GID,
     date,
-    metrics: todayMetrics
+    metrics: userCountSheetMetrics(todayMetrics)
   };
   const response = await fetch(webhook, {
     method: "POST",
@@ -1212,12 +1220,11 @@ async function handleApi(req, res, url) {
     if (!user || !verifyPassword(String(password || ""), user.passwordHash)) return sendError(res, 401, "Email or password is incorrect.");
     await ensureLocalAdmin(user);
     const cookie = await setSession(user.id);
-    recordUserCountMetrics().catch((error) => console.warn(`User count update failed: ${error.message}`));
     return sendJson(res, 200, { user: safeUser(user) }, { "Set-Cookie": cookie });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/guest") {
-    recordUserCountMetrics({ [COUNT_TOTAL_GUEST_LOGINS]: 1 }, 1).catch((error) => console.warn(`User count update failed: ${error.message}`));
+    recordUserCountMetrics({ [COUNT_TOTAL_GUEST_SESSIONS]: 1 }).catch((error) => console.warn(`User count update failed: ${error.message}`));
     return sendJson(res, 200, { user: guestUser() });
   }
 
@@ -1578,7 +1585,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en" } = await readJsonBody(req);
+    const { topic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en", allowFollowUpQuestions = false } = await readJsonBody(req);
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     if (!diagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
@@ -1653,6 +1660,7 @@ async function handleApi(req, res, url) {
         errorSync.push({ synced: false, reason: error.message });
       }
     }
+    recordUserCountMetrics({ [COUNT_TOTAL_SEARCHES_COMPLETED]: 1 }).catch((error) => console.warn(`User count update failed: ${error.message}`));
     return sendJson(res, 200, {
       answer,
       resources: matches,
@@ -1660,7 +1668,7 @@ async function handleApi(req, res, url) {
       ai,
       summaryGuide: buildingGuideName(topic),
       researchContext,
-      followUpQuestions: localizedClarificationQuestions({ topic, description, language, config }),
+      followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description, language, config }) : [],
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       errorSync,
@@ -1670,8 +1678,11 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/research-feedback") {
     const { helpful = true, source = "research-results", research = {} } = await readJsonBody(req);
+    recordUserCountMetrics({
+      [COUNT_USEFULNESS_SCORE_TOTAL]: Boolean(helpful) ? 5 : 1,
+      [COUNT_USEFULNESS_RESPONSE_COUNT]: 1
+    }).catch((error) => console.warn(`User count update failed: ${error.message}`));
     if (Boolean(helpful)) {
-      recordUserCountMetrics({ [COUNT_HELPFUL_RESEARCH]: 1 }, user.guest ? 1 : 0).catch((error) => console.warn(`User count update failed: ${error.message}`));
       return sendJson(res, 200, { ok: true, recorded: false });
     }
     const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);

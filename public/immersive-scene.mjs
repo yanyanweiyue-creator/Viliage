@@ -104,6 +104,7 @@ export class ImmersiveScene {
 
   setReducedMotion(reduced) {
     this.reducedMotion = Boolean(reduced);
+    this.resize();
     this.syncLoop();
   }
 
@@ -120,7 +121,7 @@ export class ImmersiveScene {
     const baseWidth = this.stage.clientWidth;
     const baseHeight = this.stage.clientHeight;
     if (!baseWidth || !baseHeight) return;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 1.6);
+    this.dpr = this.reducedMotion ? 1 : Math.min(window.devicePixelRatio || 1, 1.6);
     this.width = Math.round(baseWidth);
     this.height = Math.round(baseHeight);
     const pixelWidth = Math.round(this.width * this.dpr);

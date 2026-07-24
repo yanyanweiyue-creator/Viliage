@@ -177,6 +177,66 @@ test("guest sessions can explore but cannot open Village Community", async () =>
   assert.match((await community.json()).error, /registered members only/i);
 });
 
+test("hourly User Count sync follows the four live row-1 topics and writes numbers only", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) {
+    database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  }
+  const sheetWrites = [];
+  const env = cloudflareEnv(database, { USER_COUNT_SHEET_WEBHOOK_URL: "https://counts.example/sync" });
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1"];
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    { c: ["https://example.com/school", "Inclusive school support", "Autism", "Education", "", "All ages", "School"].map((value) => ({ v: value })) }
+  ] } };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("docs.google.com/spreadsheets")) return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+    if (String(url) === "https://counts.example/sync") {
+      sheetWrites.push(JSON.parse(options.body));
+      return Response.json({ ok: true, row: 2 });
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    await worker.fetch(new Request("https://village.example/api/auth/guest", { method: "POST" }), env, ctx);
+    await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Count User", email: "count@example.com", password: "safe-password" })
+    }), env, ctx);
+    const search = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+      body: JSON.stringify({ topic: "Education", diagnosis: "Autism", description: "inclusive school support", count: 3 })
+    }), env, ctx);
+    assert.equal(search.status, 200);
+    await worker.fetch(new Request("https://village.example/api/research-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+      body: JSON.stringify({ helpful: true, source: "research-results" })
+    }), env, ctx);
+
+    const scheduled = [];
+    await worker.scheduled({}, env, { waitUntil(promise) { scheduled.push(promise); } });
+    await Promise.all(scheduled);
+    const latest = sheetWrites.at(-1);
+    assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.sheetGid, "1958570867");
+    assert.deepEqual(latest.metrics, {
+      "Total Guest Sessions": 1,
+      "Total Accounts Created": 1,
+      "Total Searches Completed": 1,
+      "Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)": 5
+    });
+    assert.equal(Object.values(latest.metrics).every((value) => typeof value === "number"), true);
+    assert.equal("date" in latest.metrics, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("Cloudflare account and hashed session remain usable independently of code deployment", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
@@ -604,6 +664,15 @@ test("recommendation API applies diagnosis and category before scoring database 
     const result = await response.json();
     assert.deepEqual(result.resources.map((item) => item.url), ["https://example.com/allowed"]);
     assert.deepEqual(result.resources[0].passedFilters, ["Diagnosis: Autism", "Category: Legal", "Description gate"]);
+    assert.deepEqual(result.followUpQuestions, []);
+
+    const preciseResponse = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ topic: "Legal", diagnosis: "Autism", description: "Medicaid assistance", count: 5, allowFollowUpQuestions: true })
+    }), env, ctx);
+    assert.equal(preciseResponse.status, 200);
+    assert.ok((await preciseResponse.json()).followUpQuestions.length > 0);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

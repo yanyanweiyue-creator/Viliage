@@ -2,6 +2,7 @@
 data/users.json
 data/sessions.json
 data/community.json
+data/user-counts.json
 data/cloudflare-users-import.sql
 .wrangler/
 .dev.vars

@@ -1,5 +1,6 @@
 import { EcosystemController } from "./ecosystem-runtime.mjs?v=activities-capy-20260710";
-import { ImmersiveScene } from "./immersive-scene.mjs?v=land-map-20260624";
+import { ImmersiveScene } from "./immersive-scene.mjs?v=low-stimulation-20260724";
+import { LiveBuildingInterior } from "./interior-3d.mjs?v=cinematic-3d-admin-20260724d";
 import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
@@ -15,12 +16,15 @@ const GUIDE_CHARACTERS = Object.freeze({
   Waffles: { name: "Waffles", src: "/assets/character-waffles.svg", alt: "Waffles, the village guider" }
 });
 const WAFFLES_INTRO_STEPS = Object.freeze([
-  { eyebrow: "Meet your village guide", title: "Hi, I’m Waffles.", text: "I’m a friendly AI resource guide. Tell me what you are trying to find, and I’ll compare the village database with your personal record. I don’t diagnose or replace professional advice." },
-  { eyebrow: "Village · Support", title: "Start with support.", text: "The Village connects you with contact options, community conversations, friends, groups, and a dedicated search for support resources.", building: "Village", symbol: "⌂" },
-  { eyebrow: "School · Education", title: "Find education resources.", text: "The School helps Waffles search for education programs, school accommodations, IEP information, learning support, and nearby services.", building: "School", symbol: "▤" },
-  { eyebrow: "Courthouse · Legal", title: "Understand rights and advocacy.", text: "The Courthouse searches legal and advocacy resources. Always verify formal advice with a qualified professional or service provider.", building: "Courthouse", symbol: "§" },
-  { eyebrow: "Park · Recreation", title: "Explore recreation.", text: "The Park helps you find inclusive recreation, calm weekend activities, sports, camps, and community programs that fit your needs.", building: "Park", symbol: "◇" },
-  { eyebrow: "Woods · Activities", title: "See village activities.", text: "The Woods opens volunteer opportunities and upcoming village activities. You can return to Waffles from the guide button at any time.", building: "Woods", symbol: "♧" }
+  { eyebrow: "Meet your village guide", title: "Hi, I’m Waffles.", text: "I’m a friendly AI resource guide. I can explain the village, compare the live resource database with your personal record, and show why a result matched. I do not diagnose or replace medical, legal, or professional advice." },
+  { eyebrow: "Community Compass", title: "Your answers shape the route.", text: "The short survey records the topics, age group, journey stage, and priorities you choose. Waffles uses only that record to improve matching. You can update every answer later from My record." },
+  { eyebrow: "Two islands, one village", title: "Choose the pace that fits.", text: "Autism Island offers a quieter garden path, while ADHD Island follows a more energetic trail. Both islands contain the same five destinations, so you can explore either without missing a kind of support." },
+  { eyebrow: "Village · Support", title: "Start with support.", text: "The Village opens contact options, community conversations, friends and groups, plus a dedicated resource search. Community features stay private to registered members.", building: "Village", symbol: "⌂" },
+  { eyebrow: "School · Education", title: "Find education resources.", text: "The School searches education programs, accommodations, IEP and 504 information, executive-function help, learning support, and nearby services. Open a result to see its score and matching reasons.", building: "School", symbol: "▤" },
+  { eyebrow: "Courthouse · Legal", title: "Understand rights and advocacy.", text: "The Courthouse searches legal-rights and advocacy resources. Waffles can organize options, but eligibility and formal advice should always be confirmed with a qualified provider.", building: "Courthouse", symbol: "§" },
+  { eyebrow: "Park · Recreation", title: "Explore the jungle grove.", text: "The Park helps find inclusive recreation, sensory-friendly activities, sports, camps, and community programs. Entering it opens a calm hand-painted jungle clearing.", building: "Park", symbol: "◇" },
+  { eyebrow: "Woods · Activities", title: "See what the village is doing.", text: "The Activity House keeps upcoming events and volunteer opportunities together. Administrators can publish new activities, while everyone can browse what is coming next.", building: "Woods", symbol: "♧" },
+  { eyebrow: "Settings and My record", title: "You stay in control.", text: "Turn on More precise research in Settings only when you want optional follow-up questions. My record lets you revisit this introduction, change survey answers, review searches, and reopen saved resources at any time." }
 ]);
 
 function loadSavedSettings() {
@@ -44,6 +48,10 @@ const state = {
   passwordResetEmail: "",
   introStep: 0,
   introOpen: false,
+  introReplay: false,
+  surveyEditing: false,
+  activeBuilding: null,
+  buildingTransitionTimer: null,
   resources: [],
   sheetSync: { configured: false },
   settings: loadSavedSettings(),
@@ -76,6 +84,7 @@ const state = {
   audio: null,
   ecosystem: null,
   immersive: null,
+  interior3d: null,
   surfaceMotion: null,
   localMusic: { day: null, night: null }
 };
@@ -93,14 +102,14 @@ const i18n = {
     guideTitle: "Waffles · Village guider", guideEyebrow: "A friendly tour of the project", guideIntro: "This website helps people explore neurodiversity resources at their own pace. You can enter an island, choose a building, and let Waffles compare resources from the village database with your personal record.", guideStoryTitle: "The story", guideStory: "The village is shown as two neighboring islands in 2D, each with its own pace, buildings, and sense of support. The 3D view can feel more connected, but Waffles still treats each island as its own path through the resource village.", guideBuiltByTitle: "Made by", guideBuiltBy: "Created by SNP- Group D, 2026, cohort3.", guideUseTitle: "How Waffles helps", guideUse: "Waffles can introduce buildings, explain why a resource matched, save or dislike resources, and listen for natural voice commands when microphone control is turned on.", guideScoringTitle: "Resource points", guideScoring: "Under the site guider, resources with the most points are the ones Waffles sees as most relevant to the user’s search because their topic, tags, description, and profile fit overlap the strongest.", guideQuestion: "Ask Waffles about the site", guidePlaceholder: "For example: who made this site, what does the Courthouse do, or where should I go for legal help?", guideAsk: "Ask guide", guideSpeak: "Read aloud", guideListen: "Voice question", guideListening: "Listening for a guide question…", guideThinking: "Waffles is thinking…", guideActionPrefix: "Suggested next steps", guideError: "Waffles could not answer that yet.",
     settingsTitle: "Settings Studio", settingsEyebrow: "Make the village feel right", settingsIntro: "These preferences are saved on this device and applied immediately.",
     textSize: "Text size", smaller: "Smaller", standard: "Standard", larger: "Larger", extraLarge: "Extra large", colorPalette: "Color palette", calmSage: "Calm sage", softBlue: "Soft blue", warmPlum: "Warm plum", highContrast: "High contrast",
-    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
+    language: "Language", motion: "Motion & visual detail", useLow: "Use low-stimulation view", useStandard: "Use standard view", settingsSaved: "Settings saved and applied.", previewTitle: "Live preview", previewText: "This text changes with your size, color, and language settings.", sceneStyle: "Environment style", scene2d: "Illustrated 2D", scene3d: "Immersive 3D", sceneHint: "3D adds perspective lighting, reflective animated water, forest depth and parallax.", visualQuality: "3D visual quality", qualityLow: "Low", qualityMedium: "Medium", qualityHigh: "High", qualityUltra: "Ultra", visualQualityHint: "Only affects live 3D interiors: resolution, shadows, atmospheric particles, and material detail.", precisionResearch: "More precise research", precisionResearchOn: "Follow-up questions enabled", precisionResearchOff: "Follow-up questions disabled", precisionResearchHint: "When enabled, a building guide may ask optional follow-up questions after research. When disabled, results appear without those questions.", sound: "Village sound", soundOff: "Sound is off", soundOn: "Sound is on", enableSound: "Enable sound", muteSound: "Mute sound", masterVolume: "Master volume", environmentVolume: "Weather & environment", musicVolume: "Background music", animalVolume: "Animals", soundHint: "Weather stays prominent; music and individual animal calls remain gentler.", customMusic: "Your local music", dayTrack: "Day soundtrack", nightTrack: "Night soundtrack", dayScoreName: "Garden Footsteps · original", nightScoreName: "Starlit Current · original", chooseAudio: "Choose audio", removeTrack: "Use original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC or WebM · up to 30 MB. Stored only in this browser and never uploaded.", trackSaved: "Local soundtrack saved.", trackRemoved: "Original soundtrack restored.", trackInvalid: "That audio file cannot be used.",
     support: "Support", settings: "Settings", education: "Education", legal: "Legal", recreation: "Recreation", activities: "Activities",
     supportTitle: "Support & Contact", supportEyebrow: "A steadier next step", prepare: "Small ways to prepare",
     communityTitle: "Village Community", communityIntro: "Join group conversations or connect privately with people who chose to participate.", communityOpen: "Open community chats", communityPrivacy: "Your email and private survey note are never shown. Waffles matches only shared interests, age group, and journey stage. You can leave at any time.", communityEnable: "Join the community", communityDisable: "Leave community matching", communityDisplayName: "Community display name", communityGroups: "Group chats", communitySuggestions: "People Waffles suggests", communityIncoming: "Connection requests", communityDirect: "Private chats", communityJoin: "Join group", communityOpenRoom: "Open chat", communityConnect: "Say hello", communityPending: "Request sent", communityAccept: "Accept", communityDecline: "Decline", communitySend: "Send", communityMessagePlaceholder: "Write a kind message…", communityEmpty: "No messages yet. You can start gently.", communityLoading: "Opening the community…", communitySafety: "Community messages are stored securely but are not end-to-end encrypted. They are peer conversation, not professional or emergency support. Do not share passwords, addresses, or urgent medical details.",
     activityTitle: "Volunteer & Activity", activityEyebrow: "Things we can do together", activityIntro: "Upcoming community activities. Only project editors can change these listings.", activityGuideIntro: "Mayor Crumpet keeps the village’s volunteer opportunities and upcoming activities in one place.", supportGuideIntro: "Eggy can help you find a steadier next step.",
     aiEyebrow: "Waffles · Personalized resource matching", aiHello: "Hi, I’m Waffles.", aiExplain: "I’ll score tags first, then descriptions and issue conflicts, using your record and this building’s topic.", aiQuestion: "What are you trying to find?", aiFind: "Find fitting resources", aiChecking: "Waffles is checking the village…", aiDisclaimer: "Waffles provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", resultCount: "Number of resources", scoreWhy: "Why this matched", expandedTerms: "Related terms used", resourceExplain: "Waffles explain", resourceLike: "Save", resourceLiked: "Saved", resourceDislike: "Dislike", resourceDisliked: "Disliked", resourceVisit: "Visit resource ↗", resourceSaved: "Resource saved to your record.", resourceUnsaved: "Resource removed from saved list.", resourceDislikeSaved: "Resource added to disliked list.", resourceDislikeRemoved: "Resource removed from disliked list.", savedResourcesTitle: "Saved resources", dislikedResourcesTitle: "Disliked resources", noSavedResources: "No saved resources yet.", noDislikedResources: "No disliked resources yet.", clarificationTitle: "A quick detail will improve these matches", clarificationNone: "None of these", clarificationContinue: "Continue search", clarificationRequired: "Choose any relevant option, or select “None of these.”", clarificationOptional: "Optional: choose one to refine the search and run it again.", sourceLabel: "Database source", scoringLabel: "scoring", aiExpandedKeywords: "AI-expanded keywords", localExpandedKeywords: "local synonym expansion", supportSearchTitle: "Search the support database", supportSearchIntro: "Eggy checks the live resource database and ranks each match with the same transparent scoring system used in the Education buildings.", supportSearchDisclaimer: "Eggy provides resource navigation, not medical or legal advice. Verify eligibility, cost, and current availability with each provider.", supportContactTab: "Contact", supportFindTab: "Find resources", communityPrivateTab: "Private chat", communityGroupsTab: "Groups", communityMomentsTab: "Moments", communityRequestsTab: "Requests",
     voiceTools: "Voice assistant", voiceAssistant: "Narrate clicks and places", voiceControl: "Microphone commands", voiceListen: "Listen for a command", voiceListening: "Listening…", voiceHint: "Try natural phrases like “research 504 plans,” “open Waffles,” or “find school support.” Waffles may ask a follow-up question. Voice recognition captures your words in the browser; Waffles uses the AI API for spoken audio and smarter command routing.",
-    recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
+    recordTitle: "My personal record", recordIntro: "This record helps Waffles choose more relevant entries from the resource database.", restartIntro: "Restart introduction", updateSurvey: "Update survey answers", recentSearches: "Recent resource searches", noSearches: "No searches yet.", feedbackLabel: "Feedback for the project team", feedbackSave: "Save feedback", logout: "Log out",
     sheetConnected: "Google Sheet sync connected", sheetMissing: "Google Sheet sync is not connected yet",
     environmentFinding: "Finding your local sky…", environmentUnavailable: "Local weather unavailable", approximateIp: "Approx. by IP · Open-Meteo",
     spring: "Spring", summer: "Summer", autumn: "Autumn", winter: "Winter",
@@ -115,14 +124,14 @@ const i18n = {
     guideTitle: "Waffles · 村庄向导", guideEyebrow: "这个项目的温柔导览", guideIntro: "这个网站帮助用户按照自己的节奏探索神经多样性相关资源。你可以进入一座岛，选择一栋建筑，然后让 Waffles 结合你的个人记录与村庄数据库来比较资源。", guideStoryTitle: "背景故事", guideStory: "在 2D 地图里，村庄呈现为两座相邻但分开的岛，每座岛都有自己的节奏、建筑和支持路径。3D 视图会让空间感觉更连贯，但 Waffles 仍会把每座岛当作独立的资源探索路径。", guideBuiltByTitle: "制作团队", guideBuiltBy: "由 SNP- Group D，2026，cohort3 创建。", guideUseTitle: "Waffles 可以做什么", guideUse: "Waffles 可以介绍建筑、解释资源为什么匹配、收藏或标记不喜欢的资源，并在开启麦克风控制后理解自然语音指令。", guideScoringTitle: "资源分数", guideScoring: "在网站向导里，分数最高的资源代表 Waffles 认为它们与用户搜索最相关，因为它们在主题、标签、描述和个人记录匹配上重合最多。", guideQuestion: "向 Waffles 询问网站", guidePlaceholder: "例如：这个网站是谁做的，法院建筑有什么用，或我需要法律帮助该去哪？", guideAsk: "询问向导", guideSpeak: "朗读", guideListen: "语音提问", guideListening: "正在听你的向导问题…", guideThinking: "Waffles 正在思考…", guideActionPrefix: "建议的下一步", guideError: "Waffles 现在还无法回答。",
     settingsTitle: "设置中心", settingsEyebrow: "让村庄更适合你", settingsIntro: "这些偏好会保存在本设备，并立即生效。",
     textSize: "文字大小", smaller: "较小", standard: "标准", larger: "较大", extraLarge: "超大", colorPalette: "颜色主题", calmSage: "宁静绿色", softBlue: "柔和蓝色", warmPlum: "温暖紫色", highContrast: "高对比度",
-    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
+    language: "语言", motion: "动画与视觉细节", useLow: "使用低刺激模式", useStandard: "使用标准模式", settingsSaved: "设置已保存并生效。", previewTitle: "实时预览", previewText: "这段文字会跟随字体、颜色和语言设置变化。", sceneStyle: "环境样式", scene2d: "插画 2D", scene3d: "沉浸式 3D", sceneHint: "3D 模式加入透视光照、动态反光水面、森林景深和视差。", visualQuality: "3D 画质", qualityLow: "低", qualityMedium: "中", qualityHigh: "高", qualityUltra: "超高", visualQualityHint: "仅影响实时 3D 内景：渲染分辨率、阴影、天气粒子与材质细节。", precisionResearch: "更精确的研究", precisionResearchOn: "已允许追问", precisionResearchOff: "已关闭追问", precisionResearchHint: "开启后，建筑向导可以在研究结果后提出可选追问；关闭时会直接显示结果。", sound: "村庄声音", soundOff: "声音已关闭", soundOn: "声音已开启", enableSound: "开启声音", muteSound: "静音", masterVolume: "总音量", environmentVolume: "天气与环境", musicVolume: "背景音乐", animalVolume: "动物", soundHint: "天气与环境声较明显，音乐和各类动物声保持轻柔。", customMusic: "你的本地音乐", dayTrack: "白天配乐", nightTrack: "夜晚配乐", dayScoreName: "花园足迹 · 原创", nightScoreName: "星河回声 · 原创", chooseAudio: "选择音频", removeTrack: "恢复原创", musicLocalOnly: "支持 MP3、OGG、WAV、M4A、AAC、WebM，最大 30 MB。仅保存在本浏览器，绝不会上传。", trackSaved: "本地配乐已保存。", trackRemoved: "已恢复原创配乐。", trackInvalid: "无法使用这个音频文件。",
     support: "支持", settings: "设置", education: "教育", legal: "法律", recreation: "休闲活动", activities: "活动",
     supportTitle: "支持与联系", supportEyebrow: "找到更稳妥的下一步", prepare: "可以先做的小准备",
     communityTitle: "村庄社区", communityIntro: "加入不同群聊，或与自愿参与且经历相似的用户私聊。", communityOpen: "打开社区聊天", communityPrivacy: "不会展示你的邮箱或问卷私人备注。Waffles 只比较共同关注领域、年龄组和经历阶段；你可以随时退出。", communityEnable: "加入社区", communityDisable: "退出社区匹配", communityDisplayName: "社区显示名称", communityGroups: "群聊", communitySuggestions: "Waffles 推荐认识的人", communityIncoming: "好友申请", communityDirect: "私聊", communityJoin: "加入群聊", communityOpenRoom: "打开聊天", communityConnect: "打个招呼", communityPending: "已发送申请", communityAccept: "接受", communityDecline: "拒绝", communitySend: "发送", communityMessagePlaceholder: "写一条友善的消息……", communityEmpty: "还没有消息，可以轻轻地开始。", communityLoading: "正在打开社区……", communitySafety: "社区消息会安全保存，但不是端到端加密。这里属于用户互助，不是专业或紧急服务；请勿发送密码、住址或紧急医疗隐私。",
     activityTitle: "志愿者与活动", activityEyebrow: "一起参与的事情", activityIntro: "即将开始的社区活动。只有项目管理员可以修改内容。", activityGuideIntro: "Mayor Crumpet 会把村庄里的志愿者机会和即将开始的活动整理在一起。", supportGuideIntro: "Eggy 会帮助你找到更稳妥的下一步。",
     aiEyebrow: "Waffles · 个性化资源匹配", aiHello: "你好，我是 Waffles。", aiExplain: "我会先匹配标签，再检查描述与冲突项，并结合你的个人记录和建筑主题透明评分。", aiQuestion: "你正在寻找什么？", aiFind: "查找合适资源", aiChecking: "Waffles 正在查找村庄资源…", aiDisclaimer: "Waffles 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", resultCount: "显示资源数量", scoreWhy: "匹配原因", expandedTerms: "使用的相关词", resourceExplain: "让 Waffles 解释", resourceLike: "收藏", resourceLiked: "已收藏", resourceDislike: "不喜欢", resourceDisliked: "已不喜欢", resourceVisit: "打开资源 ↗", resourceSaved: "资源已收藏到你的记录。", resourceUnsaved: "已从收藏资源中移除。", resourceDislikeSaved: "已加入不喜欢资源列表。", resourceDislikeRemoved: "已从不喜欢资源中移除。", savedResourcesTitle: "收藏的资源", dislikedResourcesTitle: "不喜欢的资源", noSavedResources: "还没有收藏资源。", noDislikedResources: "还没有不喜欢的资源。", clarificationTitle: "补充一个小细节，匹配会更准确", clarificationNone: "以上都不是", clarificationContinue: "继续搜索", clarificationRequired: "请选择一个相关选项，或选择“以上都不是”。", clarificationOptional: "可选：点一个选项会补充到搜索里并重新查找。", sourceLabel: "数据库来源", scoringLabel: "评分版本", aiExpandedKeywords: "AI 扩展关键词", localExpandedKeywords: "本地同义词扩展", supportSearchTitle: "搜索支持资源数据库", supportSearchIntro: "Eggy 会检查实时资源数据库，并用与教育建筑相同的透明评分系统排序。", supportSearchDisclaimer: "Eggy 提供资源导航，不构成医疗或法律建议。请向服务机构确认资格、费用与当前名额。", supportContactTab: "联系", supportFindTab: "找资源", communityPrivateTab: "私聊", communityGroupsTab: "群组", communityMomentsTab: "动态", communityRequestsTab: "请求",
     voiceTools: "语音助手", voiceAssistant: "点击时自动讲解", voiceControl: "麦克风语音操作", voiceListen: "听取指令", voiceListening: "正在听…", voiceHint: "可以自然地说：“research 504 plans”、“open Waffles” 或“find school support”。如果不清楚，Waffles 会追问。浏览器负责听写你的话；Waffles 会使用 AI API 生成语音并更聪明地理解指令。",
-    recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
+    recordTitle: "我的个人记录", recordIntro: "这份记录帮助 Waffles 从数据库中选择更相关的资源。", restartIntro: "重新播放介绍", updateSurvey: "重新选择问卷答案", recentSearches: "最近的资源搜索", noSearches: "还没有搜索记录。", feedbackLabel: "给项目团队的反馈", feedbackSave: "保存反馈", logout: "退出登录",
     sheetConnected: "Google Sheet 自动同步已连接", sheetMissing: "Google Sheet 自动同步尚未连接",
     environmentFinding: "正在寻找你当地的天空…", environmentUnavailable: "暂时无法获取当地天气", approximateIp: "IP 大致位置 · Open-Meteo",
     spring: "春季", summer: "夏季", autumn: "秋季", winter: "冬季",
@@ -137,14 +146,14 @@ const i18n = {
     guideTitle: "Waffles · Guía de la aldea", guideEyebrow: "Un recorrido amable del proyecto", guideIntro: "Este sitio ayuda a explorar recursos de neurodiversidad a tu propio ritmo. Puedes entrar en una isla, elegir un edificio y dejar que Waffles compare recursos de la base de datos con tu registro personal.", guideStoryTitle: "La historia", guideStory: "En el mapa 2D, la aldea aparece como dos islas vecinas y separadas, cada una con su propio ritmo, edificios y formas de apoyo. La vista 3D puede sentirse más conectada, pero Waffles sigue tratando cada isla como un camino propio por los recursos.", guideBuiltByTitle: "Creado por", guideBuiltBy: "Creado por SNP- Group D, 2026, cohort3.", guideUseTitle: "Cómo ayuda Waffles", guideUse: "Waffles puede presentar edificios, explicar por qué coincide un recurso, guardar o marcar recursos, y escuchar comandos naturales cuando activas el micrófono.", guideScoringTitle: "Puntos de recursos", guideScoring: "En la guía del sitio, los recursos con más puntos son los que Waffles considera más relevantes para la búsqueda porque coinciden mejor en tema, etiquetas, descripción y registro personal.", guideQuestion: "Pregunta a Waffles sobre el sitio", guidePlaceholder: "Por ejemplo: quién creó este sitio, qué hace el juzgado o adónde voy para apoyo legal.", guideAsk: "Preguntar", guideSpeak: "Leer en voz alta", guideListen: "Pregunta por voz", guideListening: "Escuchando una pregunta para la guía…", guideThinking: "Waffles está pensando…", guideActionPrefix: "Siguientes pasos sugeridos", guideError: "Waffles aún no pudo responder eso.",
     settingsTitle: "Centro de ajustes", settingsEyebrow: "Haz que la aldea se adapte a ti", settingsIntro: "Estas preferencias se guardan en este dispositivo y se aplican inmediatamente.",
     textSize: "Tamaño del texto", smaller: "Pequeño", standard: "Estándar", larger: "Grande", extraLarge: "Muy grande", colorPalette: "Paleta de colores", calmSage: "Verde salvia", softBlue: "Azul suave", warmPlum: "Ciruela cálida", highContrast: "Alto contraste",
-    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
+    language: "Idioma", motion: "Movimiento y detalle visual", useLow: "Usar vista de baja estimulación", useStandard: "Usar vista estándar", settingsSaved: "Ajustes guardados y aplicados.", previewTitle: "Vista previa", previewText: "Este texto cambia con el tamaño, color e idioma elegidos.", sceneStyle: "Estilo del entorno", scene2d: "2D ilustrado", scene3d: "3D inmersivo", sceneHint: "El modo 3D añade perspectiva, agua reflectante, profundidad de bosque y paralaje.", visualQuality: "Calidad visual 3D", qualityLow: "Baja", qualityMedium: "Media", qualityHigh: "Alta", qualityUltra: "Ultra", visualQualityHint: "Solo afecta los interiores 3D en vivo: resolución, sombras, partículas atmosféricas y detalle de materiales.", precisionResearch: "Investigación más precisa", precisionResearchOn: "Preguntas adicionales activadas", precisionResearchOff: "Preguntas adicionales desactivadas", precisionResearchHint: "Al activarlo, la guía puede hacer preguntas opcionales después de investigar. Al desactivarlo, muestra los resultados directamente.", sound: "Sonido de la aldea", soundOff: "Sonido apagado", soundOn: "Sonido activado", enableSound: "Activar sonido", muteSound: "Silenciar", masterVolume: "Volumen general", environmentVolume: "Clima y ambiente", musicVolume: "Música de fondo", animalVolume: "Animales", soundHint: "El clima queda presente; la música y los animales se mantienen suaves.", customMusic: "Tu música local", dayTrack: "Música diurna", nightTrack: "Música nocturna", dayScoreName: "Pasos del jardín · original", nightScoreName: "Corriente estelar · original", chooseAudio: "Elegir audio", removeTrack: "Usar original", musicLocalOnly: "MP3, OGG, WAV, M4A, AAC o WebM · máximo 30 MB. Se guarda solo en este navegador y nunca se sube.", trackSaved: "Música local guardada.", trackRemoved: "Música original restaurada.", trackInvalid: "No se puede usar ese archivo de audio.",
     support: "Apoyo", settings: "Ajustes", education: "Educación", legal: "Legal", recreation: "Recreación", activities: "Actividades",
     supportTitle: "Apoyo y contacto", supportEyebrow: "Un próximo paso más tranquilo", prepare: "Pequeñas formas de prepararse",
     communityTitle: "Comunidad de la aldea", communityIntro: "Únete a grupos o conecta en privado con personas que aceptaron participar.", communityOpen: "Abrir chats", communityPrivacy: "Tu correo y tus notas privadas nunca se muestran. Waffles compara solo intereses, edad y etapa del recorrido.", communityEnable: "Unirme a la comunidad", communityDisable: "Salir de la comunidad", communityDisplayName: "Nombre visible", communityGroups: "Chats grupales", communitySuggestions: "Personas sugeridas por Waffles", communityIncoming: "Solicitudes", communityDirect: "Chats privados", communityJoin: "Unirme", communityOpenRoom: "Abrir chat", communityConnect: "Saludar", communityPending: "Solicitud enviada", communityAccept: "Aceptar", communityDecline: "Rechazar", communitySend: "Enviar", communityMessagePlaceholder: "Escribe un mensaje amable…", communityEmpty: "Aún no hay mensajes.", communityLoading: "Abriendo la comunidad…", communitySafety: "Los mensajes se guardan de forma segura, pero no tienen cifrado de extremo a extremo. Son apoyo entre pares, no atención profesional ni de emergencia. No compartas contraseñas, direcciones ni datos médicos urgentes.",
     activityTitle: "Voluntariado y actividades", activityEyebrow: "Cosas que podemos hacer juntos", activityIntro: "Próximas actividades comunitarias. Solo los editores del proyecto pueden cambiarlas.", activityGuideIntro: "Mayor Crumpet reúne las oportunidades de voluntariado y las próximas actividades de la aldea.", supportGuideIntro: "Eggy puede ayudarte a encontrar un siguiente paso más tranquilo.",
     aiEyebrow: "Waffles · Recursos personalizados", aiHello: "Hola, soy Waffles.", aiExplain: "Puntuaré primero las etiquetas y después la descripción y los posibles conflictos.", aiQuestion: "¿Qué estás buscando?", aiFind: "Buscar recursos", aiChecking: "Waffles está buscando recursos…", aiDisclaimer: "Waffles orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", resultCount: "Cantidad de recursos", scoreWhy: "Por qué coincide", expandedTerms: "Términos relacionados usados", resourceExplain: "Waffles explica", resourceLike: "Guardar", resourceLiked: "Guardado", resourceDislike: "No me sirve", resourceDisliked: "Marcado", resourceVisit: "Visitar recurso ↗", resourceSaved: "Recurso guardado en tu registro.", resourceUnsaved: "Recurso eliminado de guardados.", resourceDislikeSaved: "Recurso marcado como no útil.", resourceDislikeRemoved: "Recurso quitado de no útiles.", savedResourcesTitle: "Recursos guardados", dislikedResourcesTitle: "Recursos no útiles", noSavedResources: "Aún no hay recursos guardados.", noDislikedResources: "Aún no hay recursos marcados.", clarificationTitle: "Un detalle rápido mejorará estas coincidencias", clarificationNone: "Ninguna de estas", clarificationContinue: "Continuar búsqueda", clarificationRequired: "Elige una opción relevante o selecciona “Ninguna de estas”.", clarificationOptional: "Opcional: elige una para refinar y buscar de nuevo.", sourceLabel: "Fuente de datos", scoringLabel: "puntuación", aiExpandedKeywords: "palabras ampliadas por IA", localExpandedKeywords: "expansión local de sinónimos", supportSearchTitle: "Buscar en la base de apoyo", supportSearchIntro: "Eggy revisa la base de recursos en vivo y ordena cada resultado con el mismo sistema de puntuación transparente usado en Educación.", supportSearchDisclaimer: "Eggy orienta sobre recursos; no ofrece consejo médico ni legal. Confirma requisitos, costo y disponibilidad.", supportContactTab: "Contacto", supportFindTab: "Buscar recursos", communityPrivateTab: "Chat privado", communityGroupsTab: "Grupos", communityMomentsTab: "Momentos", communityRequestsTab: "Solicitudes",
     voiceTools: "Asistente de voz", voiceAssistant: "Narrar clics y lugares", voiceControl: "Comandos por micrófono", voiceListen: "Escuchar comando", voiceListening: "Escuchando…", voiceHint: "Prueba frases naturales como “research 504 plans”, “open Waffles” o “find school support”. Waffles puede hacer una pregunta de seguimiento. El navegador transcribe tu voz; Waffles usa la API de IA para el audio hablado y el enrutamiento inteligente.",
-    recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
+    recordTitle: "Mi registro personal", recordIntro: "Este registro ayuda a Waffles a elegir recursos más relevantes.", restartIntro: "Repetir introducción", updateSurvey: "Actualizar respuestas", recentSearches: "Búsquedas recientes", noSearches: "Aún no hay búsquedas.", feedbackLabel: "Comentarios para el equipo", feedbackSave: "Guardar comentarios", logout: "Cerrar sesión",
     sheetConnected: "Sincronización con Google Sheets conectada", sheetMissing: "La sincronización con Google Sheets aún no está conectada",
     environmentFinding: "Buscando tu cielo local…", environmentUnavailable: "Clima local no disponible", approximateIp: "Ubicación aproximada por IP · Open-Meteo",
     spring: "Primavera", summer: "Verano", autumn: "Otoño", winter: "Invierno",
@@ -320,6 +329,7 @@ class VillageAudio {
   restartEnvironment() {
     if (!this.context || this.context.state !== "running") return;
     this.stopEnvironment();
+    if (state.settings.calm) return;
     const scenes = {
       clear: [
         { type: "lowpass", frequency: 520, level: .028, rate: .82, pulse: .055 },
@@ -509,7 +519,7 @@ class VillageAudio {
   }
 
   playAnimal(species) {
-    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled) return;
+    if (!this.context || this.context.state !== "running" || !state.settings.soundEnabled || state.settings.calm) return;
     const samples = config.ecosystem?.audio?.samples || {};
     const sampleKey = species === "gull" && !samples.gull ? "bird" : species;
     const sample = samples[sampleKey];
@@ -528,7 +538,7 @@ class VillageAudio {
 
   scheduleAnimal() {
     clearTimeout(this.animalTimer);
-    if (!state.settings.soundEnabled) return;
+    if (!state.settings.soundEnabled || state.settings.calm) return;
     this.animalTimer = setTimeout(() => {
       this.animalCall();
       this.scheduleAnimal();
@@ -632,6 +642,7 @@ class VillageAudio {
   restartMusic() {
     if (!this.context || this.context.state !== "running") return;
     this.stopMusic();
+    if (state.settings.calm) return;
     const slot = this.isDay ? "day" : "night";
     const buffer = this.buffers.get(`custom-music-${slot}`) || this.buffers.get(`music-${slot}`);
     if (buffer) {
@@ -680,14 +691,18 @@ class VillageAudio {
   applySettings() {
     if (!this.context) return;
     const enabled = Boolean(state.settings.soundEnabled);
-    const calmScale = state.settings.calm ? .55 : 1;
+    const ambientScale = state.settings.calm ? 0 : 1;
     const now = this.context.currentTime;
     this.master.gain.setTargetAtTime(enabled ? Number(state.settings.masterVolume ?? .35) : 0, now, .08);
-    this.environmentGain.gain.setTargetAtTime(Number(state.settings.environmentVolume ?? .65) * calmScale, now, .08);
-    this.musicGain.gain.setTargetAtTime(Number(state.settings.musicVolume ?? .26) * calmScale, now, .08);
-    this.animalGain.gain.setTargetAtTime(Number(state.settings.animalVolume ?? .22) * calmScale, now, .08);
-    if (!enabled) { clearTimeout(this.animalTimer); this.stopMusic(); }
-    else { this.scheduleAnimal(); if (!this.musicTimer && !this.musicNodes.length) this.restartMusic(); }
+    this.environmentGain.gain.setTargetAtTime(Number(state.settings.environmentVolume ?? .65) * ambientScale, now, .08);
+    this.musicGain.gain.setTargetAtTime(Number(state.settings.musicVolume ?? .26) * ambientScale, now, .08);
+    this.animalGain.gain.setTargetAtTime(Number(state.settings.animalVolume ?? .22) * ambientScale, now, .08);
+    if (!enabled || state.settings.calm) { clearTimeout(this.animalTimer); this.stopEnvironment(); this.stopMusic(); }
+    else {
+      if (!this.environmentNodes.length) this.restartEnvironment();
+      this.scheduleAnimal();
+      if (!this.musicTimer && !this.musicNodes.length) this.restartMusic();
+    }
   }
 }
 
@@ -705,11 +720,35 @@ state.immersive = new ImmersiveScene({
   stage: $("#map-stage"),
   buildings: config.buildings
 });
+state.interior3d = new LiveBuildingInterior({
+  canvas: $("#building-interior-3d"),
+  container: $("#building-interior")
+});
 state.surfaceMotion = new SurfaceMotion({ canvas: $("#surface-motion"), stage: $("#map-stage") });
 
 function t(key) {
   const language = state.settings.language || "en";
   return i18n[language]?.[key] || i18n.en[key] || key;
+}
+
+function effectiveVisualQuality() {
+  return state.settings.calm ? "low" : state.settings.visualQuality || "high";
+}
+
+function effectiveEnvironment(environment = state.environment || {}) {
+  if (!state.settings.calm) return environment;
+  return {
+    ...environment,
+    isDay: true,
+    currentMinutes: 720,
+    sunrise: 360,
+    sunset: 1080,
+    weather: "clear",
+    weatherKind: "clear",
+    season: "summer",
+    windSpeed: 0,
+    cloudCover: 0
+  };
 }
 
 async function api(path, options = {}) {
@@ -896,9 +935,47 @@ async function continueAsGuest() {
   } catch (error) { $("#auth-error").textContent = error.message; }
 }
 
+function prepareSurveyForm(editing = false) {
+  const form = $("#survey-form");
+  if (!form) return;
+  form.reset();
+  state.surveyEditing = Boolean(editing);
+  const responses = editing ? state.user?.profile?.responses || {} : {};
+  const selectedInterests = new Set(Array.isArray(responses.interests) ? responses.interests : []);
+  const selectedSituations = new Set(Array.isArray(responses.situation) ? responses.situation : []);
+  $$('input[name="interests"]', form).forEach((input) => { input.checked = selectedInterests.has(input.value); });
+  $$('input[name="situation"]', form).forEach((input) => { input.checked = selectedSituations.has(input.value); });
+  $$('input[name="age"]', form).forEach((input) => { input.checked = input.value === responses.age; });
+  form.elements.journey.value = responses.journey || "";
+  form.elements.note.value = responses.note || "";
+  $("#survey-title").textContent = editing ? "Update your Community Compass" : "What would make the village more useful to you?";
+  $("#survey-lede").textContent = editing
+    ? "Change any answer below. Saving will immediately replace the matching details in your personal record."
+    : "These answers create a personal record for resource matching. They are not used to diagnose anyone.";
+  $("#survey-edit-controls").classList.toggle("hidden", !editing);
+  const submit = form.querySelector("button[type='submit']");
+  submit.innerHTML = editing ? "Update my personal record <span aria-hidden='true'>→</span>" : "Create my personal record <span aria-hidden='true'>→</span>";
+  $("#survey-error").textContent = "";
+}
+
+function startSurveyEdit() {
+  if (!state.user || state.user.guest) return;
+  closePanel();
+  prepareSurveyForm(true);
+  showScreen("survey");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function cancelSurveyEdit() {
+  state.surveyEditing = false;
+  showScreen("app");
+  profilePanel();
+}
+
 async function submitSurvey(event) {
   event.preventDefault();
   const formElement = event.target;
+  const editing = state.surveyEditing;
   const form = new FormData(formElement);
   const responses = {
     interests: form.getAll("interests"),
@@ -913,25 +990,30 @@ async function submitSurvey(event) {
   }
   const button = formElement.querySelector("button[type='submit']");
   button.disabled = true;
-  button.textContent = "Creating your record…";
+  button.textContent = editing ? "Updating your record…" : "Creating your record…";
   try {
     const { user, sync } = await api("/api/profile", { method: "POST", body: JSON.stringify({ responses }) });
     state.user = user;
     state.sheetSync = { configured: sync.synced || state.sheetSync.configured, ...sync };
+    state.surveyEditing = false;
     showScreen("app");
     hydrateApp();
-    toast(sync.synced ? "Personal record saved and synced." : "Personal record saved locally. Sheet sync can be connected later.");
+    if (editing) setTimeout(profilePanel, 0);
+    toast(sync.synced ? "Personal record saved and synced." : "Personal record saved. Sheet sync is queued when available.");
   } catch (error) {
     $("#survey-error").textContent = error.message;
   } finally {
     button.disabled = false;
-    button.innerHTML = "Create my personal record <span aria-hidden='true'>→</span>";
+    button.innerHTML = editing ? "Update my personal record <span aria-hidden='true'>→</span>" : "Create my personal record <span aria-hidden='true'>→</span>";
   }
 }
 
 function routeForUser() {
   if (!state.user) return showScreen("auth");
-  if (!state.user.surveyCompleted) return showScreen("survey");
+  if (!state.user.surveyCompleted) {
+    prepareSurveyForm(false);
+    return showScreen("survey");
+  }
   showScreen("app");
   hydrateApp();
 }
@@ -941,6 +1023,7 @@ function renderAccountStatus() {
   $("#record-status-title").textContent = t(guest ? "guestReady" : "personalReady");
   $("#record-status-detail").textContent = t(guest ? "guestMatch" : "personalMatch");
   $("#record-status-action").textContent = t(guest ? "account" : "view");
+  $("#admin-functions-button")?.classList.toggle("hidden", !state.user?.isAdmin);
 }
 
 function renderBuildings() {
@@ -1006,13 +1089,32 @@ function openPanel({ title, eyebrow = "Village building", html }) {
   $("#panel .icon-button").focus();
 }
 
-function closePanel() {
+function closePanel({ keepInterior = false } = {}) {
   clearInterval(state.communityTimer);
   state.communityTimer = null;
   state.communityRoom = null;
   $("#panel").classList.remove("open");
   $("#panel").setAttribute("aria-hidden", "true");
   $("#panel-scrim").classList.remove("open");
+  if (!keepInterior) hideBuildingInterior();
+}
+
+function hideBuildingInterior() {
+  clearTimeout(state.buildingTransitionTimer);
+  state.buildingTransitionTimer = null;
+  $("#building-loading")?.classList.add("hidden");
+  $("#building-loading")?.classList.remove("active");
+  $("#building-loading")?.setAttribute("aria-hidden", "true");
+  $("#building-interior")?.classList.add("hidden");
+  $("#building-interior")?.setAttribute("aria-hidden", "true");
+  state.interior3d?.close();
+  document.body.classList.remove("building-mode", "building-transitioning");
+  state.activeBuilding = null;
+}
+
+function exitBuilding() {
+  closePanel({ keepInterior: true });
+  hideBuildingInterior();
 }
 
 function supportIcon(name) {
@@ -1280,17 +1382,13 @@ async function communityAction(element, action) {
 
 function settingsPanel() {
   const current = state.settings;
+  const selectedVisualQuality = current.calm ? "low" : current.visualQuality || "high";
   const musicRows = [["day", t("dayTrack"), t("dayScoreName")], ["night", t("nightTrack"), t("nightScoreName")]].map(([slot, label, originalName]) => {
     const record = state.localMusic[slot];
     return `<div class="local-music-row"><div class="local-music-copy"><strong>${escapeHtml(label)}</strong><small title="${escapeHtml(record?.name || originalName)}">${escapeHtml(record?.name || originalName)}</small></div>
       <label class="secondary-button local-music-picker">${escapeHtml(t("chooseAudio"))}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm" data-local-music="${slot}" /></label>
       ${record ? `<button type="button" class="text-button local-music-reset" data-action="clear-local-music" data-music-slot="${slot}">${escapeHtml(t("removeTrack"))}</button>` : ""}</div>`;
   }).join("");
-  const adminKeywordControls = state.user?.isAdmin ? `<form id="primary-keyword-blocklist-form" class="setting-group admin-keyword-settings">
-        <div><strong>Primary keyword controls</strong><small>Words listed here cannot appear as Primary Keywords or in the Error sheet Primary Keywords record.</small></div>
-        <label>Blocked words or phrases<textarea name="keywords" rows="4" placeholder="waffles&#10;village">${escapeHtml((state.primaryKeywordBlocklist || []).join("\n"))}</textarea></label>
-        <button type="submit" class="secondary-button">Save blocked keywords</button><p class="form-error" role="status"></p>
-      </form>` : "";
   openPanel({
     title: t("settingsTitle"),
     eyebrow: t("settingsEyebrow"),
@@ -1308,6 +1406,15 @@ function settingsPanel() {
       <div class="setting-group scene-mode-settings"><strong>${escapeHtml(t("sceneStyle"))}</strong><div class="setting-options">
         ${[["2d",t("scene2d")],["3d",t("scene3d")]].map(([value,label]) => `<button type="button" aria-pressed="${String((current.sceneMode || "2d") === value)}" class="setting-option ${(current.sceneMode || "2d") === value ? "active" : ""}" data-setting="sceneMode" data-value="${value}">${escapeHtml(label)}</button>`).join("")}
       </div><small>${escapeHtml(t("sceneHint"))}</small></div>
+      ${current.sceneMode === "3d" ? `<div class="setting-group visual-quality-settings"><strong>${escapeHtml(t("visualQuality"))}</strong><div class="setting-options">
+        ${[["low",t("qualityLow")],["medium",t("qualityMedium")],["high",t("qualityHigh")],["ultra",t("qualityUltra")]].map(([value,label]) => `<button type="button" aria-pressed="${String(selectedVisualQuality === value)}" class="setting-option ${selectedVisualQuality === value ? "active" : ""}" data-setting="visualQuality" data-value="${value}" ${current.calm ? "disabled" : ""}>${escapeHtml(label)}</button>`).join("")}
+      </div><small>${escapeHtml(t("visualQualityHint"))}</small></div>` : ""}
+      <div class="setting-group precision-research-settings"><strong>${escapeHtml(t("precisionResearch"))}</strong>
+        <button type="button" aria-pressed="${String(Boolean(current.precisionResearch))}" class="setting-option precision-research-toggle ${current.precisionResearch ? "active" : ""}" data-action="toggle-precision-research">
+          <span class="toggle-indicator" aria-hidden="true"></span><span>${escapeHtml(t(current.precisionResearch ? "precisionResearchOn" : "precisionResearchOff"))}</span>
+        </button>
+        <small>${escapeHtml(t("precisionResearchHint"))}</small>
+      </div>
       <div class="setting-group"><strong>${escapeHtml(t("motion"))}</strong><button type="button" class="secondary-button" data-action="toggle-calm">${escapeHtml(document.body.classList.contains("low-stimulation") ? t("useStandard") : t("useLow"))}</button></div>
       <div class="setting-group sound-settings"><div class="sound-heading"><strong>${escapeHtml(t("sound"))}</strong><span class="sound-status">${escapeHtml(current.soundEnabled ? t("soundOn") : t("soundOff"))}</span></div>
         <button type="button" class="secondary-button sound-toggle" data-action="toggle-sound">${escapeHtml(current.soundEnabled ? t("muteSound") : t("enableSound"))}</button>
@@ -1321,9 +1428,8 @@ function settingsPanel() {
         </div>
         <button type="button" class="secondary-button voice-listen" data-action="start-voice-command" ${current.voiceControl ? "" : "disabled"}>${escapeHtml(state.voiceListening ? t("voiceListening") : t("voiceListen"))}</button>
         <small>${escapeHtml(t("voiceHint"))}</small>
-      </div>${adminKeywordControls}`
+      </div>`
   });
-  if (state.user?.isAdmin) loadPrimaryKeywordBlocklist();
 }
 
 function activityCards() {
@@ -1331,12 +1437,12 @@ function activityCards() {
   return activities.length ? activities.map((activity) => `<article class="activity-card"><div class="date-badge">${escapeHtml(activity.date)}</div><div><small>${escapeHtml(activity.meta)}</small><h3>${escapeHtml(activity.title)}</h3><p>${escapeHtml(activity.description)}</p>${state.user?.isAdmin && activity.id ? `<button type="button" class="text-button danger-text activity-delete" data-action="delete-activity" data-activity-id="${escapeHtml(activity.id)}">Delete activity</button>` : ""}</div></article>`).join("") : `<p class="record-empty">There are no upcoming activities yet.</p>`;
 }
 
-function renderActivities() {
-  const adminForm = state.user?.isAdmin ? `<details class="activity-composer"><summary>Add an activity</summary><form id="activity-form" class="stack-form"><label>Date label<input name="date" maxlength="40" required placeholder="Aug 09" /></label><label>Title<input name="title" maxlength="120" required /></label><label>Location / details<input name="meta" maxlength="160" placeholder="San Jose · Free" /></label><label>Description<textarea name="description" rows="4" maxlength="1200" required></textarea></label><button class="primary-button" type="submit">Publish activity</button><p class="form-error" role="alert"></p></form></details>` : "";
+function renderActivities({ compose = false } = {}) {
+  const adminForm = state.user?.isAdmin ? `<details class="activity-composer" ${compose ? "open" : ""}><summary>Add an activity</summary><form id="activity-form" class="stack-form"><label>Date label<input name="date" maxlength="40" required placeholder="Aug 09" /></label><label>Title<input name="title" maxlength="120" required /></label><label>Location / details<input name="meta" maxlength="160" placeholder="San Jose · Free" /></label><label>Description<textarea name="description" rows="4" maxlength="1200" required></textarea></label><button class="primary-button" type="submit">Publish activity</button><p class="form-error" role="alert"></p></form></details>` : "";
   return `<div class="mori-stage activity-character-stage">${guideCharacter("Activity", { className: "mayor-crumpet-character" })}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Activity.name))}</h3><p>${escapeHtml(t("activityGuideIntro"))}</p></div></div><p class="panel-intro">${escapeHtml(t("activityIntro"))}</p>${adminForm}<div class="card-list">${activityCards()}</div>`;
 }
 
-async function activitiesPanel() {
+async function activitiesPanel({ compose = false } = {}) {
   openPanel({
     title: t("activityTitle"),
     eyebrow: t("activityEyebrow"),
@@ -1346,10 +1452,11 @@ async function activitiesPanel() {
     const data = await api("/api/activities");
     state.activities = data.activities || [];
     if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
-    $("#panel-content").innerHTML = renderActivities();
+    renderAccountStatus();
+    $("#panel-content").innerHTML = renderActivities({ compose });
   } catch (error) {
     state.activities = [];
-    $("#panel-content").innerHTML = `${renderActivities()}<p class="form-error">${escapeHtml(error.message)}</p>`;
+    $("#panel-content").innerHTML = `${renderActivities({ compose })}<p class="form-error">${escapeHtml(error.message)}</p>`;
   }
 }
 
@@ -1620,7 +1727,8 @@ function renderFollowUpQuestions(questions = []) {
 function renderCompletedResearch(data, payload, fallbackVersion) {
   registerCompletedResearch(data, payload);
   const expanded = data.keywordExpansion?.suggested || [];
-  return `<div class="ai-response">${escapeHtml(data.answer)}</div>${renderFollowUpQuestions(data.followUpQuestions)}${renderResearchFeedback()}${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, fallbackVersion)}`;
+  const followUp = state.settings.precisionResearch ? renderFollowUpQuestions(data.followUpQuestions) : "";
+  return `<div class="ai-response">${escapeHtml(data.answer)}</div>${followUp}${renderResearchFeedback()}${expanded.length ? `<p class="keyword-expansion"><strong>${escapeHtml(t("expandedTerms"))}:</strong> ${expanded.map(escapeHtml).join(" · ")}</p>` : ""}<div class="card-list">${data.resources.map(resourceCard).join("")}</div>${renderSourceFooter(data, fallbackVersion)}`;
 }
 
 function showDailyResearchFeedback() {
@@ -1696,7 +1804,7 @@ async function submitAi(event) {
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
-    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en" };
+    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en", allowFollowUpQuestions: Boolean(state.settings.precisionResearch) };
     const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
@@ -1826,14 +1934,57 @@ function profilePanel() {
     html: `<p class="panel-intro">${escapeHtml(t("recordIntro"))}</p>
       <div class="sync-badge ${state.sheetSync.configured ? "connected" : "missing"}">${escapeHtml(state.sheetSync.configured ? t("sheetConnected") : t("sheetMissing"))}</div>
       <div class="record-summary">${escapeHtml(profile?.summary || "Complete the Community Compass to create your record.")}</div>
+      <div class="record-primary-actions">
+        <button type="button" class="primary-button" data-action="restart-introduction">${escapeHtml(t("restartIntro"))}</button>
+        <button type="button" class="secondary-button" data-action="edit-survey">${escapeHtml(t("updateSurvey"))}</button>
+      </div>
       <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>
-      ${state.user?.isAdmin ? `<section class="admin-manager"><div><p class="eyebrow">Village administration</p><h3>Administrators</h3><p>Add a registered account by email. Administrators can publish, edit, and remove announcements.</p></div><form id="admin-add-form" class="admin-add-form"><label>Account email<input type="email" name="email" required placeholder="person@example.com" /></label><button class="secondary-button" type="submit">Add administrator</button><p class="form-error" role="alert"></p></form><div id="admin-user-list" class="admin-user-list"><p class="record-empty">Loading administrators…</p></div></section>` : ""}
       <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
       <button class="text-button" data-action="logout">${escapeHtml(t("logout"))}</button>`
   });
-  if (state.user?.isAdmin) loadAdminUsers();
+}
+
+function adminFunctionButton(action, icon, title, description) {
+  return `<button type="button" class="admin-function-button" data-action="${escapeHtml(action)}"><span class="admin-function-icon" aria-hidden="true">${escapeHtml(icon)}</span><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small></span><span class="admin-function-arrow" aria-hidden="true">→</span></button>`;
+}
+
+function adminFunctionsPanel() {
+  if (!state.user?.isAdmin) return toast("Administrator access is required.");
+  const functions = [
+    ["admin-publish-announcement", "+", "Publish announcement", "Create and optionally pin a new village announcement."],
+    ["admin-manage-announcements", "A", "Manage or delete announcements", "Edit, pin, review, or remove existing announcements."],
+    ["admin-publish-activity", "+", "Publish activity", "Add an upcoming event or volunteer opportunity."],
+    ["admin-manage-activities", "V", "Manage or delete activities", "Review the activity list and remove expired entries."],
+    ["admin-manage-users", "U", "Administrator access", "Add registered administrators or remove existing access."],
+    ["admin-keyword-controls", "#", "Primary keyword controls", "Block terms from Primary Keywords and the Error sheet record."]
+  ];
+  openPanel({
+    title: "Administrator Functions",
+    eyebrow: "Private village controls",
+    html: `<p class="admin-function-intro">These controls are visible only to administrators. Choose one function to open its dedicated workspace.</p><div class="admin-function-grid">${functions.map((entry) => adminFunctionButton(...entry)).join("")}</div>`
+  });
+}
+
+function adminUsersPanel() {
+  if (!state.user?.isAdmin) return toast("Administrator access is required.");
+  openPanel({
+    title: "Administrator access",
+    eyebrow: "Private village controls",
+    html: `<section class="admin-manager"><div><p class="eyebrow">Village administration</p><h3>Administrators</h3><p>Add a registered account by email. Administrators can publish, edit, and remove village content.</p></div><form id="admin-add-form" class="admin-add-form"><label>Account email<input type="email" name="email" required placeholder="person@example.com" /></label><button class="secondary-button" type="submit">Add administrator</button><p class="form-error" role="alert"></p></form><div id="admin-user-list" class="admin-user-list"><p class="record-empty">Loading administrators…</p></div></section>`
+  });
+  loadAdminUsers();
+}
+
+function adminKeywordsPanel() {
+  if (!state.user?.isAdmin) return toast("Administrator access is required.");
+  openPanel({
+    title: "Primary keyword controls",
+    eyebrow: "Private village controls",
+    html: `<form id="primary-keyword-blocklist-form" class="admin-keyword-settings"><div><strong>Blocked words and phrases</strong><small>Words listed here cannot appear as Primary Keywords or in the Error sheet Primary Keywords record.</small></div><label>One term per line<textarea name="keywords" rows="8" placeholder="waffles&#10;village">${escapeHtml((state.primaryKeywordBlocklist || []).join("\n"))}</textarea></label><button type="submit" class="primary-button">Save blocked keywords</button><p class="form-error" role="status"></p></form>`
+  });
+  loadPrimaryKeywordBlocklist();
 }
 
 function announcementLabels() {
@@ -1860,25 +2011,26 @@ function announcementSeenKey() {
   return `capy-announcement-seen:${state.user?.id || "visitor"}`;
 }
 
-function renderAnnouncements() {
+function renderAnnouncements({ compose = false } = {}) {
   const labels = announcementLabels();
   const editing = state.announcements.find((item) => item.id === state.editingAnnouncementId) || null;
   const selected = state.announcements.find((item) => item.id === state.selectedAnnouncementId) || state.announcements[0];
   state.selectedAnnouncementId = selected?.id || null;
   const list = state.announcements.length ? state.announcements.map((item) => `<button type="button" class="announcement-list-item ${item.id === selected?.id ? "active" : ""}" data-action="select-announcement" data-announcement-id="${escapeHtml(item.id)}"><small>${item.isPinned ? "✦ " : ""}${escapeHtml(item.category || "Update")}</small><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(announcementDate(item.createdAt))}</span></button>`).join("") : `<p class="announcement-empty">${escapeHtml(labels.empty)}</p>`;
   const detail = selected ? `<article class="announcement-detail"><div class="announcement-detail-meta"><span>${selected.isPinned ? "✦ Pinned · " : ""}${escapeHtml(selected.category || "Update")}</span><time>${escapeHtml(announcementDate(selected.createdAt))}</time></div><h2>${escapeHtml(selected.title)}</h2><div class="announcement-body">${escapeHtml(selected.body).replace(/\n/g, "<br>")}</div><p>${escapeHtml(labels.by)} ${escapeHtml(selected.authorName || "Village admin")}</p>${state.user?.isAdmin ? `<div class="announcement-admin-actions"><button type="button" class="text-button" data-action="edit-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.edit)}</button><button type="button" class="text-button danger-text" data-action="delete-announcement" data-announcement-id="${escapeHtml(selected.id)}">${escapeHtml(labels.remove)}</button></div>` : ""}</article>` : `<div class="announcement-detail announcement-empty-detail"><span aria-hidden="true">📜</span><p>${escapeHtml(labels.empty)}</p></div>`;
-  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="button" data-action="save-announcement">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
+  const form = state.user?.isAdmin ? `<details class="announcement-composer" ${editing || compose ? "open" : ""}><summary>${escapeHtml(editing ? labels.edit : labels.publish)}</summary><form id="announcement-form" class="stack-form"><input type="hidden" name="id" value="${escapeHtml(editing?.id || "")}" /><label>${escapeHtml(labels.headline)}<input name="title" maxlength="120" required value="${escapeHtml(editing?.title || "")}" /></label><label>${escapeHtml(labels.category)}<input name="category" maxlength="40" value="${escapeHtml(editing?.category || "Update")}" /></label><label>${escapeHtml(labels.details)}<textarea name="body" rows="6" maxlength="5000" required>${escapeHtml(editing?.body || "")}</textarea></label><label class="check-row"><input type="checkbox" name="isPinned" ${editing?.isPinned ? "checked" : ""} /> ${escapeHtml(labels.pinned)}</label><div class="announcement-form-actions"><button class="primary-button" type="button" data-action="save-announcement">${escapeHtml(editing ? labels.save : labels.submit)}</button>${editing ? `<button class="secondary-button" type="button" data-action="cancel-announcement-edit">${escapeHtml(labels.cancel)}</button>` : ""}</div><p class="form-error" role="alert"></p></form></details>` : "";
   return `${form}<div class="announcement-parchment"><aside class="announcement-list">${list}</aside>${detail}</div>`;
 }
 
-async function announcementsPanel() {
+async function announcementsPanel({ compose = false } = {}) {
   const labels = announcementLabels();
   openPanel({ title: labels.title, eyebrow: labels.eyebrow, html: `<div class="announcement-loading">Opening the notice board…</div>` });
   try {
     const data = await api("/api/announcements");
     state.announcements = sortAnnouncements(data.announcements);
     if (state.user) state.user.isAdmin = Boolean(data.isAdmin);
-    $("#panel-content").innerHTML = renderAnnouncements();
+    renderAccountStatus();
+    $("#panel-content").innerHTML = renderAnnouncements({ compose });
     localStorage.setItem(announcementSeenKey(), latestAnnouncementToken());
     $("#announcement-dot")?.classList.add("hidden");
   } catch (error) { $("#panel-content").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
@@ -1890,6 +2042,7 @@ async function refreshAnnouncementBadge() {
     const data = await api("/api/announcements");
     state.announcements = sortAnnouncements(data.announcements);
     state.user.isAdmin = Boolean(data.isAdmin);
+    renderAccountStatus();
     const latestId = latestAnnouncementToken();
     const lastSeen = localStorage.getItem(announcementSeenKey());
     $("#announcement-dot")?.classList.toggle("hidden", latestId === "none" || latestId === lastSeen);
@@ -1957,6 +2110,66 @@ async function submitAdminAdd(event) {
   catch (error) { status.textContent = error.message; }
 }
 
+function buildingGuideTopic(building) {
+  if (building.type === "support") return "Support";
+  if (building.type === "activity") return "Activity";
+  return building.topic || "Waffles";
+}
+
+function openBuildingDestination(building) {
+  if (building.type === "support") supportPanel("phone", building.island);
+  if (building.type === "activity") activitiesPanel();
+  if (building.type === "ai") aiPanel(building.topic, building.island);
+}
+
+function showBuildingInterior(building) {
+  const scene = config.interiors?.[building.interior] || {};
+  const interior = $("#building-interior");
+  const image = $("#building-interior-image");
+  image.src = scene.image || config.map.image;
+  image.alt = `${scene.title || building.mapLabel || building.short} illustrated interior`;
+  image.style.objectFit = scene.fit || "cover";
+  image.style.objectPosition = scene.position || "center";
+  $("#building-interior-title").textContent = scene.title || building.mapLabel || building.short;
+  $("#building-interior-island").textContent = building.island === "autism" ? t("autismIsland") : t("adhdIsland");
+  interior.classList.remove("hidden");
+  interior.setAttribute("aria-hidden", "false");
+  if (state.settings.sceneMode === "3d") {
+    state.interior3d?.open(building, {
+      reducedMotion: state.settings.calm,
+      quality: effectiveVisualQuality(),
+      environment: effectiveEnvironment()
+    });
+  }
+  else state.interior3d?.close();
+  document.body.classList.remove("building-transitioning");
+  document.body.classList.add("building-mode");
+  openBuildingDestination(building);
+}
+
+function enterBuilding(building) {
+  const scene = config.interiors?.[building.interior] || {};
+  const guide = GUIDE_CHARACTERS[buildingGuideTopic(building)] || GUIDE_CHARACTERS.Waffles;
+  const loading = $("#building-loading");
+  clearTimeout(state.buildingTransitionTimer);
+  state.activeBuilding = building;
+  $("#building-loading-title").textContent = `Entering ${scene.title || building.mapLabel || building.short}`;
+  $("#building-loading-character").src = guide.src;
+  $("#building-loading-character").alt = "";
+  $("#building-interior-image").src = scene.image || config.map.image;
+  loading.classList.remove("hidden", "active");
+  loading.setAttribute("aria-hidden", "false");
+  document.body.classList.add("building-transitioning");
+  void loading.offsetWidth;
+  loading.classList.add("active");
+  state.buildingTransitionTimer = window.setTimeout(() => {
+    loading.classList.add("hidden");
+    loading.classList.remove("active");
+    loading.setAttribute("aria-hidden", "true");
+    showBuildingInterior(building);
+  }, state.settings.calm ? 320 : 1500);
+}
+
 function handleBuilding(id) {
   const building = config.buildings.find((item) => item.id === id);
   if (!building) return;
@@ -1969,14 +2182,18 @@ function handleBuilding(id) {
   state.communityRoom = null;
   const buildingSpeech = `${building.mapLabel || building.short}. ${building.label}. ${building.type === "support" ? "This opens contact options, community conversations, and support resources." : building.type === "activity" ? "This opens upcoming village activities and volunteer opportunities." : "This opens Waffles resource search for this topic."}`;
   speakVillage(buildingSpeech);
-  if (building.type === "support") supportPanel("phone", building.island);
-  if (building.type === "activity") activitiesPanel();
-  if (building.type === "ai") aiPanel(building.topic, building.island);
+  enterBuilding(building);
 }
 
 function applySettings() {
-  state.settings = { fontSize: "normal", theme: "sage", language: "en", sceneMode: "2d", calm: false, soundEnabled: false, voiceAssistant: false, voiceControl: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
+  state.settings = { fontSize: "normal", theme: "sage", language: "en", sceneMode: "2d", visualQuality: "high", calm: false, soundEnabled: false, voiceAssistant: false, voiceControl: false, precisionResearch: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
+  if (state.settings.calm && state.settings.visualQuality !== "low") {
+    state.settings.visualQualityBeforeCalm ||= state.settings.visualQuality;
+    state.settings.visualQuality = "low";
+  }
   const { fontSize, theme, language, sceneMode, calm } = state.settings;
+  const visualQuality = effectiveVisualQuality();
+  const renderedEnvironment = effectiveEnvironment();
   const scales = { small: ".9", normal: "1", large: "1.12", xlarge: "1.25" };
   document.documentElement.style.setProperty("--font-scale", scales[fontSize] || "1");
   document.body.classList.remove("theme-sage", "theme-blue", "theme-plum", "theme-high");
@@ -1993,11 +2210,31 @@ function applySettings() {
   if ($(".map-hint") && !state.selectedIsland) $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
   renderEnvironmentStatus();
   state.ecosystem?.setCalm(calm);
+  state.ecosystem?.setAtmosphere(renderedEnvironment);
   state.ecosystem?.setSceneMode(sceneMode);
   state.immersive?.setReducedMotion(calm);
   state.immersive?.setEnabled(sceneMode === "3d");
+  state.immersive?.setEnvironment(renderedEnvironment);
+  state.interior3d?.setQuality(visualQuality);
+  state.interior3d?.setReducedMotion(calm);
+  state.interior3d?.setEnvironment(renderedEnvironment);
+  if (state.activeBuilding && !$("#building-interior")?.classList.contains("hidden")) {
+    if (sceneMode === "3d") {
+      state.interior3d?.open(state.activeBuilding, {
+        reducedMotion: calm,
+        quality: visualQuality,
+        environment: renderedEnvironment
+      });
+    }
+    else state.interior3d?.close();
+  }
   state.surfaceMotion?.setReducedMotion(calm);
-  state.surfaceMotion?.setEnabled(sceneMode !== "3d");
+  state.surfaceMotion?.setEnabled(sceneMode !== "3d" && !calm);
+  state.surfaceMotion?.setEnvironment(renderedEnvironment);
+  state.audio?.setWeather?.(renderedEnvironment.weatherKind || renderedEnvironment.weather || "clear");
+  state.audio?.setSeason?.(renderedEnvironment.season || "summer");
+  state.audio?.setDay?.(renderedEnvironment.isDay !== false);
+  state.audio?.setClock?.({ currentMinutes: renderedEnvironment.currentMinutes ?? 720, sunrise: renderedEnvironment.sunrise ?? 360 });
   state.audio?.setSceneMode?.(sceneMode);
   state.audio?.applySettings();
   if (state.user) renderAccountStatus();
@@ -2019,6 +2256,13 @@ function toggleVoiceSetting(key) {
   toast(t("settingsSaved"));
   if (key === "voiceControl" && state.settings.voiceControl) startVoiceCommand({ continuous: true });
   if (key === "voiceAssistant" && state.settings.voiceAssistant) speakVillage("Voice assistant is on. I will narrate islands, buildings, and saved resources.");
+}
+
+function togglePrecisionResearch() {
+  state.settings.precisionResearch = !state.settings.precisionResearch;
+  applySettings();
+  settingsPanel();
+  toast(t("settingsSaved"));
 }
 
 function speakVillage(text, { force = false } = {}) {
@@ -2245,7 +2489,15 @@ function executeVoiceIntent(intent, originalTranscript = "") {
 }
 
 function toggleCalm() {
-  state.settings.calm = !state.settings.calm;
+  if (state.settings.calm) {
+    state.settings.calm = false;
+    state.settings.visualQuality = state.settings.visualQualityBeforeCalm || state.settings.visualQuality || "high";
+    delete state.settings.visualQualityBeforeCalm;
+  } else {
+    state.settings.visualQualityBeforeCalm = state.settings.visualQuality || "high";
+    state.settings.visualQuality = "low";
+    state.settings.calm = true;
+  }
   applySettings();
   toast(t("settingsSaved"));
   if ($("#panel").classList.contains("open") && $("#panel-content [data-setting]")) settingsPanel();
@@ -2499,6 +2751,7 @@ function updateCelestialScene() {
   const sunrise = minutesFromIso(environment.sun?.sunrise, 360);
   const sunset = minutesFromIso(environment.sun?.sunset, 1080);
   const isDay = currentMinutes >= sunrise && currentMinutes <= sunset;
+  state.environment = { ...state.environment, isDay, currentMinutes, sunrise, sunset };
   const orbitStart = celestialOrbit(0);
   let sunPosition = orbitStart;
   let moonPosition = orbitStart;
@@ -2526,12 +2779,16 @@ function updateCelestialScene() {
   stage.style.setProperty("--star-opacity", isDay ? "0" : ".92");
   const localDate = `${parts.year}-${parts.month}-${parts.day}`;
   const locationSeed = [environment.location?.city, environment.location?.region, environment.location?.country, environment.location?.timezone].filter(Boolean).join("|") || "village";
-  state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
-  state.audio?.setDay(isDay);
-  state.audio?.setClock({ currentMinutes, sunrise });
-  state.immersive?.setEnvironment({ isDay, currentMinutes, sunrise, sunset });
-  state.surfaceMotion?.setEnvironment({ isDay });
-  renderMoonPhase(environment);
+  if (!state.settings.calm) {
+    state.ecosystem?.setClock({ isDay, currentMinutes, sunrise, sunset, localDate, locationSeed });
+    state.audio?.setDay(isDay);
+    state.audio?.setClock({ currentMinutes, sunrise });
+    renderMoonPhase(environment);
+  }
+  const renderedEnvironment = effectiveEnvironment(state.environment);
+  state.immersive?.setEnvironment(renderedEnvironment);
+  state.interior3d?.setEnvironment(renderedEnvironment);
+  state.surfaceMotion?.setEnvironment(renderedEnvironment);
   renderEnvironmentStatus();
 }
 
@@ -2541,13 +2798,20 @@ function applyEnvironment(environment, available = true) {
   const parts = zonedParts(environment.location?.timezone || "UTC");
   const season = seasonFor(Number(parts.month), environment.hemisphere);
   const kind = weatherKind(Number(environment.current?.weatherCode || 0));
-  state.environment = { ...environment, available, season, weatherKind: kind };
+  state.environment = {
+    ...environment,
+    available,
+    season,
+    weatherKind: kind,
+    windSpeed: Number(environment.current?.windSpeed || 0),
+    cloudCover: Number(environment.current?.cloudCover || 0)
+  };
   stage.classList.remove("season-spring", "season-summer", "season-autumn", "season-winter", "weather-clear", "weather-cloudy", "weather-fog", "weather-rain", "weather-snow", "weather-storm");
   stage.classList.add(`season-${season}`, `weather-${kind}`);
   stage.style.setProperty("--cloud-strength", String(Math.max(.15, Math.min(1, Number(environment.current?.cloudCover || 0) / 100))));
   state.audio?.setWeather(kind);
   state.audio?.setSeason(season);
-  const atmosphere = { weather: kind, season, windSpeed: Number(environment.current?.windSpeed || 0), cloudCover: Number(environment.current?.cloudCover || 0) };
+  const atmosphere = effectiveEnvironment({ weather: kind, weatherKind: kind, season, windSpeed: Number(environment.current?.windSpeed || 0), cloudCover: Number(environment.current?.cloudCover || 0) });
   state.ecosystem?.setAtmosphere(atmosphere);
   state.immersive?.setEnvironment(atmosphere);
   state.surfaceMotion?.setEnvironment(atmosphere);
@@ -2602,10 +2866,11 @@ function renderWafflesIntro() {
   $("#intro-next").textContent = state.introStep === WAFFLES_INTRO_STEPS.length - 1 ? "Enter the village →" : "Next →";
 }
 
-function openWafflesIntro() {
-  if (!state.user || state.user.guest || state.user.onboardingCompleted !== false) return;
+function openWafflesIntro({ force = false } = {}) {
+  if (!state.user || state.user.guest || (!force && state.user.onboardingCompleted !== false)) return;
   state.introStep = 0;
   state.introOpen = true;
+  state.introReplay = Boolean(force);
   $("#waffles-intro").classList.remove("hidden");
   renderWafflesIntro();
   $("#intro-next").focus();
@@ -2614,7 +2879,9 @@ function openWafflesIntro() {
 async function finishWafflesIntro() {
   state.introOpen = false;
   $("#waffles-intro").classList.add("hidden");
-  if (!state.user || state.user.guest || state.user.onboardingCompleted) return;
+  const replay = state.introReplay;
+  state.introReplay = false;
+  if (!state.user || state.user.guest || replay || state.user.onboardingCompleted) return;
   state.user.onboardingCompleted = true;
   try {
     const { user } = await api("/api/onboarding/complete", { method: "POST", body: "{}" });
@@ -2677,9 +2944,20 @@ document.addEventListener("click", (event) => {
   const action = actionElement?.dataset.action;
   if (!action) return;
   if (action === "close-panel") closePanel();
+  if (action === "exit-building") exitBuilding();
   if (action === "reset-map" || action === "home") returnHome();
   if (action === "open-profile") profilePanel();
+  if (action === "restart-introduction") { closePanel(); openWafflesIntro({ force: true }); }
+  if (action === "edit-survey") startSurveyEdit();
+  if (action === "cancel-survey-edit") cancelSurveyEdit();
   if (action === "open-settings") settingsPanel();
+  if (action === "open-admin-functions") adminFunctionsPanel();
+  if (action === "admin-publish-announcement") announcementsPanel({ compose: true });
+  if (action === "admin-manage-announcements") announcementsPanel();
+  if (action === "admin-publish-activity") activitiesPanel({ compose: true });
+  if (action === "admin-manage-activities") activitiesPanel();
+  if (action === "admin-manage-users") adminUsersPanel();
+  if (action === "admin-keyword-controls") adminKeywordsPanel();
   if (action === "open-announcements") announcementsPanel();
   if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
   if (action === "save-announcement") submitAnnouncementForm(actionElement.closest("form"));
@@ -2704,6 +2982,7 @@ document.addEventListener("click", (event) => {
   if (action === "logout") logout();
   if (action === "toggle-calm") toggleCalm();
   if (action === "toggle-sound") toggleSound();
+  if (action === "toggle-precision-research") togglePrecisionResearch();
   if (action === "toggle-voice-setting") toggleVoiceSetting(actionElement.dataset.voiceSetting);
   if (action === "start-voice-command") startVoiceCommand();
   if (action === "explain-resource") showResourceExplanation(actionElement);
