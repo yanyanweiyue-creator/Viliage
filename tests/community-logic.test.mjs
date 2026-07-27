@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "../community-logic.mjs";
+import { communitySimilarity, containsBlockedLanguage, maskBlockedLanguage, normalizeBlockedTerms, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 test("community matching uses shared survey fields without exposing notes", () => {
   const current = { responses: { interests: ["ADHD", "Autism"], age: "8–12", journey: "1–3 years", situation: ["Exploring concerns"], note: "private current note" } };
@@ -22,4 +22,10 @@ test("community moderation catches abusive English and Chinese while allowing or
   assert.equal(containsBlockedLanguage("你这个傻逼"), true);
   assert.equal(containsBlockedLanguage("Dickinson family support group"), false);
   assert.equal(containsBlockedLanguage("Thank you for helping today"), false);
+});
+
+test("shared restricted terms preserve exact phrases and mask matching text", () => {
+  const terms = normalizeBlockedTerms("No Spoilers\npineapples\nno spoilers");
+  assert.deepEqual(terms, ["no spoilers", "pineapples"]);
+  assert.equal(maskBlockedLanguage("Please, no spoilers or PINEAPPLES.", terms), "Please, ** ******** or **********.");
 });
