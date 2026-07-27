@@ -40,7 +40,7 @@ async function applyAccountSchema(database) {
 
 async function applyCommunitySchema(database) {
   await applyAccountSchema(database);
-  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql"]) {
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql"]) {
     database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
 }
@@ -73,6 +73,7 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0011_community_workspace.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0012_document_studio.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
@@ -81,7 +82,9 @@ test("community migration creates durable chat tables and starter groups", async
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_documents'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_meetings'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_notifications'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "11");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_document_versions'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_document_collaborators'").get().count, 1);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "12");
   database.close();
 });
 
@@ -809,6 +812,101 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   assert.equal(submitted.response.status, 201);
   const responses = await request(owner, `/api/community/documents/${documentId}/responses`);
   assert.equal(responses.data.responses[0].response.activity, "Quiet art circle");
+
+  const initialWorkspace = await request(owner, `/api/community/documents/${documentId}/workspace`);
+  assert.equal(initialWorkspace.response.status, 200);
+  assert.equal(initialWorkspace.data.document.permission, "owner");
+  assert.equal(initialWorkspace.data.versions[0].versionNumber, 1);
+  assert.equal(initialWorkspace.data.responses[0].response.activity, "Quiet art circle");
+
+  const collaborator = await request(owner, `/api/community/documents/${documentId}/collaborators`, {
+    method: "POST",
+    payload: { email: sam.user.email, permission: "editor" }
+  });
+  assert.equal(collaborator.response.status, 201);
+  const collaboratorWorkspace = await request(sam, `/api/community/documents/${documentId}/workspace`);
+  assert.equal(collaboratorWorkspace.data.document.permission, "editor");
+  assert.equal(collaboratorWorkspace.data.document.canEdit, true);
+
+  const edited = await request(sam, `/api/community/documents/${documentId}`, {
+    method: "PATCH",
+    payload: {
+      title: "Village activity poll · edited together",
+      content: { html: "<h1>Activity poll</h1><p>Choose together.</p>", plainText: "Activity poll Choose together.", questions: ["Which activity?"] },
+      settings: { pageSize: "a4", orientation: "portrait", mode: "edit", security: { restrictCopy: true } },
+      createVersion: false
+    }
+  });
+  assert.equal(edited.response.status, 200);
+  assert.equal(edited.data.document.title, "Village activity poll · edited together");
+  assert.equal(edited.data.document.restrictions.copy, false);
+
+  const documentComment = await request(sam, `/api/community/documents/${documentId}/comments`, {
+    method: "POST",
+    payload: { body: "Please review this section.", anchorText: "Choose together.", assignedTo: owner.user.id }
+  });
+  assert.equal(documentComment.response.status, 201);
+  assert.equal(documentComment.data.comment.status, "open");
+  assert.equal((await request(owner, `/api/community/documents/${documentId}/comments`)).data.comments.length, 1);
+
+  assert.equal((await request(sam, `/api/community/documents/${documentId}/presence`, {
+    method: "POST",
+    payload: { sessionId: "sam-edit-session", cursor: { mode: "edit" } }
+  })).response.status, 200);
+  assert.equal((await request(owner, `/api/community/documents/${documentId}/presence`)).data.presence[0].userId, sam.user.id);
+
+  const namedVersion = await request(sam, `/api/community/documents/${documentId}/versions`, {
+    method: "POST",
+    payload: { changeSummary: "Ready for owner review" }
+  });
+  assert.equal(namedVersion.response.status, 201);
+  assert.equal(namedVersion.data.version.versionNumber, 2);
+
+  const folder = await request(owner, "/api/community/document-folders", {
+    method: "POST",
+    payload: { name: "Village plans" }
+  });
+  assert.equal(folder.response.status, 201);
+  await request(owner, `/api/community/documents/${documentId}/metadata`, {
+    method: "PATCH",
+    payload: { folderId: folder.data.folder.id, favorite: true }
+  });
+  const favorites = await request(owner, "/api/community/documents?view=favorites");
+  assert.equal(favorites.data.documents.length, 1);
+  assert.equal(favorites.data.documents[0].favorite, true);
+
+  const publicShare = await request(owner, `/api/community/documents/${documentId}/share-link`, {
+    method: "POST",
+    payload: { enabled: true, permission: "viewer", restrictDownload: true, restrictCopy: true, restrictPrint: true, watermark: "Village confidential" }
+  });
+  assert.equal(publicShare.response.status, 200);
+  const publicDocument = await request(null, `/api/community/public-documents/${publicShare.data.token}`);
+  assert.equal(publicDocument.response.status, 200);
+  assert.equal(publicDocument.data.document.watermark, "Village confidential");
+  assert.equal(publicDocument.data.document.restrictions.download, true);
+
+  const approval = await request(owner, `/api/community/documents/${documentId}/approvals`, {
+    method: "POST",
+    payload: { email: lee.user.email, note: "Please approve the final copy." }
+  });
+  assert.equal(approval.response.status, 201);
+  const approved = await request(lee, `/api/community/documents/${documentId}/approvals/${approval.data.approval.id}`, {
+    method: "PATCH",
+    payload: { status: "approved", note: "Approved." }
+  });
+  assert.equal(approved.response.status, 200);
+  assert.equal(approved.data.status, "approved");
+
+  const signature = await request(sam, `/api/community/documents/${documentId}/signatures`, {
+    method: "POST",
+    payload: { signatureText: "Sam" }
+  });
+  assert.equal(signature.response.status, 201);
+  const integration = await request(owner, `/api/community/documents/${documentId}/integrations`, {
+    method: "POST",
+    payload: { name: "Planning API", type: "api", config: { url: "https://example.com/village-hook" } }
+  });
+  assert.equal(integration.response.status, 201);
 
   const meeting = await request(owner, "/api/community/meetings", {
     method: "POST",
