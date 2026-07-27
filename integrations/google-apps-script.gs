@@ -8,6 +8,7 @@
  * 5. Copy the /exec URL into USER_SHEET_WEBHOOK_URL on the server.
  * 6. Reuse the same /exec URL for ERROR_SHEET_WEBHOOK_URL when this project is
  *    attached to the spreadsheet that contains the Error database tab.
+ * 7. Reuse it for FEEDBACK_SHEET_WEBHOOK_URL and USER_COUNT_SHEET_WEBHOOK_URL.
  *
  * Security: this endpoint intentionally refuses to write passwords.
  */
@@ -17,6 +18,7 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents || "{}");
     if (data.action === "send-password-reset") return sendPasswordResetCode_(data);
     if (data.action === "log-resource-error") return appendResourceError_(data);
+    if (data.action === "record-feedback") return appendFeedback_(data);
     if (data.action === "record-user-count") return updateUserCount_(data);
     delete data.password;
     data["Password"] = "Not stored — secure hash only";
@@ -98,13 +100,8 @@ function updateUserCount_(data) {
 
     var metrics = data.metrics || {};
     var metricKeys = Object.keys(metrics);
-    var date = String(data.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "America/Los_Angeles", "yyyy-MM-dd"));
-    var key = "user-count-row:" + sheet.getParent().getId() + ":" + sheet.getSheetId() + ":" + date;
-    var properties = PropertiesService.getScriptProperties();
-    var storedRow = Number(properties.getProperty(key) || 0);
-    var targetRow = storedRow > 1 && storedRow <= Math.max(sheet.getMaxRows(), sheet.getLastRow()) ? storedRow : Math.max(sheet.getLastRow() + 1, 2);
+    var targetRow = 2;
     if (targetRow > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), targetRow - sheet.getMaxRows());
-    properties.setProperty(key, String(targetRow));
 
     var row = headers.map(function(header) {
       var normalizedHeader = normalizeHeader_(header);
@@ -117,6 +114,47 @@ function updateUserCount_(data) {
       return isFinite(value) ? value : 0;
     });
     sheet.getRange(targetRow, 1, 1, row.length).setValues([row]).setNumberFormat("0.##");
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, row: targetRow }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function appendFeedback_(data) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+    var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
+    if (!headers.some(String)) throw new Error("Feedback sheet needs row-1 headers.");
+
+    var dataKeys = Object.keys(data);
+    var row = headers.map(function(header) {
+      var normalizedHeader = normalizeHeader_(header);
+      var matchingKey = dataKeys.filter(function(key) {
+        return normalizeHeader_(key) === normalizedHeader;
+      })[0];
+      if (normalizedHeader === "feedback") {
+        var status = String(data["Helpful / Nonhelpful"] || "").trim();
+        var details = matchingKey && Object.prototype.hasOwnProperty.call(data, matchingKey)
+          ? String(data[matchingKey] || "").trim()
+          : "";
+        return status && details ? status + ": " + details : status || details;
+      }
+      return matchingKey && Object.prototype.hasOwnProperty.call(data, matchingKey) ? data[matchingKey] : "";
+    });
+
+    var targetRow = Math.max(sheet.getLastRow() + 1, 2);
+    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+    sheet.getRange(targetRow, 1, 1, row.length).setWrap(true).setVerticalAlignment("top");
+    sheet.setRowHeight(targetRow, 72);
+    for (var column = 1; column <= row.length; column++) {
+      var normalizedHeader = normalizeHeader_(headers[column - 1]);
+      var width = /feedback/.test(normalizedHeader) ? 320 : /email|username|user name/.test(normalizedHeader) ? 180 : 150;
+      sheet.setColumnWidth(column, width);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({ ok: true, row: targetRow }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
