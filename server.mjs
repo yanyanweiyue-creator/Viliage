@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
-import { communitySimilarity, containsBlockedLanguage, pairKey, safeDisplayName } from "./community-logic.mjs";
+import { communitySimilarity, containsBlockedLanguage, maskBlockedLanguage, normalizeBlockedTerms, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
@@ -19,12 +19,15 @@ const ANNOUNCEMENTS_FILE = process.env.ANNOUNCEMENTS_FILE || join(DATA_DIR, "ann
 const ACTIVITIES_FILE = process.env.ACTIVITIES_FILE || join(DATA_DIR, "activities.json");
 const USER_COUNT_FILE = process.env.USER_COUNT_FILE || join(DATA_DIR, "user-counts.json");
 const PRIMARY_KEYWORD_BLOCKLIST_FILE = process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE || join(DATA_DIR, "primary-keyword-blocklist.json");
+const COMMUNITY_BLOCKLIST_FILE = process.env.COMMUNITY_BLOCKLIST_FILE || join(DATA_DIR, "community-blocklist.json");
 const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
 const USER_COUNT_SHEET_ID = process.env.USER_COUNT_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const USER_COUNT_SHEET_GID = process.env.USER_COUNT_SHEET_GID || "1958570867";
+const FEEDBACK_SHEET_ID = process.env.FEEDBACK_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const FEEDBACK_SHEET_GID = process.env.FEEDBACK_SHEET_GID || "981733839";
 const COUNT_TOTAL_GUEST_SESSIONS = "Total Guest Sessions";
 const COUNT_TOTAL_ACCOUNTS_CREATED = "Total Accounts Created";
 const COUNT_TOTAL_SEARCHES_COMPLETED = "Total Searches Completed";
@@ -162,7 +165,21 @@ function defaultCommunity() {
     blocks: [],
     roomPreferences: {},
     posts: [],
-    groupInvites: []
+    postComments: [],
+    groupInvites: [],
+    stickers: [],
+    savedMessages: [],
+    reports: [],
+    notifications: [],
+    documents: [],
+    documentShares: [],
+    formResponses: [],
+    meetings: [],
+    meetingParticipants: [],
+    meetingSignals: [],
+    whiteboardEvents: [],
+    polls: [],
+    pollVotes: []
   };
 }
 
@@ -170,7 +187,33 @@ async function loadCommunity() {
   try {
     const saved = JSON.parse(await readFile(COMMUNITY_FILE, "utf8"));
     const base = defaultCommunity();
-    return { ...base, ...saved, profiles: saved.profiles || {}, rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms, members: saved.members || [], messages: saved.messages || [], connections: saved.connections || [], blocks: saved.blocks || [], roomPreferences: saved.roomPreferences || {}, posts: saved.posts || [], groupInvites: saved.groupInvites || [] };
+    return {
+      ...base,
+      ...saved,
+      profiles: saved.profiles || {},
+      rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms,
+      members: saved.members || [],
+      messages: saved.messages || [],
+      connections: saved.connections || [],
+      blocks: saved.blocks || [],
+      roomPreferences: saved.roomPreferences || {},
+      posts: saved.posts || [],
+      postComments: saved.postComments || [],
+      groupInvites: saved.groupInvites || [],
+      stickers: saved.stickers || [],
+      savedMessages: saved.savedMessages || [],
+      reports: saved.reports || [],
+      notifications: saved.notifications || [],
+      documents: saved.documents || [],
+      documentShares: saved.documentShares || [],
+      formResponses: saved.formResponses || [],
+      meetings: saved.meetings || [],
+      meetingParticipants: saved.meetingParticipants || [],
+      meetingSignals: saved.meetingSignals || [],
+      whiteboardEvents: saved.whiteboardEvents || [],
+      polls: saved.polls || [],
+      pollVotes: saved.pollVotes || []
+    };
   } catch { return defaultCommunity(); }
 }
 
@@ -187,6 +230,21 @@ async function savePrimaryKeywordBlocklist(keywords) {
   const normalized = normalizeKeywordList(keywords, 200);
   await saveJsonAtomically(PRIMARY_KEYWORD_BLOCKLIST_FILE, normalized);
   return normalized;
+}
+
+async function loadCommunityBlocklist() {
+  try { return normalizeBlockedTerms(JSON.parse(await readFile(COMMUNITY_BLOCKLIST_FILE, "utf8")), 500); }
+  catch { return []; }
+}
+
+async function saveCommunityBlocklist(terms) {
+  const normalized = normalizeBlockedTerms(terms, 500);
+  await saveJsonAtomically(COMMUNITY_BLOCKLIST_FILE, normalized);
+  return normalized;
+}
+
+async function maskLocalCommunityMessage(value) {
+  return maskBlockedLanguage(String(value || ""), await loadCommunityBlocklist());
 }
 
 function filterPrimaryKeywords(keywords, blockedKeywords) {
@@ -219,6 +277,37 @@ function safeImageDataUrl(value) {
   return image;
 }
 
+function safeAttachment(input = {}) {
+  const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 140);
+  const mime = String(input.mime || "").trim().toLowerCase().slice(0, 100);
+  const dataUrl = String(input.dataUrl || "");
+  if (!name || !mime || !dataUrl) return null;
+  const allowed = /^(?:image\/(?:png|jpe?g|webp|gif)|application\/pdf|text\/plain|application\/(?:msword|vnd\.openxmlformats-officedocument\.(?:wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)))$/i;
+  if (!allowed.test(mime)) throw new Error("Attach an image, PDF, text, Word, Excel, or PowerPoint file.");
+  if (dataUrl.length > 900000 || !new RegExp(`^data:${mime.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")};base64,[a-z0-9+/=]+$`, "i").test(dataUrl)) throw new Error("Choose a supported file smaller than about 650 KB.");
+  return { name, mime, dataUrl };
+}
+
+function localNotification(community, userId, kind, title, body, metadata = {}) {
+  if (community.profiles[userId]?.notificationsEnabled === false) return;
+  community.notifications.push({
+    id: randomBytes(12).toString("hex"),
+    userId,
+    kind,
+    title: String(title).slice(0, 100),
+    body: String(body).slice(0, 240),
+    metadata,
+    readAt: null,
+    createdAt: new Date().toISOString()
+  });
+  community.notifications = community.notifications.slice(-5000);
+}
+
+function notifyLocalRoom(community, roomId, senderId, kind, title, body, metadata = {}) {
+  community.members.filter((member) => member.roomId === roomId && member.userId !== senderId)
+    .forEach((member) => localNotification(community, member.userId, kind, title, body, metadata));
+}
+
 async function localCommunityOverview(user, community) {
   const users = await loadUsers();
   const ownProfile = community.profiles[user.id];
@@ -232,10 +321,10 @@ async function localCommunityOverview(user, community) {
     system_managed: room.createdBy ? 0 : 1,
     pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt)
   })).sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  if (!ownProfile?.enabled) return { enabled: false, displayName: ownProfile?.displayName || safeDisplayName(user.name), groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
-  const recommendations = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !localBlocked(community, user.id, candidate.id) && !community.connections.some((connection) => connection.pairKey === pairKey(user.id, candidate.id))).map((candidate) => {
+  if (!ownProfile?.enabled) return { enabled: false, displayName: ownProfile?.displayName || safeDisplayName(user.name), avatarDataUrl: user.avatarDataUrl || "", groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
+  const recommendations = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && community.profiles[candidate.id]?.discoverable !== false && !localBlocked(community, user.id, candidate.id) && !community.connections.some((connection) => connection.pairKey === pairKey(user.id, candidate.id))).map((candidate) => {
     const match = communitySimilarity(user.profile, candidate.profile);
-    return { userId: candidate.id, displayName: community.profiles[candidate.id].displayName, score: match.score, reasons: match.reasons };
+    return { userId: candidate.id, displayName: community.profiles[candidate.id].displayName, avatarDataUrl: candidate.avatarDataUrl || "", score: match.score, reasons: match.reasons };
   }).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)).slice(0, 6);
   const withName = (connection, userId) => ({ id: connection.id, user_id: userId, display_name: community.profiles[userId]?.displayName || "Village member", created_at: connection.createdAt });
   const incoming = community.connections.filter((item) => item.recipientId === user.id && item.status === "pending").map((item) => withName(item, item.requesterId));
@@ -243,14 +332,49 @@ async function localCommunityOverview(user, community) {
   const directRooms = community.rooms.filter((room) => room.kind === "direct" && community.members.some((member) => member.roomId === room.id && member.userId === user.id)).map((room) => {
     const otherId = community.members.find((member) => member.roomId === room.id && member.userId !== user.id)?.userId;
     const other = users.find((item) => item.id === otherId);
-    return { id: room.id, user_id: otherId, email: other?.email || "", name: community.profiles[otherId]?.displayName || "Private conversation", pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt) };
+    return { id: room.id, user_id: otherId, email: other?.email || "", avatar_data_url: other?.avatarDataUrl || "", name: community.profiles[otherId]?.displayName || "Private conversation", pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt) };
   }).sort((a, b) => Number(b.pinned) - Number(a.pinned));
   const blocks = community.blocks.filter((item) => item.blockerId === user.id).map((item) => ({ user_id: item.blockedId, display_name: community.profiles[item.blockedId]?.displayName || users.find((candidate) => candidate.id === item.blockedId)?.name || "Village member" }));
   const groupInvites = community.groupInvites.filter((invite) => invite.recipientId === user.id && invite.status === "pending").map((invite) => {
     const room = community.rooms.find((item) => item.id === invite.roomId);
     return { id: invite.id, room_id: invite.roomId, room_name: room?.name || "Group", description: room?.description || "", inviter_name: community.profiles[invite.inviterId]?.displayName || "Village member", created_at: invite.createdAt };
   });
-  return { enabled: true, displayName: ownProfile.displayName, groups, recommendations, incoming, outgoing, directRooms, blocks, groupInvites };
+  const notificationCounts = { direct: 0, groups: 0, moments: 0, requests: 0, meetings: 0, total: 0 };
+  community.notifications.filter((item) => item.userId === user.id && !item.readAt).forEach((item) => {
+    notificationCounts.total += 1;
+    if (["direct-message", "document", "file"].includes(item.kind)) notificationCounts.direct += 1;
+    else if (["group-message", "group-document"].includes(item.kind)) notificationCounts.groups += 1;
+    else if (["moment", "moment-comment"].includes(item.kind)) notificationCounts.moments += 1;
+    else if (["request", "group-invite"].includes(item.kind)) notificationCounts.requests += 1;
+    else if (item.kind === "meeting") notificationCounts.meetings += 1;
+    else notificationCounts.direct += 1;
+  });
+  return {
+    enabled: true,
+    displayName: ownProfile.displayName,
+    avatarDataUrl: user.avatarDataUrl || "",
+    coverImageDataUrl: ownProfile.coverImageDataUrl || "",
+    preferences: {
+      notificationsEnabled: ownProfile.notificationsEnabled !== false,
+      discoverable: ownProfile.discoverable !== false,
+      directMessagesEnabled: ownProfile.directMessagesEnabled !== false,
+      locationSharingEnabled: Boolean(ownProfile.locationSharingEnabled),
+      momentTheme: ownProfile.momentTheme === "dark" ? "dark" : "light",
+      allowStrangerRequests: ownProfile.allowStrangerRequests !== false,
+      allowStrangerMoments: Boolean(ownProfile.allowStrangerMoments),
+      momentVisibilityDays: Number(ownProfile.momentVisibilityDays || 30)
+    },
+    notificationCount: notificationCounts.total,
+    notificationCounts,
+    documentCount: community.documents.filter((item) => item.ownerId === user.id).length,
+    groups,
+    recommendations,
+    incoming,
+    outgoing,
+    directRooms,
+    blocks,
+    groupInvites
+  };
 }
 
 function hashPassword(password, salt = randomBytes(16).toString("hex")) {
@@ -326,7 +450,8 @@ function safeUser(user) {
     feedback: user.feedback || "",
     likedResources: Array.isArray(user.likedResources) ? user.likedResources : [],
     dislikedResources: Array.isArray(user.dislikedResources) ? user.dislikedResources : [],
-    isAdmin: Boolean(user.isAdmin)
+    isAdmin: Boolean(user.isAdmin),
+    avatarDataUrl: user.avatarDataUrl || ""
   };
 }
 
@@ -377,7 +502,7 @@ function activityInput(input) {
 }
 
 function guestUser() {
-  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [] };
+  return { id: "guest", name: "Guest", email: "", guest: true, surveyCompleted: true, profile: null, history: [], feedback: "", likedResources: [], dislikedResources: [], avatarDataUrl: "" };
 }
 
 function parseCookies(req) {
@@ -906,15 +1031,6 @@ async function syncUserRecord(user) {
   return { synced: true, row: result.row || null };
 }
 
-function dailyCountDate() {
-  const timeZone = process.env.USER_COUNT_TIME_ZONE || "America/Los_Angeles";
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
-}
-
 async function loadUserCountState() {
   try {
     const saved = JSON.parse(await readFile(USER_COUNT_FILE, "utf8"));
@@ -948,19 +1064,39 @@ function userCountSheetMetrics(metrics = {}) {
   };
 }
 
+function aggregateUserCountMetrics(state = {}) {
+  const entries = state.allTime && typeof state.allTime === "object"
+    ? [state.allTime]
+    : Object.entries(state)
+      .filter(([key, metrics]) => key !== "allTime" && metrics && typeof metrics === "object")
+      .map(([, metrics]) => metrics);
+  const total = emptyUserCountMetrics();
+  for (const metrics of entries) {
+    total[COUNT_TOTAL_GUEST_SESSIONS] += Number(metrics[COUNT_TOTAL_GUEST_SESSIONS] || 0);
+    total[COUNT_TOTAL_ACCOUNTS_CREATED] += Number(metrics[COUNT_TOTAL_ACCOUNTS_CREATED] || 0);
+    total[COUNT_TOTAL_SEARCHES_COMPLETED] += Number(metrics[COUNT_TOTAL_SEARCHES_COMPLETED] || 0);
+    total[COUNT_USEFULNESS_SCORE_TOTAL] += Number(metrics[COUNT_USEFULNESS_SCORE_TOTAL] || 0);
+    total[COUNT_USEFULNESS_RESPONSE_COUNT] += Number(metrics[COUNT_USEFULNESS_RESPONSE_COUNT] || 0);
+  }
+  const usefulnessResponses = Number(total[COUNT_USEFULNESS_RESPONSE_COUNT] || 0);
+  total[COUNT_RECOMMENDATION_USEFULNESS] = usefulnessResponses
+    ? Number((Number(total[COUNT_USEFULNESS_SCORE_TOTAL] || 0) / usefulnessResponses).toFixed(2))
+    : 0;
+  return total;
+}
+
 let userCountMetricsQueue = Promise.resolve();
 
 function recordUserCountMetrics(increments = {}) {
   const run = async () => {
-    const date = dailyCountDate();
     const state = await loadUserCountState();
-    const metrics = { ...emptyUserCountMetrics(), ...(state[date] || {}) };
+    const metrics = aggregateUserCountMetrics(state);
     for (const [key, value] of Object.entries(increments)) metrics[key] = Number(metrics[key] || 0) + Number(value || 0);
     const usefulnessResponses = Number(metrics[COUNT_USEFULNESS_RESPONSE_COUNT] || 0);
     metrics[COUNT_RECOMMENDATION_USEFULNESS] = usefulnessResponses
       ? Number((Number(metrics[COUNT_USEFULNESS_SCORE_TOTAL] || 0) / usefulnessResponses).toFixed(2))
       : 0;
-    state[date] = metrics;
+    state.allTime = metrics;
     await saveUserCountState(state);
     return metrics;
   };
@@ -972,15 +1108,13 @@ async function syncUserCountMetrics(metrics = null) {
   const webhook = process.env.USER_COUNT_SHEET_WEBHOOK_URL;
   if (!webhook) return { synced: false, reason: "USER_COUNT_SHEET_WEBHOOK_URL is not configured." };
   await userCountMetricsQueue.catch(() => {});
-  const date = dailyCountDate();
   const state = metrics ? null : await loadUserCountState();
-  const todayMetrics = metrics || { ...emptyUserCountMetrics(), ...(state[date] || {}) };
+  const allTimeMetrics = metrics || aggregateUserCountMetrics(state);
   const payload = {
     action: "record-user-count",
     spreadsheetId: USER_COUNT_SHEET_ID,
     sheetGid: USER_COUNT_SHEET_GID,
-    date,
-    metrics: userCountSheetMetrics(todayMetrics)
+    metrics: userCountSheetMetrics(allTimeMetrics)
   };
   const response = await fetch(webhook, {
     method: "POST",
@@ -1059,6 +1193,38 @@ async function logErrorRecord(details) {
   return { synced: true, row: result.row || null };
 }
 
+function feedbackRecordPayload({ helpful, rating, details, user }) {
+  return {
+    action: "record-feedback",
+    spreadsheetId: FEEDBACK_SHEET_ID,
+    sheetGid: FEEDBACK_SHEET_GID,
+    "Time Stamp": new Date().toISOString(),
+    "Unique User ID (if applicable)": user?.guest ? "" : (user?.id || ""),
+    "Email (if applicable)": user?.guest ? "" : (user?.email || ""),
+    "Username (if applicable)": user?.name || "",
+    Feedback: details,
+    "Star(1-5)": rating,
+    "Helpful / Nonhelpful": helpful ? "Helpful" : "Nonhelpful"
+  };
+}
+
+async function syncFeedbackRecord(details) {
+  const webhook = process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL;
+  if (!webhook) return { synced: false, reason: "FEEDBACK_SHEET_WEBHOOK_URL is not configured." };
+  const response = await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(feedbackRecordPayload(details)),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error(`Feedback sheet webhook returned ${response.status}.`);
+  const text = await response.text();
+  let result = {};
+  try { result = JSON.parse(text); } catch {}
+  if (result.ok === false) throw new Error(result.error || "Feedback sheet rejected the update.");
+  return { synced: true, row: result.row || null };
+}
+
 async function updateUser(userId, updater) {
   const users = await loadUsers();
   const index = users.findIndex((user) => user.id === userId);
@@ -1088,7 +1254,7 @@ function resourceSnapshot(resource) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL), feedbackSheetConfigured: Boolean(process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "POST" && url.pathname === "/api/voice/narrate") {
@@ -1320,6 +1486,15 @@ async function handleApi(req, res, url) {
     const keywords = await savePrimaryKeywordBlocklist(input.keywords ?? input.text ?? "");
     return sendJson(res, 200, { keywords });
   }
+  if (req.method === "GET" && url.pathname === "/api/admin/community-blocklist") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    return sendJson(res, 200, { terms: await loadCommunityBlocklist() });
+  }
+  if (req.method === "PUT" && url.pathname === "/api/admin/community-blocklist") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const input = await readJsonBody(req);
+    return sendJson(res, 200, { terms: await saveCommunityBlocklist(input.terms ?? input.text ?? "") });
+  }
   const adminDelete = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
   if (req.method === "DELETE" && adminDelete) {
     if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
@@ -1345,20 +1520,57 @@ async function handleApi(req, res, url) {
     const existing = community.profiles[user.id] || {};
     const displayName = safeDisplayName(input.displayName, safeDisplayName(user.name));
     if (containsBlockedLanguage(displayName)) return sendError(res, 400, "Please choose a respectful community name.");
-    community.profiles[user.id] = { ...existing, enabled: Boolean(input.enabled), displayName, updatedAt: new Date().toISOString() };
+    community.profiles[user.id] = {
+      ...existing,
+      enabled: Boolean(input.enabled),
+      displayName,
+      notificationsEnabled: input.notificationsEnabled !== false,
+      discoverable: input.discoverable !== false,
+      directMessagesEnabled: input.directMessagesEnabled !== false,
+      locationSharingEnabled: input.locationSharingEnabled === true,
+      momentTheme: input.momentTheme === "dark" ? "dark" : "light",
+      allowStrangerRequests: input.allowStrangerRequests !== false,
+      allowStrangerMoments: input.allowStrangerMoments === true,
+      momentVisibilityDays: Math.max(1, Math.min(3650, Number(input.momentVisibilityDays || 30))),
+      updatedAt: new Date().toISOString()
+    };
     await saveCommunity(community);
     return sendJson(res, 200, await localCommunityOverview(user, community));
+  }
+
+  if (req.method === "PUT" && url.pathname === "/api/community/avatar") {
+    let avatarDataUrl;
+    try { avatarDataUrl = safeImageDataUrl((await readJsonBody(req)).imageDataUrl); }
+    catch (error) { return sendError(res, 400, error.message); }
+    const users = await loadUsers();
+    const stored = users.find((candidate) => candidate.id === user.id);
+    if (!stored) return sendError(res, 404, "User not found.");
+    stored.avatarDataUrl = avatarDataUrl || "";
+    stored.updatedAt = new Date().toISOString();
+    await saveUsers(users);
+    user.avatarDataUrl = stored.avatarDataUrl;
+    return sendJson(res, 200, { user: safeUser(user), avatarDataUrl: stored.avatarDataUrl });
+  }
+
+  if (req.method === "PUT" && url.pathname === "/api/community/cover") {
+    let coverImageDataUrl;
+    try { coverImageDataUrl = safeImageDataUrl((await readJsonBody(req)).imageDataUrl); }
+    catch (error) { return sendError(res, 400, error.message); }
+    const community = await loadCommunity();
+    community.profiles[user.id] = { ...(community.profiles[user.id] || {}), coverImageDataUrl: coverImageDataUrl || "", updatedAt: new Date().toISOString() };
+    await saveCommunity(community);
+    return sendJson(res, 200, { coverImageDataUrl: coverImageDataUrl || "" });
   }
 
   if (req.method === "GET" && url.pathname === "/api/community/search") {
     const query = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
     if (query.length < 2) return sendJson(res, 200, { people: [] });
     const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
-    const people = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && !localBlocked(community, user.id, candidate.id))
+    const people = users.filter((candidate) => candidate.id !== user.id && community.profiles[candidate.id]?.enabled && community.profiles[candidate.id]?.discoverable !== false && !localBlocked(community, user.id, candidate.id))
       .map((candidate) => {
         const connection = community.connections.find((item) => item.pairKey === pairKey(user.id, candidate.id));
         const relationship = connection?.status === "accepted" ? "friend" : connection?.status === "pending" ? (connection.requesterId === user.id ? "outgoing" : "incoming") : "none";
-        return { user_id: candidate.id, email: candidate.email, display_name: community.profiles[candidate.id]?.displayName || candidate.name, relationship, connection_id: connection?.id || null };
+        return { user_id: candidate.id, email: candidate.email, avatar_data_url: candidate.avatarDataUrl || "", display_name: community.profiles[candidate.id]?.displayName || candidate.name, relationship, connection_id: connection?.id || null };
       })
       .filter((candidate) => candidate.email.toLowerCase().includes(query) || candidate.display_name.toLowerCase().includes(query)).slice(0, 20);
     return sendJson(res, 200, { people });
@@ -1375,6 +1587,7 @@ async function handleApi(req, res, url) {
     community.rooms.push(room);
     community.members.push({ roomId: room.id, userId: user.id, role: "moderator", joinedAt: room.createdAt });
     community.groupInvites.push(...memberIds.map((memberId) => ({ id: randomBytes(12).toString("hex"), roomId: room.id, inviterId: user.id, recipientId: memberId, status: "pending", createdAt: room.createdAt, updatedAt: room.createdAt })));
+    memberIds.forEach((memberId) => localNotification(community, memberId, "group-invite", "Village group invitation", `${community.profiles[user.id]?.displayName || user.name} invited you to ${room.name}`, { roomId: room.id, inviterId: user.id }));
     await saveCommunity(community);
     return sendJson(res, 201, { room: { id: room.id, name: room.name, description: room.description, systemManaged: false } });
   }
@@ -1395,17 +1608,51 @@ async function handleApi(req, res, url) {
     const community = await loadCommunity();
     if (req.method === "GET") {
       const users = await loadUsers();
+      const targetUserId = String(url.searchParams.get("userId") || "");
+      if (targetUserId && targetUserId !== user.id) {
+        const targetProfile = community.profiles[targetUserId];
+        if (!targetProfile?.enabled || localBlocked(community, user.id, targetUserId) || (!localFriends(community, user.id, targetUserId) && !targetProfile.allowStrangerMoments)) return sendError(res, 403, "This member's Moments are private.");
+      }
       const posts = community.posts.filter((post) => {
+        if (targetUserId && post.userId !== targetUserId) return false;
         if (post.userId === user.id) return true;
-        if (!localFriends(community, user.id, post.userId) || localBlocked(community, user.id, post.userId)) return false;
+        const profile = community.profiles[post.userId];
+        if ((!localFriends(community, user.id, post.userId) && !profile?.allowStrangerMoments) || localBlocked(community, user.id, post.userId)) return false;
+        if (new Date(post.createdAt).getTime() < Date.now() - Math.max(1, Number(profile?.momentVisibilityDays || 30)) * 86400000) return false;
         return (!post.allowedUserIds?.length || post.allowedUserIds.includes(user.id)) && !post.deniedUserIds?.includes(user.id);
-      }).slice(-100).reverse().map((post) => ({ ...post, author: community.profiles[post.userId]?.displayName || users.find((candidate) => candidate.id === post.userId)?.name || "Village member", mine: post.userId === user.id, allowedUserIds: post.userId === user.id ? post.allowedUserIds : undefined, deniedUserIds: post.userId === user.id ? post.deniedUserIds : undefined }));
-      return sendJson(res, 200, { posts });
+      }).slice(-100).reverse().map((post) => {
+        const account = users.find((candidate) => candidate.id === post.userId);
+        return {
+          ...post,
+          author: community.profiles[post.userId]?.displayName || account?.name || "Village member",
+          avatarDataUrl: account?.avatarDataUrl || "",
+          comments: community.postComments.filter((comment) => comment.postId === post.id).map((comment) => {
+            const author = users.find((candidate) => candidate.id === comment.userId);
+            return { ...comment, author: community.profiles[comment.userId]?.displayName || author?.name || "Village member", avatarDataUrl: author?.avatarDataUrl || "", mine: comment.userId === user.id };
+          }),
+          mine: post.userId === user.id,
+          allowedUserIds: post.userId === user.id ? post.allowedUserIds : undefined,
+          deniedUserIds: post.userId === user.id ? post.deniedUserIds : undefined
+        };
+      });
+      const profileUserId = targetUserId || user.id;
+      const profileAccount = users.find((candidate) => candidate.id === profileUserId);
+      const profile = community.profiles[profileUserId];
+      return sendJson(res, 200, {
+        posts,
+        profile: profileAccount && profile ? {
+          userId: profileUserId,
+          displayName: profile.displayName || profileAccount.name,
+          avatarDataUrl: profileAccount.avatarDataUrl || "",
+          coverImageDataUrl: profile.coverImageDataUrl || "",
+          momentTheme: profile.momentTheme || "light",
+          mine: profileUserId === user.id
+        } : null
+      });
     }
     if (req.method === "POST") {
       const input = await readJsonBody(req);
-      const postBody = String(input.text || "").trim().slice(0, 2000);
-      if (containsBlockedLanguage(postBody)) return sendError(res, 400, "Please remove harmful or abusive language before posting.");
+      const postBody = (await maskLocalCommunityMessage(String(input.text || "").trim().slice(0, 2000))).trim();
       let imageDataUrl;
       try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return sendError(res, 400, error.message); }
       if (!postBody && !imageDataUrl) return sendError(res, 400, "Add text or an image first.");
@@ -1415,6 +1662,11 @@ async function handleApi(req, res, url) {
       const post = { id: randomBytes(12).toString("hex"), userId: user.id, body: postBody, imageDataUrl, allowedUserIds, deniedUserIds, createdAt: new Date().toISOString() };
       community.posts.push(post);
       community.posts = community.posts.slice(-1000);
+      community.connections.filter((connection) => connection.status === "accepted" && (connection.requesterId === user.id || connection.recipientId === user.id)).forEach((connection) => {
+        const recipientId = connection.requesterId === user.id ? connection.recipientId : connection.requesterId;
+        if ((allowedUserIds.length && !allowedUserIds.includes(recipientId)) || deniedUserIds.includes(recipientId)) return;
+        localNotification(community, recipientId, "moment", "New Moment", `${community.profiles[user.id]?.displayName || user.name} shared a new Moment`, { postId: post.id, userId: user.id });
+      });
       await saveCommunity(community);
       return sendJson(res, 201, { post });
     }
@@ -1428,6 +1680,372 @@ async function handleApi(req, res, url) {
     if (community.posts.length === before) return sendError(res, 404, "Post not found.");
     await saveCommunity(community);
     return sendJson(res, 200, { ok: true });
+  }
+
+  const postCommentMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments(?:\/([^/]+))?$/);
+  if (postCommentMatch) {
+    const community = await loadCommunity();
+    const postId = decodeURIComponent(postCommentMatch[1]);
+    const commentId = postCommentMatch[2] ? decodeURIComponent(postCommentMatch[2]) : "";
+    const post = community.posts.find((item) => item.id === postId);
+    if (!post) return sendError(res, 404, "This Moment is unavailable.");
+    const visible = post.userId === user.id || ((!post.allowedUserIds?.length || post.allowedUserIds.includes(user.id)) && !post.deniedUserIds?.includes(user.id) && !localBlocked(community, user.id, post.userId) && (localFriends(community, user.id, post.userId) || community.profiles[post.userId]?.allowStrangerMoments));
+    if (!visible) return sendError(res, 404, "This Moment is unavailable.");
+    if (req.method === "POST" && !commentId) {
+      const input = await readJsonBody(req);
+      const commentBody = (await maskLocalCommunityMessage(String(input.text || "").trim().slice(0, 1000))).trim();
+      let imageDataUrl;
+      let stickerDataUrl;
+      try {
+        imageDataUrl = safeImageDataUrl(input.imageDataUrl);
+        stickerDataUrl = safeImageDataUrl(input.stickerDataUrl);
+      } catch (error) { return sendError(res, 400, error.message); }
+      if (!commentBody && !imageDataUrl && !stickerDataUrl) return sendError(res, 400, "Write a comment or add an image.");
+      const comment = { id: randomBytes(12).toString("hex"), postId, userId: user.id, body: commentBody, imageDataUrl, stickerDataUrl, createdAt: new Date().toISOString(), mine: true };
+      community.postComments.push(comment);
+      if (post.userId !== user.id) localNotification(community, post.userId, "moment-comment", "New Moment comment", `${community.profiles[user.id]?.displayName || user.name} commented on your Moment`, { postId, commentId: comment.id });
+      await saveCommunity(community);
+      return sendJson(res, 201, { comment: { ...comment, author: community.profiles[user.id]?.displayName || user.name, avatarDataUrl: user.avatarDataUrl || "" } });
+    }
+    if (req.method === "DELETE" && commentId) {
+      const comment = community.postComments.find((item) => item.id === commentId && item.postId === postId);
+      if (!comment || (comment.userId !== user.id && post.userId !== user.id)) return sendError(res, 404, "Comment not found.");
+      community.postComments = community.postComments.filter((item) => item.id !== commentId);
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (url.pathname === "/api/community/stickers") {
+    const community = await loadCommunity();
+    if (req.method === "GET") return sendJson(res, 200, { stickers: community.stickers.filter((item) => item.ownerId === user.id).slice(-100).reverse() });
+    if (req.method === "POST") {
+      const input = await readJsonBody(req);
+      let imageDataUrl;
+      try { imageDataUrl = safeImageDataUrl(input.imageDataUrl); } catch (error) { return sendError(res, 400, error.message); }
+      if (!imageDataUrl) return sendError(res, 400, "Choose an image for this sticker.");
+      const existing = community.stickers.find((item) => item.ownerId === user.id && item.imageDataUrl === imageDataUrl);
+      if (existing) return sendJson(res, 200, { sticker: existing, saved: false });
+      const sticker = { id: randomBytes(12).toString("hex"), ownerId: user.id, name: String(input.name || "Custom sticker").trim().slice(0, 60) || "Custom sticker", imageDataUrl, createdAt: new Date().toISOString() };
+      community.stickers.push(sticker);
+      await saveCommunity(community);
+      return sendJson(res, 201, { sticker, saved: true });
+    }
+  }
+
+  const stickerDeleteMatch = url.pathname.match(/^\/api\/community\/stickers\/([^/]+)$/);
+  if (req.method === "DELETE" && stickerDeleteMatch) {
+    const community = await loadCommunity();
+    const before = community.stickers.length;
+    community.stickers = community.stickers.filter((item) => item.id !== decodeURIComponent(stickerDeleteMatch[1]) || item.ownerId !== user.id);
+    if (community.stickers.length === before) return sendError(res, 404, "Sticker not found.");
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  const communityProfileMatch = url.pathname.match(/^\/api\/community\/profiles\/([^/]+)$/);
+  if (req.method === "GET" && communityProfileMatch) {
+    const targetUserId = decodeURIComponent(communityProfileMatch[1]);
+    const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
+    const target = users.find((candidate) => candidate.id === targetUserId);
+    const profile = community.profiles[targetUserId];
+    if (!target || !profile?.enabled || localBlocked(community, user.id, targetUserId)) return sendError(res, 404, "Community member not found.");
+    const friend = targetUserId === user.id || localFriends(community, user.id, targetUserId);
+    if (!friend && !profile.allowStrangerMoments) return sendError(res, 403, "This member's Moments are private.");
+    return sendJson(res, 200, { profile: { userId: targetUserId, displayName: profile.displayName || target.name, avatarDataUrl: target.avatarDataUrl || "", coverImageDataUrl: profile.coverImageDataUrl || "", momentTheme: profile.momentTheme || "light", momentVisibilityDays: Number(profile.momentVisibilityDays || 30), friend, mine: targetUserId === user.id } });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/community/notifications") {
+    const community = await loadCommunity();
+    const unreadOnly = url.searchParams.get("unread") === "true";
+    const notifications = community.notifications.filter((item) => item.userId === user.id && (!unreadOnly || !item.readAt)).slice(-100).reverse().map((item) => ({ id: item.id, kind: item.kind, title: item.title, body: item.body, metadata: item.metadata || {}, read: Boolean(item.readAt), createdAt: item.createdAt }));
+    return sendJson(res, 200, { notifications });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/community/notifications/read") {
+    const input = await readJsonBody(req);
+    const ids = new Set((Array.isArray(input.ids) ? input.ids : []).map(String));
+    const kinds = new Set((Array.isArray(input.kinds) ? input.kinds : []).map(String));
+    const community = await loadCommunity();
+    const at = new Date().toISOString();
+    community.notifications.forEach((item) => {
+      if (item.userId !== user.id || item.readAt) return;
+      if (!ids.size && !kinds.size || ids.has(item.id) || kinds.has(item.kind)) item.readAt = at;
+    });
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  const messageActionMatch = url.pathname.match(/^\/api\/community\/messages\/([^/]+)\/(save|report)$/);
+  if (messageActionMatch) {
+    const community = await loadCommunity();
+    const messageId = decodeURIComponent(messageActionMatch[1]);
+    const action = messageActionMatch[2];
+    const message = community.messages.find((item) => item.id === messageId && community.members.some((member) => member.roomId === item.roomId && member.userId === user.id));
+    if (!message) return sendError(res, 404, "Message not found.");
+    if (action === "save" && ["POST", "DELETE"].includes(req.method)) {
+      if (req.method === "DELETE") community.savedMessages = community.savedMessages.filter((item) => item.userId !== user.id || item.messageId !== messageId);
+      else if (!community.savedMessages.some((item) => item.userId === user.id && item.messageId === messageId)) community.savedMessages.push({ userId: user.id, messageId, savedAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, saved: req.method === "POST" });
+    }
+    if (action === "report" && req.method === "POST") {
+      const report = { id: randomBytes(12).toString("hex"), reporterId: user.id, messageId, reportedUserId: message.userId, reason: String((await readJsonBody(req)).reason || "Inappropriate or unsafe content").trim().slice(0, 500), status: "open", createdAt: new Date().toISOString() };
+      community.reports.push(report);
+      await saveCommunity(community);
+      return sendJson(res, 201, { ok: true, reportId: report.id });
+    }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/community/saved") {
+    const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
+    const messages = community.savedMessages.filter((item) => item.userId === user.id).slice(-100).reverse().map((saved) => {
+      const message = community.messages.find((item) => item.id === saved.messageId);
+      const account = users.find((candidate) => candidate.id === message?.userId);
+      return message ? { ...message, author: community.profiles[message.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", saved: true } : null;
+    }).filter(Boolean);
+    return sendJson(res, 200, { messages });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/admin/community-reports") {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
+    return sendJson(res, 200, { reports: community.reports.slice(-200).reverse().map((report) => ({ id: report.id, status: report.status, reason: report.reason, reporterName: users.find((candidate) => candidate.id === report.reporterId)?.name || "", reportedName: users.find((candidate) => candidate.id === report.reportedUserId)?.name || "", messageBody: community.messages.find((item) => item.id === report.messageId)?.body || "", createdAt: report.createdAt })) });
+  }
+
+  const reportReviewMatch = url.pathname.match(/^\/api\/admin\/community-reports\/([^/]+)$/);
+  if (req.method === "PATCH" && reportReviewMatch) {
+    if (!user.isAdmin) return sendError(res, 403, "Administrator access is required.");
+    const status = String((await readJsonBody(req)).status || "");
+    if (!["reviewed", "dismissed"].includes(status)) return sendError(res, 400, "Choose reviewed or dismissed.");
+    const community = await loadCommunity();
+    const report = community.reports.find((item) => item.id === decodeURIComponent(reportReviewMatch[1]));
+    if (!report) return sendError(res, 404, "Report not found.");
+    report.status = status;
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === "/api/community/documents") {
+    const community = await loadCommunity();
+    if (req.method === "GET") {
+      const users = await loadUsers();
+      const documents = community.documents.filter((document) => document.ownerId === user.id || community.documentShares.some((share) => share.documentId === document.id && community.members.some((member) => member.roomId === share.roomId && member.userId === user.id))).slice(-100).reverse().map((document) => ({ ...document, ownerName: users.find((candidate) => candidate.id === document.ownerId)?.name || "Village member", mine: document.ownerId === user.id }));
+      return sendJson(res, 200, { documents });
+    }
+    if (req.method === "POST") {
+      const input = await readJsonBody(req);
+      const kind = ["doc", "pdf", "form"].includes(String(input.kind || "").toLowerCase()) ? String(input.kind).toLowerCase() : "doc";
+      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 120);
+      const content = input.content && typeof input.content === "object" ? input.content : {};
+      if (!title) return sendError(res, 400, "Add a document title.");
+      if (JSON.stringify(content).length > 100000) return sendError(res, 400, "This village document is too large.");
+      const at = new Date().toISOString();
+      const document = { id: randomBytes(12).toString("hex"), ownerId: user.id, kind, title, content, mine: true, createdAt: at, updatedAt: at };
+      community.documents.push(document);
+      await saveCommunity(community);
+      return sendJson(res, 201, { document });
+    }
+  }
+
+  const documentMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)(?:\/(share|responses))?$/);
+  if (documentMatch) {
+    const documentId = decodeURIComponent(documentMatch[1]);
+    const operation = documentMatch[2] || "";
+    const community = await loadCommunity();
+    const document = community.documents.find((item) => item.id === documentId);
+    const canRead = document && (document.ownerId === user.id || community.documentShares.some((share) => share.documentId === documentId && community.members.some((member) => member.roomId === share.roomId && member.userId === user.id)));
+    if (!canRead) return sendError(res, 404, "Village document not found.");
+    if (!operation && req.method === "GET") return sendJson(res, 200, { document: { ...document, mine: document.ownerId === user.id } });
+    if (!operation && req.method === "PATCH") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can edit it.");
+      const input = await readJsonBody(req);
+      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 120);
+      const content = input.content && typeof input.content === "object" ? input.content : {};
+      if (!title) return sendError(res, 400, "Add a document title.");
+      if (JSON.stringify(content).length > 100000) return sendError(res, 400, "This village document is too large.");
+      Object.assign(document, { title, content, updatedAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { document: { ...document, mine: true } });
+    }
+    if (!operation && req.method === "DELETE") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can delete it.");
+      community.documents = community.documents.filter((item) => item.id !== documentId);
+      community.documentShares = community.documentShares.filter((item) => item.documentId !== documentId);
+      community.formResponses = community.formResponses.filter((item) => item.documentId !== documentId);
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "share" && req.method === "POST") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can share it.");
+      const roomId = String((await readJsonBody(req)).roomId || "");
+      const room = community.rooms.find((item) => item.id === roomId);
+      if (!room || !community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Choose a chat you belong to.");
+      const at = new Date().toISOString();
+      if (!community.documentShares.some((share) => share.documentId === documentId && share.roomId === roomId)) community.documentShares.push({ documentId, roomId, sharedBy: user.id, createdAt: at });
+      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: `Shared ${document.kind.toUpperCase()}: ${document.title}`, messageType: "document", metadata: { documentId, kind: document.kind, title: document.title }, createdAt: at };
+      community.messages.push(message);
+      notifyLocalRoom(community, roomId, user.id, room.kind === "direct" ? "document" : "group-document", room.name, `${community.profiles[user.id]?.displayName || user.name} shared ${document.title}`, { roomId, documentId, messageId: message.id });
+      await saveCommunity(community);
+      return sendJson(res, 201, { ok: true, roomId, messageId: message.id });
+    }
+    if (operation === "responses" && req.method === "POST") {
+      if (document.kind !== "form") return sendError(res, 400, "Responses are available for forms only.");
+      const response = (await readJsonBody(req)).response;
+      if (JSON.stringify(response || {}).length > 25000) return sendError(res, 400, "The form response is too large.");
+      const formResponse = { id: randomBytes(12).toString("hex"), documentId, userId: user.id, response: response && typeof response === "object" ? response : {}, createdAt: new Date().toISOString() };
+      community.formResponses.push(formResponse);
+      await saveCommunity(community);
+      return sendJson(res, 201, { ok: true, responseId: formResponse.id });
+    }
+    if (operation === "responses" && req.method === "GET") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the form owner can review responses.");
+      const users = await loadUsers();
+      return sendJson(res, 200, { responses: community.formResponses.filter((item) => item.documentId === documentId).slice().reverse().map((item) => ({ ...item, author: community.profiles[item.userId]?.displayName || users.find((candidate) => candidate.id === item.userId)?.name || "Village member" })) });
+    }
+  }
+
+  if (url.pathname === "/api/community/meetings") {
+    const community = await loadCommunity();
+    if (req.method === "GET") {
+      const roomId = String(url.searchParams.get("roomId") || "");
+      if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Choose a chat you belong to.");
+      return sendJson(res, 200, { meetings: community.meetings.filter((meeting) => meeting.roomId === roomId).slice().sort((a, b) => String(b.startsAt).localeCompare(String(a.startsAt))).slice(0, 50) });
+    }
+    if (req.method === "POST") {
+      const input = await readJsonBody(req);
+      const roomId = String(input.roomId || "");
+      const room = community.rooms.find((item) => item.id === roomId);
+      if (!room || !community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendError(res, 403, "Choose a chat you belong to.");
+      const startsAt = new Date(input.startsAt || Date.now());
+      if (!Number.isFinite(startsAt.getTime())) return sendError(res, 400, "Choose a valid meeting date and time.");
+      const at = new Date().toISOString();
+      const meeting = { id: randomBytes(12).toString("hex"), roomId, hostId: user.id, title: String(input.title || "Village meeting").trim().slice(0, 120) || "Village meeting", startsAt: startsAt.toISOString(), durationMinutes: Math.max(10, Math.min(480, Number(input.durationMinutes || 45))), status: "scheduled", settings: { waitingRoom: input.settings?.waitingRoom !== false, recordingAllowed: input.settings?.recordingAllowed !== false, captionsEnabled: input.settings?.captionsEnabled !== false }, createdAt: at, updatedAt: at };
+      community.meetings.push(meeting);
+      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: `Meeting: ${meeting.title}`, messageType: "meeting", metadata: { meetingId: meeting.id, title: meeting.title, startsAt: meeting.startsAt, durationMinutes: meeting.durationMinutes }, createdAt: at };
+      community.messages.push(message);
+      notifyLocalRoom(community, roomId, user.id, "meeting", meeting.title, `${community.profiles[user.id]?.displayName || user.name} scheduled a village meeting`, { roomId, meetingId: meeting.id, startsAt: meeting.startsAt });
+      await saveCommunity(community);
+      return sendJson(res, 201, { meeting, messageId: message.id });
+    }
+  }
+
+  const meetingMatch = url.pathname.match(/^\/api\/community\/meetings\/([^/]+)(?:\/(join|signals|state|whiteboard|polls|end))?$/);
+  if (meetingMatch) {
+    const community = await loadCommunity();
+    const meetingId = decodeURIComponent(meetingMatch[1]);
+    const operation = meetingMatch[2] || "";
+    const meeting = community.meetings.find((item) => item.id === meetingId);
+    if (!meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "Meeting not found.");
+    if (!operation && req.method === "GET") {
+      const users = await loadUsers();
+      const participants = community.meetingParticipants.filter((item) => item.meetingId === meetingId).map((participant) => {
+        const account = users.find((candidate) => candidate.id === participant.userId);
+        return { userId: participant.userId, displayName: community.profiles[participant.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", role: participant.role, raisedHand: Boolean(participant.raisedHand), breakoutRoom: participant.breakoutRoom || "", mine: participant.userId === user.id };
+      });
+      const polls = community.polls.filter((poll) => poll.meetingId === meetingId).map((poll) => {
+        const votes = {};
+        community.pollVotes.filter((vote) => vote.pollId === poll.id).forEach((vote) => { votes[vote.optionIndex] = Number(votes[vote.optionIndex] || 0) + 1; });
+        return { id: poll.id, question: poll.question, options: poll.options, closed: Boolean(poll.closedAt), votes, createdAt: poll.createdAt };
+      });
+      return sendJson(res, 200, { meeting, participants, polls });
+    }
+    if (operation === "join" && req.method === "POST") {
+      if (["ended", "cancelled"].includes(meeting.status)) return sendError(res, 400, "This meeting has ended.");
+      const at = new Date().toISOString();
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id);
+      if (participant) participant.lastSeenAt = at;
+      else community.meetingParticipants.push({ meetingId, userId: user.id, role: meeting.hostId === user.id ? "host" : "participant", raisedHand: false, breakoutRoom: "", joinedAt: at, lastSeenAt: at });
+      if (meeting.status === "scheduled") meeting.status = "live";
+      meeting.updatedAt = at;
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, participantIds: community.meetingParticipants.filter((item) => item.meetingId === meetingId && item.userId !== user.id).map((item) => item.userId) });
+    }
+    if (operation === "join" && req.method === "DELETE") {
+      community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId || item.userId !== user.id);
+      community.meetingSignals.push({ id: randomBytes(12).toString("hex"), meetingId, senderId: user.id, recipientId: null, kind: "leave", payload: {}, createdAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "signals" && req.method === "GET") {
+      const after = String(url.searchParams.get("after") || "");
+      const signals = community.meetingSignals.filter((signal) => signal.meetingId === meetingId && signal.senderId !== user.id && (!signal.recipientId || signal.recipientId === user.id) && signal.createdAt > after).slice(-200);
+      return sendJson(res, 200, { signals });
+    }
+    if (operation === "signals" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const kind = String(input.kind || "");
+      if (!["offer", "answer", "candidate", "leave", "state"].includes(kind)) return sendError(res, 400, "Unsupported meeting signal.");
+      const payload = input.payload && typeof input.payload === "object" ? input.payload : {};
+      if (JSON.stringify(payload).length > 30000) return sendError(res, 400, "Meeting signal is too large.");
+      const signal = { id: randomBytes(12).toString("hex"), meetingId, senderId: user.id, recipientId: String(input.recipientId || "") || null, kind, payload, createdAt: new Date().toISOString() };
+      community.meetingSignals.push(signal);
+      community.meetingSignals = community.meetingSignals.filter((item) => new Date(item.createdAt).getTime() > Date.now() - 10 * 60_000);
+      await saveCommunity(community);
+      return sendJson(res, 201, { ok: true, createdAt: signal.createdAt });
+    }
+    if (operation === "state" && req.method === "PATCH") {
+      const input = await readJsonBody(req);
+      const targetId = meeting.hostId === user.id && input.userId ? String(input.userId) : user.id;
+      if (input.remove === true && meeting.hostId === user.id && targetId !== user.id) {
+        community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId || item.userId !== targetId);
+        await saveCommunity(community);
+        return sendJson(res, 200, { ok: true, removed: targetId });
+      }
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === targetId);
+      if (!participant) return sendError(res, 404, "Participant is not in this meeting.");
+      if (meeting.hostId === user.id && ["cohost", "participant"].includes(input.role)) participant.role = input.role;
+      if (meeting.hostId === user.id && Object.prototype.hasOwnProperty.call(input, "breakoutRoom")) participant.breakoutRoom = String(input.breakoutRoom || "").slice(0, 80);
+      if (Object.prototype.hasOwnProperty.call(input, "raisedHand")) participant.raisedHand = Boolean(input.raisedHand);
+      participant.lastSeenAt = new Date().toISOString();
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, participant: { userId: targetId, role: participant.role, breakoutRoom: participant.breakoutRoom || "", raisedHand: participant.raisedHand } });
+    }
+    if (operation === "whiteboard" && req.method === "GET") {
+      const after = Math.max(0, Number(url.searchParams.get("after") || 0));
+      return sendJson(res, 200, { events: community.whiteboardEvents.filter((item) => item.meetingId === meetingId && item.id > after).slice(0, 1000) });
+    }
+    if (operation === "whiteboard" && req.method === "POST") {
+      const event = (await readJsonBody(req)).event;
+      if (JSON.stringify(event || {}).length > 5000) return sendError(res, 400, "Whiteboard event is too large.");
+      const record = { id: Math.max(0, ...community.whiteboardEvents.map((item) => Number(item.id || 0))) + 1, meetingId, userId: user.id, event: event && typeof event === "object" ? event : {}, createdAt: new Date().toISOString() };
+      community.whiteboardEvents.push(record);
+      await saveCommunity(community);
+      return sendJson(res, 201, { ok: true, id: record.id });
+    }
+    if (operation === "polls" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const question = String(input.question || "").trim().slice(0, 240);
+      const options = [...new Set((Array.isArray(input.options) ? input.options : []).map((option) => String(option || "").trim().slice(0, 120)).filter(Boolean))].slice(0, 8);
+      if (!question || options.length < 2) return sendError(res, 400, "Add a poll question and at least two choices.");
+      const poll = { id: randomBytes(12).toString("hex"), meetingId, creatorId: user.id, question, options, closedAt: null, createdAt: new Date().toISOString() };
+      community.polls.push(poll);
+      await saveCommunity(community);
+      return sendJson(res, 201, { poll: { ...poll, votes: {} } });
+    }
+    if (operation === "end" && req.method === "POST") {
+      if (meeting.hostId !== user.id) return sendError(res, 403, "Only the host can end this meeting.");
+      meeting.status = "ended";
+      meeting.updatedAt = new Date().toISOString();
+      community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId);
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, status: "ended" });
+    }
+  }
+
+  const pollVoteMatch = url.pathname.match(/^\/api\/community\/polls\/([^/]+)\/vote$/);
+  if (req.method === "POST" && pollVoteMatch) {
+    const community = await loadCommunity();
+    const poll = community.polls.find((item) => item.id === decodeURIComponent(pollVoteMatch[1]));
+    const meeting = community.meetings.find((item) => item.id === poll?.meetingId);
+    if (!poll || poll.closedAt || !meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "This poll is unavailable.");
+    const optionIndex = Number((await readJsonBody(req)).optionIndex);
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) return sendError(res, 400, "Choose a poll option.");
+    const existing = community.pollVotes.find((item) => item.pollId === poll.id && item.userId === user.id);
+    if (existing) Object.assign(existing, { optionIndex, createdAt: new Date().toISOString() });
+    else community.pollVotes.push({ pollId: poll.id, userId: user.id, optionIndex, createdAt: new Date().toISOString() });
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, optionIndex });
   }
 
   const friendMatch = url.pathname.match(/^\/api\/community\/friends\/([^/]+)$/);
@@ -1487,6 +2105,7 @@ async function handleApi(req, res, url) {
         const existingInvite = community.groupInvites.find((invite) => invite.roomId === roomId && invite.recipientId === memberId);
         if (existingInvite) Object.assign(existingInvite, { inviterId: user.id, status: "pending", updatedAt: now });
         else community.groupInvites.push({ id: randomBytes(12).toString("hex"), roomId, inviterId: user.id, recipientId: memberId, status: "pending", createdAt: now, updatedAt: now });
+        localNotification(community, memberId, "group-invite", "Village group invitation", `${community.profiles[user.id]?.displayName || user.name} invited you to ${room.name}`, { roomId, inviterId: user.id });
         invited += 1;
       }
       await saveCommunity(community);
@@ -1513,24 +2132,48 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "GET" && operation === "messages") {
       const preference = localRoomPreference(community, roomId, user.id);
-      const messages = community.messages.filter((message) => message.roomId === roomId && (!preference.clearedBefore || message.createdAt > preference.clearedBefore) && !community.blocks.some((block) => block.blockerId === user.id && block.blockedId === message.userId)).slice(-100).map((message) => ({ ...message, author: community.profiles[message.userId]?.displayName || "Village member", mine: message.userId === user.id }));
+      const users = await loadUsers();
+      const messages = community.messages.filter((message) => message.roomId === roomId && (!preference.clearedBefore || message.createdAt > preference.clearedBefore) && !community.blocks.some((block) => block.blockerId === user.id && block.blockedId === message.userId)).slice(-100).map((message) => {
+        const account = users.find((candidate) => candidate.id === message.userId);
+        return { ...message, author: community.profiles[message.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", saved: community.savedMessages.some((saved) => saved.userId === user.id && saved.messageId === message.id), mine: message.userId === user.id };
+      });
       await saveCommunity(community);
       const otherUserId = room.kind === "direct" ? community.members.find((member) => member.roomId === roomId && member.userId !== user.id)?.userId || null : null;
-      const users = room.kind === "group" ? await loadUsers() : [];
-      const members = room.kind === "group" ? community.members.filter((member) => member.roomId === roomId).map((member) => ({ userId: member.userId, displayName: community.profiles[member.userId]?.displayName || users.find((candidate) => candidate.id === member.userId)?.name || "Village member", role: member.role || "member" })).sort((a, b) => Number(b.role === "moderator") - Number(a.role === "moderator") || a.displayName.localeCompare(b.displayName)) : [];
+      const members = room.kind === "group" ? community.members.filter((member) => member.roomId === roomId).map((member) => {
+        const account = users.find((candidate) => candidate.id === member.userId);
+        return { userId: member.userId, displayName: community.profiles[member.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", role: member.role || "member" };
+      }).sort((a, b) => Number(b.role === "moderator") - Number(a.role === "moderator") || a.displayName.localeCompare(b.displayName)) : [];
       return sendJson(res, 200, { room: { id: room.id, name: room.name, kind: room.kind, systemManaged: room.kind === "group" && !room.createdBy, createdBy: room.createdBy || null, pinned: Boolean(preference.pinnedAt), otherUserId }, members, messages });
     }
     if (req.method === "POST" && operation === "messages") {
-      const messageBody = String((await readJsonBody(req)).message || "").trim().slice(0, 1000);
-      if (!messageBody) return sendError(res, 400, "Write a message first.");
-      if (containsBlockedLanguage(messageBody)) return sendError(res, 400, "Please remove harmful or abusive language before sending.");
-      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, createdAt: new Date().toISOString() };
+      const input = await readJsonBody(req);
+      let attachment;
+      try { attachment = safeAttachment(input.attachment); } catch (error) { return sendError(res, 400, error.message); }
+      const requestedType = String(input.messageType || "").toLowerCase();
+      const messageType = requestedType === "location" ? "location" : requestedType === "sticker" && attachment?.mime?.startsWith("image/") ? "sticker" : attachment ? "file" : "text";
+      let metadata = {};
+      if (messageType === "location") {
+        if (!community.profiles[user.id]?.locationSharingEnabled) return sendError(res, 403, "Turn on location sharing in Community settings first.");
+        const latitude = Number(input.location?.latitude);
+        const longitude = Number(input.location?.longitude);
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return sendError(res, 400, "Choose a valid location.");
+        metadata = { latitude: Number(latitude.toFixed(5)), longitude: Number(longitude.toFixed(5)), label: String(input.location?.label || "Shared location").trim().slice(0, 80) };
+      }
+      if (room.kind === "direct") {
+        const recipientId = community.members.find((member) => member.roomId === roomId && member.userId !== user.id)?.userId;
+        if (recipientId && community.profiles[recipientId]?.directMessagesEnabled === false) return sendError(res, 403, "This friend is not accepting private messages right now.");
+      }
+      const rawBody = String(input.message || "").trim().slice(0, 1000);
+      const messageBody = messageType === "text" ? (await maskLocalCommunityMessage(rawBody)).trim() : rawBody || (messageType === "file" ? `Shared ${attachment.name}` : messageType === "location" ? "Shared a location" : "Shared a sticker");
+      if (!messageBody) return sendError(res, 400, "Write a message or attach something first.");
+      const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: messageBody, messageType, attachment, metadata, createdAt: new Date().toISOString() };
       community.messages.push(message);
       community.messages = community.messages.slice(-5000);
+      notifyLocalRoom(community, roomId, user.id, room.kind === "direct" ? "direct-message" : "group-message", room.name, `${community.profiles[user.id]?.displayName || user.name}: ${message.body}`, { roomId, messageId: message.id });
       await saveCommunity(community);
       let sync = { synced: false };
       try { sync = await syncUserRecord(user); } catch (error) { sync = { synced: false, reason: error.message }; }
-      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id].displayName, mine: true }, sync });
+      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id].displayName, avatarDataUrl: user.avatarDataUrl || "", saved: false, mine: true }, sync });
     }
   }
 
@@ -1539,10 +2182,13 @@ async function handleApi(req, res, url) {
     const community = await loadCommunity();
     if (!targetUserId || targetUserId === user.id) return sendError(res, 400, "Choose another community member.");
     if (!community.profiles[user.id]?.enabled || !community.profiles[targetUserId]?.enabled) return sendError(res, 403, "Both members must opt in to community matching.");
+    if (community.profiles[targetUserId]?.allowStrangerRequests === false) return sendError(res, 403, "This member is not accepting new friend requests.");
     if (localBlocked(community, user.id, targetUserId)) return sendError(res, 403, "This connection is unavailable.");
     const key = pairKey(user.id, targetUserId);
     if (community.connections.some((item) => item.pairKey === key)) return sendError(res, 409, "A connection request or private chat already exists.");
-    community.connections.push({ id: randomBytes(12).toString("hex"), pairKey: key, requesterId: user.id, recipientId: targetUserId, status: "pending", roomId: null, createdAt: new Date().toISOString() });
+    const connection = { id: randomBytes(12).toString("hex"), pairKey: key, requesterId: user.id, recipientId: targetUserId, status: "pending", roomId: null, createdAt: new Date().toISOString() };
+    community.connections.push(connection);
+    localNotification(community, targetUserId, "request", "New friend request", `${community.profiles[user.id]?.displayName || user.name} would like to connect`, { connectionId: connection.id, requesterId: user.id });
     await saveCommunity(community);
     return sendJson(res, 201, { ok: true });
   }
@@ -1563,6 +2209,7 @@ async function handleApi(req, res, url) {
     connection.roomId = roomId;
     community.rooms.push({ id: roomId, kind: "direct", name: "Private conversation", description: "", createdAt: new Date().toISOString() });
     community.members.push({ roomId, userId: connection.requesterId, joinedAt: new Date().toISOString() }, { roomId, userId: connection.recipientId, joinedAt: new Date().toISOString() });
+    localNotification(community, connection.requesterId, "request", "Friend request accepted", `${community.profiles[user.id]?.displayName || user.name} accepted your request`, { roomId, userId: user.id });
     await saveCommunity(community);
     return sendJson(res, 200, { ok: true, roomId });
   }
@@ -1677,38 +2324,50 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/research-feedback") {
-    const { helpful = true, source = "research-results", research = {} } = await readJsonBody(req);
-    recordUserCountMetrics({
-      [COUNT_USEFULNESS_SCORE_TOTAL]: Boolean(helpful) ? 5 : 1,
-      [COUNT_USEFULNESS_RESPONSE_COUNT]: 1
-    }).catch((error) => console.warn(`User count update failed: ${error.message}`));
-    if (Boolean(helpful)) {
-      return sendJson(res, 200, { ok: true, recorded: false });
-    }
-    const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);
-    if (!description) return sendError(res, 400, "Research context is required before feedback can be recorded.");
-    let sync = { synced: false, reason: "ERROR_SHEET_WEBHOOK_URL is not configured." };
+    const { helpful = true, rating = 0, details = "", source = "research-results", research = {} } = await readJsonBody(req);
+    const isHelpful = helpful === true || helpful === "true";
+    const numericRating = Number(rating);
+    if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) return sendError(res, 400, "Choose a star rating from 1 to 5.");
+    const feedbackDetails = String(details || "").trim().slice(0, 2000);
+    let feedbackSync = { synced: false, reason: "FEEDBACK_SHEET_WEBHOOK_URL is not configured." };
     try {
-      sync = await logErrorRecord({
-        event: "research_not_helpful",
-        reason: source === "daily-return" ? "User chose Not really in the daily return-to-home research check-in." : "User chose Not Helpful for the completed research.",
-        user,
-        topic: String(research.category || research.topic || ""),
-        diagnosis: String(research.diagnosis || ""),
-        description,
-        requestedCount: research.requestedCount ?? "",
-        providedCount: research.providedCount ?? "",
-        highScoreCount: research.highScoreCount ?? "",
-        source,
-        primaryKeywords: research.primaryKeywords,
-        confirmedKeywords: research.confirmedKeywords,
-        predictedKeywords: research.predictedKeywords,
-        locatedKeywords: research.locatedKeywords
-      });
+      feedbackSync = await syncFeedbackRecord({ helpful: isHelpful, rating: numericRating, details: feedbackDetails, user });
     } catch (error) {
-      sync = { synced: false, reason: error.message };
+      feedbackSync = { synced: false, reason: error.message };
     }
-    return sendJson(res, 200, { ok: true, recorded: Boolean(sync.synced), sync });
+    if (feedbackSync.synced) {
+      recordUserCountMetrics({
+        [COUNT_USEFULNESS_SCORE_TOTAL]: numericRating,
+        [COUNT_USEFULNESS_RESPONSE_COUNT]: 1
+      }).catch((error) => console.warn(`User count update failed: ${error.message}`));
+    }
+
+    const description = String(research.fullInput || research.description || "").trim().slice(0, 2000);
+    let sync = { synced: false, reason: isHelpful ? "Helpful feedback does not require an Error row." : "Research context is unavailable." };
+    if (!isHelpful && description) {
+      try {
+        const reasonPrefix = source === "daily-return" ? "User chose Not really in the daily return-to-home research check-in." : "User chose Not Helpful for the completed research.";
+        sync = await logErrorRecord({
+          event: "research_not_helpful",
+          reason: `${reasonPrefix} Rating: ${numericRating}/5.${feedbackDetails ? ` Details: ${feedbackDetails}` : ""}`,
+          user,
+          topic: String(research.category || research.topic || ""),
+          diagnosis: String(research.diagnosis || ""),
+          description,
+          requestedCount: research.requestedCount ?? "",
+          providedCount: research.providedCount ?? "",
+          highScoreCount: research.highScoreCount ?? "",
+          source,
+          primaryKeywords: research.primaryKeywords,
+          confirmedKeywords: research.confirmedKeywords,
+          predictedKeywords: research.predictedKeywords,
+          locatedKeywords: research.locatedKeywords
+        });
+      } catch (error) {
+        sync = { synced: false, reason: error.message };
+      }
+    }
+    return sendJson(res, 200, { ok: true, recorded: Boolean(feedbackSync.synced), feedbackSync, sync });
   }
 
   if (req.method === "POST" && url.pathname === "/api/feedback") {
