@@ -5,6 +5,14 @@ const BLOCKED_TERMS = new Set(["bitch", "cunt", "dick", "faggot", "fuck", "maric
 const BLOCKED_PHRASES = ["kill yourself", "go die", "heil hitler", "white power"];
 const BLOCKED_UNICODE_PHRASES = ["去死", "操你妈", "草你妈", "傻逼", "婊子", "狗娘养的", "弱智", "黑鬼"];
 
+function maskMatch(value) {
+  return [...String(value || "")].map((character) => /\s/u.test(character) ? character : "*").join("");
+}
+
+function escapedPattern(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function pairKey(firstUserId, secondUserId) {
   return [String(firstUserId || ""), String(secondUserId || "")].sort().join(":");
 }
@@ -24,6 +32,30 @@ export function containsBlockedLanguage(value) {
   const compact = normalized.replace(/\s+/g, "");
   if ([...BLOCKED_TERMS].some((term) => normalized.split(" ").includes(term) || compact === term)) return true;
   return BLOCKED_PHRASES.some((phrase) => ` ${normalized} `.includes(` ${phrase} `));
+}
+
+export function maskBlockedLanguage(value, customTerms = []) {
+  let output = String(value || "");
+  const terms = [...BLOCKED_TERMS, ...BLOCKED_PHRASES, ...BLOCKED_UNICODE_PHRASES, ...(Array.isArray(customTerms) ? customTerms : [])]
+    .map((term) => String(term || "").normalize("NFKC").trim())
+    .filter(Boolean)
+    .sort((first, second) => second.length - first.length);
+  for (const term of terms) {
+    const expression = /[\p{L}\p{N}]/u.test(term.charAt(0)) && /[\p{L}\p{N}]/u.test(term.at(-1))
+      ? new RegExp(`(?<![\\p{L}\\p{N}])${escapedPattern(term)}(?![\\p{L}\\p{N}])`, "giu")
+      : new RegExp(escapedPattern(term), "giu");
+    output = output.replace(expression, maskMatch);
+  }
+  return output;
+}
+
+export function normalizeBlockedTerms(value, max = 500) {
+  const source = Array.isArray(value) ? value : [value];
+  const terms = source
+    .flatMap((item) => String(item || "").split(/[\n,;]+/u))
+    .map((term) => term.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim().slice(0, 80))
+    .filter(Boolean);
+  return [...new Set(terms)].slice(0, Math.max(1, Number(max) || 500));
 }
 
 export function communitySimilarity(currentProfile, candidateProfile) {
