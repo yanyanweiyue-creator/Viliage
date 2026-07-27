@@ -5,6 +5,7 @@ import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
+import { VillageMeetingRuntime } from "./community-meeting.mjs?v=village-community-20260726";
 
 const config = window.CAPY_CONFIG;
 const GUIDE_CHARACTERS = Object.freeze({
@@ -65,12 +66,27 @@ const state = {
   communityTab: "direct",
   communityPostImage: null,
   communityPostImagePromise: null,
+  communityPostComposerOpen: false,
+  communityPostsProfile: null,
+  communityNotifications: [],
+  communityDocuments: [],
+  communityStickers: [],
+  communitySavedMessages: [],
+  communityAttachment: null,
+  communityAttachmentPromise: null,
+  communityCommentImages: new Map(),
+  communityCommentImagePromises: new Map(),
+  communityActiveProfileId: null,
+  communityDocumentRoomId: null,
+  meetingRuntime: null,
   announcements: [],
   activities: [],
   selectedAnnouncementId: null,
   editingAnnouncementId: null,
   adminUsers: [],
   primaryKeywordBlocklist: [],
+  communityBlocklist: [],
+  communityReports: [],
   supportTab: "phone",
   supportIsland: null,
   voiceRecognition: null,
@@ -1083,6 +1099,7 @@ function openPanel({ title, eyebrow = "Village building", html }) {
   $("#panel-title").textContent = title;
   $("#panel-eyebrow").textContent = eyebrow;
   $("#panel-content").innerHTML = html;
+  $("#panel").scrollTop = 0;
   $("#panel").classList.add("open");
   $("#panel").setAttribute("aria-hidden", "false");
   $("#panel-scrim").classList.add("open");
@@ -1163,15 +1180,128 @@ function communityFriendChoices(data, field) {
   return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("") || `<small>Add a friend before choosing specific people.</small>`;
 }
 
+function communityAvatarHtml(person = {}, { className = "", clickable = true } = {}) {
+  const userId = person.userId || person.user_id || "";
+  const name = person.displayName || person.display_name || person.name || person.author || "Village member";
+  const image = person.avatarDataUrl || person.avatar_data_url || "";
+  const content = image ? `<img src="${escapeHtml(image)}" alt="">` : `<span>${escapeHtml(String(name).charAt(0).toUpperCase())}</span>`;
+  if (!clickable || !userId) return `<span class="community-avatar ${escapeHtml(className)}" aria-label="${escapeHtml(name)}">${content}</span>`;
+  return `<button type="button" class="community-avatar community-avatar-button ${escapeHtml(className)}" data-action="open-community-profile" data-user-id="${escapeHtml(userId)}" title="View ${escapeHtml(name)}'s Moments">${content}</button>`;
+}
+
+function communityTime(value) {
+  const date = new Date(value);
+  const seconds = Math.max(1, Math.round((Date.now() - date.getTime()) / 1000));
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function communityStickerButtons({ action = "send-custom-sticker", postId = "" } = {}) {
+  const custom = (state.communityStickers || []).map((sticker) => `<button type="button" class="custom-sticker-button" data-action="${escapeHtml(action)}" data-sticker-id="${escapeHtml(sticker.id)}" data-sticker-src="${escapeHtml(sticker.imageDataUrl)}" ${postId ? `data-post-id="${escapeHtml(postId)}"` : ""} title="${escapeHtml(sticker.name)}"><img src="${escapeHtml(sticker.imageDataUrl)}" alt="${escapeHtml(sticker.name)}"></button>`).join("");
+  return custom || `<small class="sticker-empty">Upload an image to create your first sticker.</small>`;
+}
+
+function communityCommentsHtml(post) {
+  const comments = (post.comments || []).map((comment) => `<article class="moment-comment">
+    ${communityAvatarHtml(comment, { className: "small" })}
+    <div><header><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(comment.userId)}">${escapeHtml(comment.author)}</button><time>${escapeHtml(communityTime(comment.createdAt))}</time></header>
+      ${comment.body ? `<p>${escapeHtml(comment.body)}</p>` : ""}
+      ${comment.imageDataUrl ? `<img class="moment-comment-image" src="${escapeHtml(comment.imageDataUrl)}" alt="Comment image from ${escapeHtml(comment.author)}">` : ""}
+      ${comment.stickerDataUrl ? `<div class="moment-comment-sticker"><img src="${escapeHtml(comment.stickerDataUrl)}" alt="Sticker from ${escapeHtml(comment.author)}">${!comment.mine ? `<button type="button" data-action="save-custom-sticker" data-sticker-src="${escapeHtml(comment.stickerDataUrl)}" data-sticker-name="${escapeHtml(`${comment.author}'s sticker`)}">Save sticker</button>` : ""}</div>` : ""}
+      ${comment.mine || post.mine ? `<button type="button" class="moment-delete-link" data-action="delete-community-comment" data-post-id="${escapeHtml(post.id)}" data-comment-id="${escapeHtml(comment.id)}">Delete</button>` : ""}
+    </div>
+  </article>`).join("");
+  return comments ? `<div class="moment-comments">${comments}</div>` : "";
+}
+
 function communityPostsHtml(posts = []) {
-  return posts.map((post) => `<article class="community-post"><header><strong>${escapeHtml(post.author)}</strong><time>${escapeHtml(new Date(post.createdAt).toLocaleString())}</time></header>${post.body ? `<p>${escapeHtml(post.body)}</p>` : ""}${post.imageDataUrl ? `<img src="${escapeHtml(post.imageDataUrl)}" alt="Image shared by ${escapeHtml(post.author)}">` : ""}${post.mine ? `<button type="button" class="text-button" data-action="delete-community-post" data-post-id="${escapeHtml(post.id)}">Delete post</button>` : ""}</article>`).join("") || `<p class="community-empty">No friend posts yet.</p>`;
+  return posts.map((post) => `<article class="community-post moment-post">
+    <aside>${communityAvatarHtml(post)}</aside>
+    <div class="moment-post-body">
+      <header><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(post.userId)}"><strong>${escapeHtml(post.author)}</strong></button><time title="${escapeHtml(new Date(post.createdAt).toLocaleString())}">${escapeHtml(communityTime(post.createdAt))}</time></header>
+      ${post.body ? `<p class="moment-text">${escapeHtml(post.body)}</p>` : ""}
+      ${post.imageDataUrl ? `<button type="button" class="moment-photo" data-action="open-moment-photo" data-image-src="${escapeHtml(post.imageDataUrl)}"><img src="${escapeHtml(post.imageDataUrl)}" alt="Photo shared by ${escapeHtml(post.author)}"></button>` : ""}
+      <div class="moment-actions"><button type="button" data-action="focus-community-comment" data-post-id="${escapeHtml(post.id)}">Comment</button>${post.mine ? `<button type="button" data-action="delete-community-post" data-post-id="${escapeHtml(post.id)}">Delete</button>` : ""}</div>
+      ${communityCommentsHtml(post)}
+      <form class="moment-comment-form" data-community-comment-form data-post-id="${escapeHtml(post.id)}">
+        <input name="text" maxlength="1000" placeholder="Comment kindly…">
+        <label class="moment-comment-tool" title="Add an image"><span>+</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-comment-image data-post-id="${escapeHtml(post.id)}"></label>
+        <button type="button" class="moment-comment-tool" data-action="toggle-comment-stickers" data-post-id="${escapeHtml(post.id)}" title="Add a sticker">☺</button>
+        <button type="submit">Send</button>
+        <div class="moment-comment-preview" data-comment-preview="${escapeHtml(post.id)}"></div>
+        <div class="moment-comment-sticker-tray hidden" data-comment-stickers="${escapeHtml(post.id)}">${communityStickerButtons({ action: "comment-custom-sticker", postId: post.id })}</div>
+        <p class="form-error" role="alert"></p>
+      </form>
+    </div>
+  </article>`).join("") || `<div class="moment-empty"><strong>No Moments yet</strong><p>Use the camera button to share the first photo or update with friends.</p></div>`;
 }
 
 function communityNavIcon(tab) {
   if (tab === "direct") return `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="10" cy="10" r="4"/><circle cx="22" cy="10" r="4"/><path d="M3.5 24c.8-5 3.2-7.5 6.5-7.5s5.7 2.5 6.5 7.5M15.5 24c.8-5 3.2-7.5 6.5-7.5s5.7 2.5 6.5 7.5"/><path d="M12 7h8"/></svg>`;
   if (tab === "groups") return `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="5" r="3"/><circle cx="27" cy="16" r="3"/><circle cx="16" cy="27" r="3"/><circle cx="5" cy="16" r="3"/><circle cx="16" cy="16" r="8"/></svg>`;
   if (tab === "moments") return `<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 10h6l2-3h8l2 3h6v16H4Z"/><circle cx="16" cy="18" r="5"/></svg>`;
-  return `<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="7" width="24" height="19" rx="2"/><path d="m5 9 11 9L27 9"/></svg>`;
+  if (tab === "inbox") return `<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="7" width="24" height="19" rx="2"/><path d="m5 9 11 9L27 9"/></svg>`;
+  return `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="10" r="6"/><path d="M6 28c1-7 4-11 10-11s9 4 10 11"/><path d="M23 5h6M26 2v6"/></svg>`;
+}
+
+function communityNotificationsHtml(notifications = []) {
+  return notifications.map((notification) => `<button type="button" class="community-notification ${notification.read ? "" : "unread"}" data-action="open-community-notification" data-notification-id="${escapeHtml(notification.id)}" data-notification-kind="${escapeHtml(notification.kind)}" data-notification-meta="${escapeHtml(JSON.stringify(notification.metadata || {}))}"><span class="notification-mark" aria-hidden="true"></span><div><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><time>${escapeHtml(communityTime(notification.createdAt))}</time></div></button>`).join("") || `<p class="community-empty">You are all caught up.</p>`;
+}
+
+function communityDocumentsHtml(documents = [], { compact = false } = {}) {
+  return documents.map((document) => `<article class="village-document-card ${compact ? "compact" : ""}"><span class="document-kind">${escapeHtml(String(document.kind || "doc").toUpperCase())}</span><button type="button" data-action="open-community-document" data-document-id="${escapeHtml(document.id)}"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(document.mine ? "Yours" : `Shared by ${document.ownerName || "a friend"}`)} · ${escapeHtml(communityTime(document.updatedAt))}</small></button>${document.mine ? `<button type="button" class="document-share-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}" title="Share to a chat">↗</button>` : ""}</article>`).join("") || `<p class="community-empty">No Village documents saved yet.</p>`;
+}
+
+function communitySavedHtml(messages = []) {
+  return messages.map((message) => `<article class="saved-community-item"><span>${escapeHtml(String(message.messageType || "text").toUpperCase())}</span><div><strong>${escapeHtml(message.author || "Village member")}</strong><p>${escapeHtml(message.body)}</p>${message.attachment ? `<a href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">Download ${escapeHtml(message.attachment.name)}</a>` : ""}</div><button type="button" data-action="unsave-community-message" data-message-id="${escapeHtml(message.id)}" title="Remove from saved">×</button></article>`).join("") || `<p class="community-empty">Items you save from chat will appear here.</p>`;
+}
+
+function communityMomentComposerHtml(data) {
+  if (!state.communityPostComposerOpen) return "";
+  return `<section class="moment-composer-sheet">
+    <header><div><small>NEW MOMENT</small><strong>Share with your village friends</strong></div><button type="button" data-action="toggle-moment-composer" title="Close composer">×</button></header>
+    <form id="community-post-form" class="stack-form">
+      <label><span class="sr-only">Moment text</span><textarea name="text" maxlength="2000" rows="3" placeholder="What would you like friends to know?"></textarea></label>
+      <label class="moment-photo-picker"><span>Choose a photo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-image></label>
+      <div id="community-image-preview" class="community-image-preview" aria-live="polite"></div>
+      <details><summary>Audience · Friends</summary><strong>Only these friends (leave empty for all)</strong><div class="friend-choices">${communityFriendChoices(data, "allowedUserIds")}</div><strong>Hide from these friends</strong><div class="friend-choices">${communityFriendChoices(data, "deniedUserIds")}</div></details>
+      <button class="primary-button" type="submit">Post Moment</button><p class="form-error" role="alert"></p>
+    </form>
+  </section>`;
+}
+
+function communitySelfHtml(data) {
+  const preferences = data.preferences || {};
+  return `<section class="community-self">
+    <header class="community-self-profile">
+      ${communityAvatarHtml({ userId: state.user?.id, name: data.displayName, avatarDataUrl: data.avatarDataUrl }, { clickable: false, className: "large" })}
+      <div><small>YOUR VILLAGE PROFILE</small><h3>${escapeHtml(data.displayName)}</h3><p>Manage the parts of Community that belong only to you.</p></div>
+      <label class="self-avatar-upload">Change photo<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-avatar></label>
+    </header>
+    <div class="community-self-grid">
+      <section><div class="community-section-heading"><h3>Saved from chat</h3><p>Files, locations, notes, and messages you chose to keep.</p></div><div class="saved-community-list">${communitySavedHtml(state.communitySavedMessages)}</div></section>
+      <section><div class="community-section-heading"><h3>Village documents</h3><p>Your docs, printable PDFs, and forms.</p></div><button type="button" class="secondary-button" data-action="create-community-document">Create document</button><div class="village-document-list">${communityDocumentsHtml(state.communityDocuments, { compact: true })}</div></section>
+      <section><div class="community-section-heading"><h3>Your stickers</h3><p>Upload an image, or save a sticker someone sends.</p></div><label class="self-sticker-upload">Add sticker<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label><div class="self-sticker-grid">${(state.communityStickers || []).map((sticker) => `<article><img src="${escapeHtml(sticker.imageDataUrl)}" alt="${escapeHtml(sticker.name)}"><button type="button" data-action="delete-custom-sticker" data-sticker-id="${escapeHtml(sticker.id)}" title="Delete sticker">×</button></article>`).join("") || `<p class="community-empty">No custom stickers.</p>`}</div></section>
+    </div>
+    <form id="community-privacy-form" class="community-privacy-form">
+      <div class="community-section-heading"><h3>Privacy & notifications</h3><p>These choices apply to your account across devices.</p></div>
+      <label class="community-switch"><span><strong>Community notifications</strong><small>Show unread dots for new chats, Moments, and requests.</small></span><input type="checkbox" name="notificationsEnabled" ${preferences.notificationsEnabled !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>Appear in member search</strong><small>Friends can still open your profile when this is off.</small></span><input type="checkbox" name="discoverable" ${preferences.discoverable !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>Accept private messages</strong><small>Pause new messages without removing friends.</small></span><input type="checkbox" name="directMessagesEnabled" ${preferences.directMessagesEnabled !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>Allow location sharing</strong><small>Required before this browser can send your current location.</small></span><input type="checkbox" name="locationSharingEnabled" ${preferences.locationSharingEnabled ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>Allow strangers to add me</strong><small>Turn off to accept requests only after changing this setting again.</small></span><input type="checkbox" name="allowStrangerRequests" ${preferences.allowStrangerRequests !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>Allow strangers to see Moments</strong><small>Blocked people never see your Moments.</small></span><input type="checkbox" name="allowStrangerMoments" ${preferences.allowStrangerMoments ? "checked" : ""}></label>
+      <label>Friends can see Moments from<select name="momentVisibilityDays">${[[7,"Last 7 days"],[30,"Last 30 days"],[180,"Last 6 months"],[365,"Last year"],[3650,"All available"]].map(([value,label]) => `<option value="${value}" ${Number(preferences.momentVisibilityDays || 30) === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+      <label>Moment appearance<select name="momentTheme"><option value="light" ${preferences.momentTheme !== "dark" ? "selected" : ""}>White</option><option value="dark" ${preferences.momentTheme === "dark" ? "selected" : ""}>Black</option></select></label>
+      <label class="self-cover-upload">Moments cover image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label>
+      <button type="submit" class="primary-button">Save Community settings</button><p class="form-error" role="status"></p>
+    </form>
+    <button type="button" class="text-button danger" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button>
+  </section>`;
 }
 
 function communityOverviewHtml(data, posts = state.communityPosts, activeTab = state.communityTab) {
@@ -1180,26 +1310,72 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   state.communityPosts = posts;
   state.communityTab = activeTab;
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
-  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card"><div><h4>${group.pinned ? "📌 " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "system group · cleans every 12 hours" : "friend group"}</small></div><div class="community-actions"><button type="button" class="secondary-button" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(group.joined ? t("communityOpenRoom") : t("communityJoin"))}</button>${group.joined ? `<button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button>` : ""}</div></article>`).join("") || `<p class="community-empty">No groups yet.</p>`;
-  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card"><div><strong>${escapeHtml(person.displayName)}</strong><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet.</p>`;
-  const incoming = (data.incoming || []).map((request) => `<article class="community-person-card"><strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
-  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room"><span class="community-avatar">${escapeHtml(String(room.name || "V").charAt(0).toUpperCase())}</span><button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "📌 " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><div class="community-actions"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></div></article>`).join("");
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card"><span class="room-symbol">⌂</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">No groups yet.</p>`;
+  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet.</p>`;
+  const incoming = (data.incoming || []).map((request) => `<article class="community-person-card">${communityAvatarHtml(request)}<strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
+  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room">${communityAvatarHtml(room)}<button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
   const blocks = (data.blocks || []).map((person) => `<article class="community-person-card"><strong>${escapeHtml(person.display_name)}</strong><button type="button" class="text-button" data-action="unblock-community-user" data-user-id="${escapeHtml(person.user_id)}">Unblock</button></article>`).join("");
   const groupInvites = (data.groupInvites || []).map((invite) => `<article class="community-person-card"><div><strong>${escapeHtml(invite.room_name)}</strong><small>Invited by ${escapeHtml(invite.inviter_name)}</small><p>${escapeHtml(invite.description || "")}</p></div><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Accept</button><button type="button" class="text-button" data-action="decline-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Decline</button></div></article>`).join("");
-  const moments = `<section><h3>Friend moments</h3><form id="community-post-form" class="stack-form"><label>Share text<textarea name="text" maxlength="2000" rows="3" placeholder="Share something with friends…"></textarea></label><label>Optional image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-image></label><div id="community-image-preview" class="community-image-preview" aria-live="polite"></div><details><summary>Who can see this? Friends only</summary><strong>Only these friends (leave empty for all)</strong><div class="friend-choices">${communityFriendChoices(data, "allowedUserIds")}</div><strong>Hide from these friends</strong><div class="friend-choices">${communityFriendChoices(data, "deniedUserIds")}</div></details><button class="primary-button" type="submit">Post to friends</button><p class="form-error" role="alert"></p></form><div class="community-post-list">${communityPostsHtml(posts)}</div></section>`;
+  const momentProfile = state.communityPostsProfile || { userId: state.user?.id, displayName: data.displayName, avatarDataUrl: data.avatarDataUrl, coverImageDataUrl: data.coverImageDataUrl, momentTheme: data.preferences?.momentTheme || "light", mine: true };
+  const momentCover = momentProfile.coverImageDataUrl || "/assets/interior-village.jpg";
+  const moments = `<section class="moments-page ${momentProfile.momentTheme === "dark" ? "dark" : "light"}">
+    <header class="moments-cover" style="background-image:url('${escapeHtml(momentCover)}')">
+      <div class="moments-cover-shade"></div>
+      <div class="moments-cover-actions">${momentProfile.mine ? `<label class="moment-cover-edit" title="Change cover photo"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="24" height="20" rx="2"></rect><circle cx="11" cy="12" r="2"></circle><path d="m6 23 7-7 4 4 3-3 6 6"></path></svg><span class="sr-only">Change cover photo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label><button type="button" data-action="toggle-moment-composer" class="moment-camera-button" title="Create a Moment">${communityNavIcon("moments")}<span class="sr-only">Create a Moment</span></button>` : ""}</div>
+      <div class="moments-identity"><div><strong>${escapeHtml(momentProfile.displayName || data.displayName)}</strong><small>${momentProfile.mine ? "Your Moments" : "Friend Moments"}</small></div>${communityAvatarHtml({ userId: momentProfile.userId, name: momentProfile.displayName, avatarDataUrl: momentProfile.avatarDataUrl }, { clickable: false, className: "moments-profile-avatar" })}</div>
+    </header>
+    ${!momentProfile.mine ? `<button type="button" class="text-button moments-back" data-action="open-own-moments">← Back to friend feed</button>` : ""}
+    ${momentProfile.mine ? communityMomentComposerHtml(data) : ""}
+    <div class="community-post-list">${communityPostsHtml(posts)}</div>
+  </section>`;
   const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>Create a group and invite friends to join.</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>Group name<input name="name" maxlength="40" required></label><label>Description<textarea name="description" maxlength="240"></textarea></label><strong>Invite friends</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds")}</div><button class="primary-button">Create group</button><p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
-  const direct = `<section><h3>${escapeHtml(t("communityDirect"))}</h3><div class="community-direct-list">${directRooms || `<p class="community-empty">Search for a person above to add your first friend.</p>`}</div></section><section><h3>${escapeHtml(t("communitySuggestions"))}</h3><div class="community-grid">${suggestions}</div></section>`;
-  const inbox = `<section><h3>Friend requests</h3><div class="community-grid">${incoming || `<p class="community-empty">No new friend requests.</p>`}</div></section><section><h3>Group invitations</h3><div class="community-grid">${groupInvites || `<p class="community-empty">No new group invitations.</p>`}</div></section>${blocks ? `<section><h3>Blocked users</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
-  const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : direct;
-  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")]];
-  return `<div class="community-shell"><div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">Search people</label><input id="community-query" name="query" minlength="2" placeholder="Search name or email to add friends" required><button class="secondary-button">Search</button></form><div id="community-search-results"></div></div><div class="community-account"><div><small>${escapeHtml(t("communityDisplayName"))}</small><strong>${escapeHtml(data.displayName)}</strong></div><button type="button" class="text-button" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button></div><main class="community-tab-content">${tabContent}</main><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p><nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${label}</span>${tab === "inbox" && ((data.incoming || []).length + (data.groupInvites || []).length) ? `<b>${(data.incoming || []).length + (data.groupInvites || []).length}</b>` : ""}</button>`).join("")}</nav></div>`;
+  const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>Private conversations with accepted friends.</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">Search above to add your first friend.</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>Suggestions use only shared survey categories.</p></div><div class="community-grid">${suggestions}</div></section>`;
+  const inbox = `<section><div class="community-section-heading"><h3>Notifications</h3><p>New messages, Moments, invitations, and requests.</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">Mark all as read</button></section><section><h3>Friend requests</h3><div class="community-grid">${incoming || `<p class="community-empty">No new friend requests.</p>`}</div></section><section><h3>Group invitations</h3><div class="community-grid">${groupInvites || `<p class="community-empty">No new group invitations.</p>`}</div></section>${blocks ? `<section><h3>Blocked users</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
+  const self = communitySelfHtml(data);
+  const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : activeTab === "self" ? self : direct;
+  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", "Self"]];
+  const counts = data.notificationCounts || {};
+  const badgeFor = (tab) => Number(tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0);
+  const showSearch = ["direct", "groups", "inbox"].includes(activeTab);
+  return `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
+    ${activeTab === "moments" ? "" : `<header class="community-village-header">
+      <div class="community-village-art"><img src="/assets/interior-village.jpg" alt=""><span></span></div>
+      <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>THE COMMONS</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
+      <button type="button" class="community-bell ${data.notificationCount ? "has-unread" : ""}" data-action="community-tab" data-community-tab="inbox" title="Notifications">${communityNavIcon("inbox")}<span class="sr-only">Notifications</span>${data.notificationCount ? `<b>${Number(data.notificationCount)}</b>` : ""}</button>
+    </header>`}
+    ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">Search people</label><input id="community-query" name="query" minlength="2" placeholder="Search name or email to add friends" required><button class="secondary-button">Search</button></form><div id="community-search-results"></div></div>` : ""}
+    <main class="community-tab-content">${tabContent}</main>
+    <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
+    <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span>${badge ? `<b>${badge}</b>` : ""}</button>`; }).join("")}</nav>
+  </div>`;
 }
 
 async function communityPanel() {
   if (state.user?.guest) return toast("Village Community is for registered members. Create an account to join conversations.");
-  clearInterval(state.communityTimer); state.communityRoom = null; state.communityPostImage = null;
+  clearInterval(state.communityTimer);
+  state.communityRoom = null;
+  state.communityPostImage = null;
+  state.communityActiveProfileId = null;
   openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
-  try { const [data, feed] = await Promise.all([api("/api/community"), api("/api/community/posts")]); state.communityPosts = feed.posts || []; $("#panel-content").innerHTML = communityOverviewHtml(data, state.communityPosts); }
+  try {
+    const optional = (path, fallback) => api(path).catch(() => fallback);
+    const [data, feed, notifications, documents, stickers, saved] = await Promise.all([
+      api("/api/community"),
+      api("/api/community/posts"),
+      optional("/api/community/notifications", { notifications: [] }),
+      optional("/api/community/documents", { documents: [] }),
+      optional("/api/community/stickers", { stickers: [] }),
+      optional("/api/community/saved", { messages: [] })
+    ]);
+    state.communityPosts = feed.posts || [];
+    state.communityPostsProfile = feed.profile || null;
+    state.communityNotifications = notifications.notifications || [];
+    state.communityDocuments = documents.documents || [];
+    state.communityStickers = stickers.stickers || [];
+    state.communitySavedMessages = saved.messages || [];
+    if (state.user) state.user.avatarDataUrl = data.avatarDataUrl || state.user.avatarDataUrl || "";
+    $("#panel-content").innerHTML = communityOverviewHtml(data, state.communityPosts);
+  }
   catch (error) { $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`; }
 }
 
@@ -1208,7 +1384,23 @@ function communityMessagesHtml(messages = []) {
   const stickers = { wave: "👋", love: "🫶", laugh: "😂", celebrate: "🎉", hug: "🤗", yes: "👍", cry: "😭", paws: "🐾" };
   return messages.map((message) => {
     const sticker = String(message.body || "").match(/^\[\[sticker:([a-z]+)\]\]$/)?.[1];
-    return `<article class="community-message ${message.mine ? "mine" : ""} ${sticker ? "sticker-message" : ""}"><header><strong>${escapeHtml(message.author)}</strong><time>${escapeHtml(new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time></header>${sticker && stickers[sticker] ? `<div class="chat-sticker" role="img" aria-label="${escapeHtml(sticker)} sticker">${stickers[sticker]}</div>` : `<p>${escapeHtml(message.body)}</p>`}</article>`;
+    const type = message.messageType || (sticker ? "sticker" : "text");
+    let content = `<p>${escapeHtml(message.body)}</p>`;
+    if (sticker && stickers[sticker]) content = `<div class="chat-sticker" role="img" aria-label="${escapeHtml(sticker)} sticker">${stickers[sticker]}</div>`;
+    else if (type === "sticker" && message.attachment?.dataUrl) content = `<div class="chat-custom-sticker"><img src="${escapeHtml(message.attachment.dataUrl)}" alt="${escapeHtml(message.body || "Custom sticker")}">${message.mine ? "" : `<button type="button" data-action="save-custom-sticker" data-sticker-src="${escapeHtml(message.attachment.dataUrl)}" data-sticker-name="${escapeHtml(message.attachment.name || "Saved sticker")}">Save sticker</button>`}</div>`;
+    else if (type === "file" && message.attachment) content = `<a class="chat-file-card" href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}"><span>${message.attachment.mime?.startsWith("image/") ? "IMG" : message.attachment.mime === "application/pdf" ? "PDF" : "FILE"}</span><div><strong>${escapeHtml(message.attachment.name)}</strong><small>${escapeHtml(message.attachment.mime || "Attachment")}</small></div><b>↓</b></a>${message.attachment.mime?.startsWith("image/") ? `<img class="chat-image-attachment" src="${escapeHtml(message.attachment.dataUrl)}" alt="${escapeHtml(message.attachment.name)}">` : ""}`;
+    else if (type === "location") {
+      const latitude = Number(message.metadata?.latitude);
+      const longitude = Number(message.metadata?.longitude);
+      content = `<a class="chat-location-card" href="https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}" target="_blank" rel="noreferrer"><span>⌖</span><div><strong>${escapeHtml(message.metadata?.label || "Shared location")}</strong><small>${latitude.toFixed(4)}, ${longitude.toFixed(4)}</small></div><b>↗</b></a>`;
+    } else if (type === "document") content = `<button type="button" class="chat-document-card" data-action="open-community-document" data-document-id="${escapeHtml(message.metadata?.documentId || "")}"><span>${escapeHtml(String(message.metadata?.kind || "doc").toUpperCase())}</span><div><strong>${escapeHtml(message.metadata?.title || message.body)}</strong><small>Village document · Open together</small></div><b>→</b></button>`;
+    else if (type === "meeting") content = `<article class="chat-meeting-card"><span>LIVE</span><div><strong>${escapeHtml(message.metadata?.title || message.body)}</strong><small>${escapeHtml(new Date(message.metadata?.startsAt || message.createdAt).toLocaleString())} · ${Number(message.metadata?.durationMinutes || 45)} min</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(message.metadata?.meetingId || "")}">Join</button></article>`;
+    return `<article class="community-message ${message.mine ? "mine" : ""} ${type === "sticker" ? "sticker-message" : ""}">
+      <div class="message-avatar-wrap">${communityAvatarHtml(message, { className: "small" })}</div>
+      <div class="message-bubble"><header><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(message.userId)}"><strong>${escapeHtml(message.author)}</strong></button><time>${escapeHtml(new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time></header>${content}
+        <div class="message-actions"><button type="button" data-action="${message.saved ? "unsave-community-message" : "save-community-message"}" data-message-id="${escapeHtml(message.id)}">${message.saved ? "Saved" : "Save"}</button>${message.mine ? "" : `<button type="button" data-action="report-community-message" data-message-id="${escapeHtml(message.id)}">Report</button>`}</div>
+      </div>
+    </article>`;
   }).join("");
 }
 
@@ -1236,11 +1428,56 @@ async function refreshCommunityRoom() {
 
 async function openCommunityRoom(roomId, roomName) {
   clearInterval(state.communityTimer);
-  const data = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`);
+  state.communityAttachment = null;
+  state.communityAttachmentPromise = null;
+  const [data, meetingData] = await Promise.all([
+    api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`),
+    api(`/api/community/meetings?roomId=${encodeURIComponent(roomId)}`).catch(() => ({ meetings: [] }))
+  ]);
   state.communityRoom = { ...data.room, id: roomId, name: roomName || data.room.name };
-  const roomActions = `<div class="community-room-toolbar"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(roomId)}" data-pinned="${String(!data.room.pinned)}">${data.room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="clear-community-history" data-room-id="${escapeHtml(roomId)}">Clear my history</button>${data.room.kind === "group" ? `<button type="button" class="text-button danger" data-action="leave-community-room" data-room-id="${escapeHtml(roomId)}">Leave group</button>` : `<button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Remove friend</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Block</button>`}</div>`;
+  const roomActions = `<div class="community-room-toolbar"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(roomId)}" data-pinned="${String(!data.room.pinned)}">${data.room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="clear-community-history" data-room-id="${escapeHtml(roomId)}">Clear my history</button>${data.room.kind === "group" ? `<button type="button" class="text-button danger" data-action="leave-community-room" data-room-id="${escapeHtml(roomId)}">Leave group</button>` : `<button type="button" class="text-button" data-action="open-community-profile" data-user-id="${escapeHtml(data.room.otherUserId || "")}">View Moments</button><button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Remove friend</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Block</button>`}</div>`;
   const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
-  openPanel({ title: roomName || data.room.name, eyebrow: t("communityTitle"), html: `<div class="community-chat"><button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>${roomActions}${data.room.systemManaged ? `<p class="privacy-note">This system group automatically deletes shared messages older than 12 hours.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}${groupMemberControls(data)}<div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div><div class="sticker-picker" aria-label="Stickers">${stickerButtons}</div><form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(roomId)}"/><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}" required></textarea></label><button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form><p class="privacy-note">${escapeHtml(t("communitySafety"))}</p></div>` });
+  const customStickers = communityStickerButtons();
+  const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
+  openPanel({
+    title: roomName || data.room.name,
+    eyebrow: t("communityTitle"),
+    html: `<div class="community-chat">
+      <button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>
+      ${roomActions}
+      ${data.room.systemManaged ? `<p class="privacy-note">This Commons room automatically deletes messages older than 12 hours.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}
+      ${groupMemberControls(data)}
+      ${meetings ? `<section class="room-meeting-list"><header><strong>Meetings</strong></header>${meetings}</section>` : ""}
+      <div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div>
+      <div class="community-compose-tools">
+        <label class="compose-tool" title="Attach a photo or document">⌕<span class="sr-only">Attach file</span><input type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
+        <button type="button" class="compose-tool" data-action="share-community-location" title="Share current location">⌖<span class="sr-only">Share location</span></button>
+        <button type="button" class="compose-tool" data-action="create-community-document" title="Create a Village document">▤<span class="sr-only">Create document</span></button>
+        <button type="button" class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉<span class="sr-only">Schedule meeting</span></button>
+        <label class="compose-tool" title="Upload a custom sticker">☺<span class="sr-only">Upload sticker</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>
+      </div>
+      <div id="community-attachment-preview" class="community-attachment-preview"></div>
+      <div class="sticker-picker" aria-label="Stickers">${stickerButtons}${customStickers}</div>
+      <form id="community-meeting-form" class="community-meeting-form hidden">
+        <input name="title" maxlength="120" value="Village catch-up" required>
+        <label>Start time<input name="startsAt" type="datetime-local" required></label>
+        <label>Minutes<input name="durationMinutes" type="number" min="10" max="480" value="45" required></label>
+        <button type="submit" class="secondary-button">Schedule and invite this chat</button><p class="form-error"></p>
+      </form>
+      <form id="community-message-form" class="community-message-form">
+        <input type="hidden" name="roomId" value="${escapeHtml(roomId)}">
+        <label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}"></textarea></label>
+        <button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p>
+      </form>
+      <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
+    </div>`
+  });
+  const localStart = new Date(Date.now() + 15 * 60_000);
+  localStart.setMinutes(localStart.getMinutes() - localStart.getTimezoneOffset());
+  const startsAt = $("#community-meeting-form input[name='startsAt']");
+  if (startsAt) startsAt.value = localStart.toISOString().slice(0, 16);
+  const readKinds = data.room.kind === "direct" ? ["direct-message", "document", "file", "meeting"] : ["group-message", "group-document", "meeting"];
+  api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ kinds: readKinds }) }).catch(() => {});
   state.communityTimer = setInterval(refreshCommunityRoom, 5000);
 }
 
@@ -1259,8 +1496,14 @@ async function submitCommunityMessage(event) {
   const form = event.target;
   const message = new FormData(form).get("message");
   try {
-    await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    if (state.communityAttachmentPromise) await state.communityAttachmentPromise;
+    if (!String(message || "").trim() && !state.communityAttachment) throw new Error("Write a message or attach something first.");
+    await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message, attachment: state.communityAttachment }) });
     form.reset();
+    state.communityAttachment = null;
+    state.communityAttachmentPromise = null;
+    const preview = $("#community-attachment-preview");
+    if (preview) preview.innerHTML = "";
     await refreshCommunityRoom();
   } catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
@@ -1272,7 +1515,7 @@ async function submitCommunitySearch(event) {
     const data = await api(`/api/community/search?q=${encodeURIComponent(query)}`);
     $("#community-search-results").innerHTML = (data.people || []).map((person) => {
       const action = person.relationship === "friend" ? `<button type="button" class="secondary-button" data-action="open-friend-chat" data-user-id="${escapeHtml(person.user_id)}">Open chat</button>` : person.relationship === "outgoing" ? `<button type="button" class="secondary-button" disabled>Request sent</button>` : person.relationship === "incoming" ? `<button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(person.connection_id || "")}">Accept request</button>` : `<button type="button" class="secondary-button" data-action="connect-community" data-user-id="${escapeHtml(person.user_id)}">Add friend</button>`;
-      return `<article class="community-person-card"><div><strong>${escapeHtml(person.display_name)}</strong><small>${escapeHtml(person.email)}</small></div>${action}</article>`;
+      return `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.user_id)}"><strong>${escapeHtml(person.display_name)}</strong></button><small>${escapeHtml(person.email)}</small></div>${action}</article>`;
     }).join("") || `<p class="community-empty">No community member matched that name or email.</p>`;
   } catch (error) { $("#community-search-results").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
 }
@@ -1298,7 +1541,7 @@ async function submitCommunityRoomInvite(event) {
 async function submitCommunityPost(event) {
   event.preventDefault();
   const form = event.target; const data = new FormData(form);
-  try { if (state.communityPostImagePromise) await state.communityPostImagePromise; await api("/api/community/posts", { method: "POST", body: JSON.stringify({ text: data.get("text"), imageDataUrl: state.communityPostImage, allowedUserIds: data.getAll("allowedUserIds"), deniedUserIds: data.getAll("deniedUserIds") }) }); state.communityPostImage = null; state.communityPostImagePromise = null; state.communityTab = "moments"; await communityPanel(); }
+  try { if (state.communityPostImagePromise) await state.communityPostImagePromise; await api("/api/community/posts", { method: "POST", body: JSON.stringify({ text: data.get("text"), imageDataUrl: state.communityPostImage, allowedUserIds: data.getAll("allowedUserIds"), deniedUserIds: data.getAll("deniedUserIds") }) }); state.communityPostImage = null; state.communityPostImagePromise = null; state.communityPostComposerOpen = false; state.communityTab = "moments"; await communityPanel(); state.communityTab = "moments"; $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "moments"); }
   catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
 
@@ -1314,12 +1557,436 @@ function handleCommunityImage(input) {
   });
 }
 
+function readCommunityFile(file, { maxBytes = 650000, pattern = /^image\/(png|jpeg|webp|gif)$/, label = "image" } = {}) {
+  if (!file) return Promise.resolve(null);
+  if (file.size > maxBytes || !pattern.test(file.type)) return Promise.reject(new Error(`Choose a supported ${label} under ${Math.round(maxBytes / 1000)} KB.`));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`That ${label} could not be read.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function handleCommunityAttachment(input) {
+  const file = input.files?.[0];
+  state.communityAttachment = null;
+  const allowed = /^(?:image\/(?:png|jpe?g|webp|gif)|application\/pdf|text\/plain|application\/(?:msword|vnd\.openxmlformats-officedocument\.(?:wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)))$/i;
+  state.communityAttachmentPromise = readCommunityFile(file, { maxBytes: 650000, pattern: allowed, label: "file" })
+    .then((dataUrl) => {
+      if (!dataUrl) return;
+      state.communityAttachment = { name: file.name, mime: file.type, dataUrl };
+      const preview = $("#community-attachment-preview");
+      if (preview) preview.innerHTML = `<span>${file.type.startsWith("image/") ? "IMG" : file.type === "application/pdf" ? "PDF" : "FILE"}</span><div><strong>${escapeHtml(file.name)}</strong><small>Ready to send</small></div><button type="button" data-action="clear-community-attachment" title="Remove attachment">×</button>`;
+    })
+    .catch((error) => { input.value = ""; toast(error.message); throw error; });
+}
+
+async function handleCommunityAvatar(input) {
+  try {
+    const imageDataUrl = await readCommunityFile(input.files?.[0], { maxBytes: 550000, label: "profile image" });
+    if (!imageDataUrl) return;
+    const data = await api("/api/community/avatar", { method: "PUT", body: JSON.stringify({ imageDataUrl }) });
+    state.user = { ...state.user, ...(data.user || {}), avatarDataUrl: data.avatarDataUrl || imageDataUrl };
+    toast("Profile photo updated.");
+    await communityPanel();
+    state.communityTab = "self";
+    $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "self");
+  } catch (error) { input.value = ""; toast(error.message); }
+}
+
+async function handleCommunityCover(input) {
+  try {
+    const imageDataUrl = await readCommunityFile(input.files?.[0], { maxBytes: 550000, label: "cover image" });
+    if (!imageDataUrl) return;
+    await api("/api/community/cover", { method: "PUT", body: JSON.stringify({ imageDataUrl }) });
+    toast("Moments cover updated.");
+    const tab = state.communityTab;
+    await communityPanel();
+    state.communityTab = tab;
+    $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, tab);
+  } catch (error) { input.value = ""; toast(error.message); }
+}
+
+async function handleCommunityStickerUpload(input) {
+  try {
+    const file = input.files?.[0];
+    const imageDataUrl = await readCommunityFile(file, { maxBytes: 550000, label: "sticker image" });
+    if (!imageDataUrl) return;
+    const result = await api("/api/community/stickers", { method: "POST", body: JSON.stringify({ name: file.name.replace(/\.[^.]+$/, ""), imageDataUrl }) });
+    if (!state.communityStickers.some((item) => item.id === result.sticker.id)) state.communityStickers.unshift(result.sticker);
+    toast(result.saved === false ? "That sticker is already saved." : "Sticker added.");
+    if (state.communityRoom) return openCommunityRoom(state.communityRoom.id, state.communityRoom.name);
+    $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab);
+  } catch (error) { input.value = ""; toast(error.message); }
+}
+
+function handleCommunityCommentImage(input) {
+  const postId = input.dataset.postId;
+  state.communityCommentImages.delete(postId);
+  const promise = readCommunityFile(input.files?.[0], { maxBytes: 550000, label: "comment image" }).then((imageDataUrl) => {
+    if (!imageDataUrl) return;
+    state.communityCommentImages.set(postId, imageDataUrl);
+    const preview = document.querySelector(`[data-comment-preview="${CSS.escape(postId)}"]`);
+    if (preview) preview.innerHTML = `<img src="${escapeHtml(imageDataUrl)}" alt="Comment image ready"><button type="button" data-action="clear-comment-image" data-post-id="${escapeHtml(postId)}">Remove</button>`;
+  }).catch((error) => { input.value = ""; toast(error.message); throw error; });
+  state.communityCommentImagePromises.set(postId, promise);
+}
+
+async function saveCustomSticker(imageDataUrl, name = "Saved sticker") {
+  const result = await api("/api/community/stickers", { method: "POST", body: JSON.stringify({ name, imageDataUrl }) });
+  if (!state.communityStickers.some((item) => item.id === result.sticker.id)) state.communityStickers.unshift(result.sticker);
+  toast(result.saved === false ? "Sticker already in Self." : "Sticker saved to Self.");
+  return result.sticker;
+}
+
+async function submitCommunityComment(event) {
+  event.preventDefault();
+  const form = event.target;
+  const postId = form.dataset.postId;
+  try {
+    if (state.communityCommentImagePromises.has(postId)) await state.communityCommentImagePromises.get(postId);
+    const text = new FormData(form).get("text");
+    const imageDataUrl = state.communityCommentImages.get(postId) || null;
+    if (!String(text || "").trim() && !imageDataUrl) throw new Error("Write a comment or add an image.");
+    await api(`/api/community/posts/${encodeURIComponent(postId)}/comments`, { method: "POST", body: JSON.stringify({ text, imageDataUrl }) });
+    state.communityCommentImages.delete(postId);
+    state.communityCommentImagePromises.delete(postId);
+    await refreshCommunityMoments();
+  } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function submitCommunityPrivacy(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const status = form.querySelector(".form-error");
+  status.textContent = "Saving…";
+  try {
+    const result = await api("/api/community/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled: true,
+        displayName: state.communityOverview.displayName,
+        notificationsEnabled: data.get("notificationsEnabled") === "on",
+        discoverable: data.get("discoverable") === "on",
+        directMessagesEnabled: data.get("directMessagesEnabled") === "on",
+        locationSharingEnabled: data.get("locationSharingEnabled") === "on",
+        allowStrangerRequests: data.get("allowStrangerRequests") === "on",
+        allowStrangerMoments: data.get("allowStrangerMoments") === "on",
+        momentVisibilityDays: Number(data.get("momentVisibilityDays")),
+        momentTheme: data.get("momentTheme")
+      })
+    });
+    state.communityOverview = result;
+    status.textContent = "Saved.";
+    toast("Community settings saved.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function refreshCommunityMoments(userId = state.communityActiveProfileId) {
+  const suffix = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  const feed = await api(`/api/community/posts${suffix}`);
+  state.communityPosts = feed.posts || [];
+  state.communityPostsProfile = feed.profile || null;
+  if ($("#panel-content")) $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "moments");
+}
+
+async function submitCommunityMeeting(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  try {
+    const result = await api("/api/community/meetings", { method: "POST", body: JSON.stringify({ roomId: state.communityRoom.id, title: data.get("title"), startsAt: new Date(data.get("startsAt")).toISOString(), durationMinutes: Number(data.get("durationMinutes")), settings: { waitingRoom: true, recordingAllowed: true, captionsEnabled: true } }) });
+    toast("Meeting scheduled and shared with this chat.");
+    await openCommunityRoom(state.communityRoom.id, state.communityRoom.name);
+    return result;
+  } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+function communityDocumentEditorHtml(document = null, { kind = "doc", roomId = "", responses = [] } = {}) {
+  const selectedKind = document?.kind || kind;
+  const content = document?.content || {};
+  const questions = Array.isArray(content.questions) ? content.questions : [];
+  const backAction = roomId ? `<button type="button" class="text-button" data-action="return-community-room">← Back to chat</button>` : `<button type="button" class="text-button" data-action="community-tab" data-community-tab="self">← Back to Self</button>`;
+  if (document && !document.mine) {
+    const form = selectedKind === "form" ? `<form id="community-form-response-form" class="village-form-response"><input type="hidden" name="documentId" value="${escapeHtml(document.id)}">${questions.map((question, index) => `<label>${escapeHtml(question)}<textarea name="answer-${index}" rows="2" required></textarea></label>`).join("")}<button type="submit" class="primary-button">Submit response</button><p class="form-error"></p></form>` : "";
+    return `<div class="village-document-workspace">${backAction}<article class="village-paper ${selectedKind}"><header><span>${escapeHtml(selectedKind.toUpperCase())}</span><h2>${escapeHtml(document.title)}</h2><small>Shared by ${escapeHtml(document.ownerName || "a village friend")}</small></header><div class="village-paper-body">${escapeHtml(content.body || "").replace(/\n/g, "<br>")}</div>${selectedKind === "form" ? `<ol class="village-form-question-list">${questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ol>` : ""}</article>${selectedKind === "pdf" ? `<button type="button" class="secondary-button" data-action="print-community-document" data-document-id="${escapeHtml(document.id)}">Print or save PDF</button>` : ""}${form}</div>`;
+  }
+  const responseList = responses.map((response) => `<article><strong>${escapeHtml(response.author)}</strong><time>${escapeHtml(new Date(response.createdAt).toLocaleString())}</time>${Object.values(response.response || {}).map((answer) => `<p>${escapeHtml(answer)}</p>`).join("")}</article>`).join("");
+  return `<div class="village-document-workspace">
+    ${backAction}
+    <form id="${document ? "community-document-edit-form" : "community-document-create-form"}" class="village-document-editor">
+      <input type="hidden" name="documentId" value="${escapeHtml(document?.id || "")}">
+      <input type="hidden" name="kind" value="${escapeHtml(selectedKind)}">
+      <header><span>${escapeHtml(selectedKind.toUpperCase())}</span><div><small>VILLAGE ${document ? "DOCUMENT" : "CREATOR"}</small><h3>${document ? "Edit your document" : `Create a ${selectedKind.toUpperCase()}`}</h3></div></header>
+      <label>Title<input name="title" maxlength="120" value="${escapeHtml(document?.title || "")}" required></label>
+      <label>${selectedKind === "form" ? "Introduction" : "Content"}<textarea name="body" rows="10" placeholder="${selectedKind === "pdf" ? "Write the printable document…" : selectedKind === "form" ? "Tell people what this form is for…" : "Write together in the village…"}">${escapeHtml(content.body || "")}</textarea></label>
+      ${selectedKind === "form" ? `<label>Questions · one per line<textarea name="questions" rows="7" required placeholder="What would you like to ask?">${escapeHtml(questions.join("\n"))}</textarea></label>` : ""}
+      <div class="village-document-editor-actions"><button type="submit" class="primary-button">${document ? "Save changes" : `Create ${selectedKind.toUpperCase()}`}</button>${document ? `<button type="button" class="secondary-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}">Share</button><button type="button" class="text-button danger" data-action="delete-community-document" data-document-id="${escapeHtml(document.id)}">Delete</button>` : ""}${selectedKind === "pdf" && document ? `<button type="button" class="secondary-button" data-action="print-community-document" data-document-id="${escapeHtml(document.id)}">Print or save PDF</button>` : ""}</div>
+      <p class="form-error"></p>
+    </form>
+    ${selectedKind === "form" && document ? `<section class="village-form-responses"><h3>Responses</h3>${responseList || `<p class="community-empty">No responses yet.</p>`}</section>` : ""}
+  </div>`;
+}
+
+async function openCommunityDocuments({ kind = "", roomId = state.communityRoom?.id || "", documentId = "" } = {}) {
+  state.communityDocumentRoomId = roomId;
+  clearInterval(state.communityTimer);
+  const roomName = state.communityRoom?.name || "";
+  if (documentId) return openCommunityDocument(documentId, roomId);
+  if (kind) {
+    openPanel({ title: `Create ${kind.toUpperCase()}`, eyebrow: "Village document studio", html: communityDocumentEditorHtml(null, { kind, roomId }) });
+    return;
+  }
+  openPanel({
+    title: "Village documents",
+    eyebrow: roomId ? `Create for ${roomName}` : "Your community workspace",
+    html: `<div class="village-document-hub">${roomId ? `<button type="button" class="text-button" data-action="return-community-room">← Back to chat</button>` : `<button type="button" class="text-button" data-action="community-tab" data-community-tab="self">← Back to Self</button>`}<div class="document-kind-picker">${[["doc","DOC","Write a village note or plan"],["pdf","PDF","Create a polished printable page"],["form","FORM","Collect structured responses"]].map(([value,label,description]) => `<button type="button" data-action="create-community-document-kind" data-document-kind="${value}"><span>${label}</span><strong>${description}</strong></button>`).join("")}</div><div class="village-document-list">${communityDocumentsHtml(state.communityDocuments)}</div></div>`
+  });
+}
+
+async function openCommunityDocument(documentId, roomId = state.communityDocumentRoomId || state.communityRoom?.id || "") {
+  try {
+    const data = await api(`/api/community/documents/${encodeURIComponent(documentId)}`);
+    let responses = [];
+    if (data.document.kind === "form" && data.document.mine) responses = (await api(`/api/community/documents/${encodeURIComponent(documentId)}/responses`).catch(() => ({ responses: [] }))).responses || [];
+    openPanel({ title: data.document.title, eyebrow: "Village document", html: communityDocumentEditorHtml(data.document, { roomId, responses }) });
+  } catch (error) { toast(error.message); }
+}
+
+function communityDocumentPayload(form) {
+  const data = new FormData(form);
+  const kind = String(data.get("kind") || "doc");
+  return {
+    kind,
+    title: data.get("title"),
+    content: {
+      body: String(data.get("body") || ""),
+      questions: kind === "form" ? String(data.get("questions") || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 30) : []
+    }
+  };
+}
+
+async function submitCommunityDocument(event) {
+  event.preventDefault();
+  const form = event.target;
+  const status = form.querySelector(".form-error");
+  const payload = communityDocumentPayload(form);
+  const documentId = String(new FormData(form).get("documentId") || "");
+  try {
+    const result = await api(documentId ? `/api/community/documents/${encodeURIComponent(documentId)}` : "/api/community/documents", { method: documentId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+    const document = result.document;
+    const index = state.communityDocuments.findIndex((item) => item.id === document.id);
+    if (index >= 0) state.communityDocuments[index] = document;
+    else state.communityDocuments.unshift(document);
+    if (!documentId && state.communityDocumentRoomId) await api(`/api/community/documents/${encodeURIComponent(document.id)}/share`, { method: "POST", body: JSON.stringify({ roomId: state.communityDocumentRoomId }) });
+    toast(documentId ? "Document saved." : state.communityDocumentRoomId ? "Document created and shared." : "Document created.");
+    await openCommunityDocument(document.id, state.communityDocumentRoomId);
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function submitCommunityFormResponse(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const documentId = data.get("documentId");
+  const response = {};
+  [...form.elements].filter((element) => element.name?.startsWith("answer-")).forEach((element) => { response[element.name] = element.value; });
+  try {
+    await api(`/api/community/documents/${encodeURIComponent(documentId)}/responses`, { method: "POST", body: JSON.stringify({ response }) });
+    form.reset();
+    toast("Form response submitted.");
+  } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function shareCommunityDocument(documentId) {
+  const rooms = [
+    ...(state.communityOverview?.directRooms || []).map((room) => ({ id: room.id, name: room.name, type: "Private" })),
+    ...(state.communityOverview?.groups || []).filter((room) => room.joined).map((room) => ({ id: room.id, name: room.name, type: "Group" }))
+  ];
+  if (state.communityRoom?.id) {
+    await api(`/api/community/documents/${encodeURIComponent(documentId)}/share`, { method: "POST", body: JSON.stringify({ roomId: state.communityRoom.id }) });
+    toast("Document shared to this chat.");
+    return openCommunityRoom(state.communityRoom.id, state.communityRoom.name);
+  }
+  openPanel({ title: "Share document", eyebrow: "Choose a village conversation", html: `<div class="community-share-picker">${rooms.map((room) => `<button type="button" data-action="share-community-document-room" data-document-id="${escapeHtml(documentId)}" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><span>${escapeHtml(room.type)}</span><strong>${escapeHtml(room.name)}</strong><b>→</b></button>`).join("") || `<p class="community-empty">Add a friend or join a group before sharing.</p>`}</div>` });
+}
+
+function printCommunityDocument(document) {
+  const content = document?.content || {};
+  const popup = window.open("", "_blank");
+  if (!popup) return toast("Allow pop-ups to print this document.");
+  popup.document.write(`<!doctype html><html><head><title>${escapeHtml(document.title)}</title><style>body{font-family:Georgia,serif;max-width:760px;margin:60px auto;padding:0 36px;color:#173c32;line-height:1.65}header{border-bottom:3px solid #d4a72c;margin-bottom:30px}small{letter-spacing:.18em}h1{font-size:38px}article{white-space:pre-wrap;font-size:17px}@media print{body{margin:0 auto}}</style></head><body><header><small>IT TAKES A VILLAGE</small><h1>${escapeHtml(document.title)}</h1></header><article>${escapeHtml(content.body || "")}</article></body></html>`);
+  popup.document.close();
+  popup.focus();
+  setTimeout(() => popup.print(), 250);
+}
+
+async function markCommunityKindsRead(kinds, tab) {
+  await api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ kinds }) }).catch(() => {});
+  const readKinds = new Set(kinds);
+  state.communityNotifications = (state.communityNotifications || []).map((notification) => (
+    readKinds.has(notification.kind) ? { ...notification, read: true } : notification
+  ));
+  const counts = state.communityOverview?.notificationCounts;
+  if (counts && tab) {
+    counts.total = Math.max(0, Number(counts.total || 0) - Number(counts[tab] || 0));
+    counts[tab] = 0;
+    state.communityOverview.notificationCount = counts.total;
+  }
+}
+
+async function openCommunityProfile(userId) {
+  if (!userId) return;
+  clearInterval(state.communityTimer);
+  state.communityTimer = null;
+  state.communityRoom = null;
+  state.communityActiveProfileId = userId === state.user?.id ? null : userId;
+  const feed = await api(`/api/community/posts${state.communityActiveProfileId ? `?userId=${encodeURIComponent(state.communityActiveProfileId)}` : ""}`);
+  state.communityPosts = feed.posts || [];
+  state.communityPostsProfile = feed.profile || null;
+  state.communityTab = "moments";
+  $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "moments");
+  $("#panel").scrollTop = 0;
+}
+
+function showMomentPhoto(source) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "moment-photo-dialog";
+  dialog.innerHTML = `<button type="button" title="Close">×</button><img src="${escapeHtml(source)}" alt="Moment photo">`;
+  dialog.addEventListener("click", (event) => { if (event.target === dialog || event.target.closest("button")) dialog.close(); });
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
 async function communityAction(element, action) {
   try {
     if (action === "open-community") return communityPanel();
-    if (action === "community-tab") { state.communityTab = element.dataset.communityTab || "direct"; $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab); return; }
+    if (action === "community-tab") {
+      const tab = element.dataset.communityTab || "direct";
+      if (tab === "moments") return openCommunityProfile(state.user?.id);
+      state.communityTab = tab;
+      const kinds = tab === "direct" ? ["direct-message", "document", "file"] : tab === "groups" ? ["group-message", "group-document"] : tab === "inbox" ? ["request", "group-invite"] : [];
+      if (kinds.length) await markCommunityKindsRead(kinds, tab);
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab);
+      $("#panel").scrollTop = 0;
+      return;
+    }
     if (action === "support-tab") return supportPanel(element.dataset.supportTab, state.supportIsland);
     if (action === "send-sticker") { await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message: `[[sticker:${element.dataset.sticker}]]` }) }); return refreshCommunityRoom(); }
+    if (action === "send-custom-sticker") {
+      const sticker = state.communityStickers.find((item) => item.id === element.dataset.stickerId) || { name: "Custom sticker", imageDataUrl: element.dataset.stickerSrc };
+      const mime = String(sticker.imageDataUrl || "").match(/^data:([^;]+);/)?.[1] || "image/png";
+      await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ messageType: "sticker", attachment: { name: sticker.name || "Custom sticker", mime, dataUrl: sticker.imageDataUrl } }) });
+      return refreshCommunityRoom();
+    }
+    if (action === "save-custom-sticker") return saveCustomSticker(element.dataset.stickerSrc, element.dataset.stickerName);
+    if (action === "delete-custom-sticker") {
+      if (!confirm("Delete this sticker from Self?")) return;
+      await api(`/api/community/stickers/${encodeURIComponent(element.dataset.stickerId)}`, { method: "DELETE" });
+      state.communityStickers = state.communityStickers.filter((item) => item.id !== element.dataset.stickerId);
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab);
+      return;
+    }
+    if (action === "toggle-moment-composer") {
+      state.communityPostComposerOpen = !state.communityPostComposerOpen;
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "moments");
+      return;
+    }
+    if (action === "open-community-profile") return openCommunityProfile(element.dataset.userId);
+    if (action === "open-own-moments") return openCommunityProfile(state.user?.id);
+    if (action === "open-moment-photo") return showMomentPhoto(element.dataset.imageSrc);
+    if (action === "focus-community-comment") return document.querySelector(`[data-community-comment-form][data-post-id="${CSS.escape(element.dataset.postId)}"] input[name="text"]`)?.focus();
+    if (action === "toggle-comment-stickers") return document.querySelector(`[data-comment-stickers="${CSS.escape(element.dataset.postId)}"]`)?.classList.toggle("hidden");
+    if (action === "comment-custom-sticker") {
+      await api(`/api/community/posts/${encodeURIComponent(element.dataset.postId)}/comments`, { method: "POST", body: JSON.stringify({ stickerDataUrl: element.dataset.stickerSrc }) });
+      return refreshCommunityMoments();
+    }
+    if (action === "delete-community-comment") {
+      if (!confirm("Delete this comment?")) return;
+      await api(`/api/community/posts/${encodeURIComponent(element.dataset.postId)}/comments/${encodeURIComponent(element.dataset.commentId)}`, { method: "DELETE" });
+      return refreshCommunityMoments();
+    }
+    if (action === "clear-comment-image") {
+      state.communityCommentImages.delete(element.dataset.postId);
+      state.communityCommentImagePromises.delete(element.dataset.postId);
+      const preview = document.querySelector(`[data-comment-preview="${CSS.escape(element.dataset.postId)}"]`);
+      if (preview) preview.innerHTML = "";
+      return;
+    }
+    if (action === "clear-community-attachment") {
+      state.communityAttachment = null;
+      state.communityAttachmentPromise = null;
+      const preview = $("#community-attachment-preview");
+      if (preview) preview.innerHTML = "";
+      return;
+    }
+    if (action === "share-community-location") {
+      if (!state.communityOverview?.preferences?.locationSharingEnabled) throw new Error("Turn on location sharing in Self settings first.");
+      if (!navigator.geolocation) throw new Error("Location sharing is unavailable in this browser.");
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+          await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ messageType: "location", location: { latitude: position.coords.latitude, longitude: position.coords.longitude, label: "Current location" } }) });
+          await refreshCommunityRoom();
+        } catch (error) { toast(error.message); }
+      }, () => toast("Location permission was not granted."), { enableHighAccuracy: false, timeout: 10000 });
+      return;
+    }
+    if (action === "toggle-meeting-scheduler") return $("#community-meeting-form")?.classList.toggle("hidden");
+    if (action === "join-community-meeting") return state.meetingRuntime.open(element.dataset.meetingId, state.communityRoom);
+    if (action === "create-community-document") return openCommunityDocuments({ roomId: state.communityRoom?.id || "" });
+    if (action === "create-community-document-kind") return openCommunityDocuments({ kind: element.dataset.documentKind, roomId: state.communityDocumentRoomId });
+    if (action === "open-community-document") return openCommunityDocument(element.dataset.documentId);
+    if (action === "share-community-document") return shareCommunityDocument(element.dataset.documentId);
+    if (action === "share-community-document-room") {
+      await api(`/api/community/documents/${encodeURIComponent(element.dataset.documentId)}/share`, { method: "POST", body: JSON.stringify({ roomId: element.dataset.roomId }) });
+      toast(`Shared to ${element.dataset.roomName}.`);
+      return openCommunityDocuments();
+    }
+    if (action === "delete-community-document") {
+      if (!confirm("Delete this Village document?")) return;
+      await api(`/api/community/documents/${encodeURIComponent(element.dataset.documentId)}`, { method: "DELETE" });
+      state.communityDocuments = state.communityDocuments.filter((item) => item.id !== element.dataset.documentId);
+      return openCommunityDocuments({ roomId: state.communityDocumentRoomId });
+    }
+    if (action === "print-community-document") {
+      let document = state.communityDocuments.find((item) => item.id === element.dataset.documentId);
+      if (!document) document = (await api(`/api/community/documents/${encodeURIComponent(element.dataset.documentId)}`)).document;
+      return printCommunityDocument(document);
+    }
+    if (action === "return-community-room") return openCommunityRoom(state.communityRoom.id, state.communityRoom.name);
+    if (action === "save-community-message" || action === "unsave-community-message") {
+      const save = action === "save-community-message";
+      await api(`/api/community/messages/${encodeURIComponent(element.dataset.messageId)}/save`, { method: save ? "POST" : "DELETE", body: save ? "{}" : undefined });
+      if (state.communityRoom) return refreshCommunityRoom();
+      return communityPanel();
+    }
+    if (action === "report-community-message") {
+      const reason = prompt("Briefly tell administrators what is wrong with this message:", "Inappropriate or unsafe content");
+      if (!reason) return;
+      await api(`/api/community/messages/${encodeURIComponent(element.dataset.messageId)}/report`, { method: "POST", body: JSON.stringify({ reason }) });
+      return toast("Report sent to village administrators.");
+    }
+    if (action === "mark-community-read") {
+      await api("/api/community/notifications/read", { method: "POST", body: "{}" });
+      state.communityNotifications = state.communityNotifications.map((item) => ({ ...item, read: true }));
+      state.communityOverview.notificationCount = 0;
+      state.communityOverview.notificationCounts = { direct: 0, groups: 0, moments: 0, requests: 0, meetings: 0, total: 0 };
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "inbox");
+      return;
+    }
+    if (action === "open-community-notification") {
+      const metadata = JSON.parse(element.dataset.notificationMeta || "{}");
+      await api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ ids: [element.dataset.notificationId] }) });
+      if (metadata.roomId) {
+        const room = [...(state.communityOverview.directRooms || []), ...(state.communityOverview.groups || [])].find((item) => item.id === metadata.roomId);
+        return openCommunityRoom(metadata.roomId, room?.name || "Village chat");
+      }
+      if (metadata.userId || metadata.postId) return openCommunityProfile(metadata.userId || state.user?.id);
+      return communityPanel();
+    }
     if (action === "mention-member") { const textarea = $("#community-message-form textarea[name='message']"); if (!textarea) return; const mention = element.dataset.mention || ""; const spacer = textarea.value && !textarea.value.endsWith(" ") ? " " : ""; textarea.value += `${spacer}${mention} `; textarea.focus(); return; }
     if (action === "open-friend-chat") {
       const room = state.communityOverview?.directRooms?.find((item) => item.user_id === element.dataset.userId);
@@ -1376,7 +2043,7 @@ async function communityAction(element, action) {
       return communityPanel();
     }
     if (action === "unblock-community-user") { await api(`/api/community/blocks/${encodeURIComponent(element.dataset.userId)}`, { method: "DELETE" }); return communityPanel(); }
-    if (action === "delete-community-post") { if (confirm("Delete this post?")) { await api(`/api/community/posts/${encodeURIComponent(element.dataset.postId)}`, { method: "DELETE" }); return communityPanel(); } }
+    if (action === "delete-community-post") { if (confirm("Delete this post?")) { await api(`/api/community/posts/${encodeURIComponent(element.dataset.postId)}`, { method: "DELETE" }); return refreshCommunityMoments(); } }
   } catch (error) { toast(error.message); }
 }
 
@@ -1709,8 +2376,18 @@ function registerCompletedResearch(data, payload) {
   }
 }
 
+function renderResearchFeedbackFields() {
+  return `<div class="research-feedback-rating">
+    <span class="research-feedback-label">Rate this research (1–5 stars)</span>
+    <div class="feedback-star-bar" role="radiogroup" aria-label="Research rating">
+      ${[1, 2, 3, 4, 5].map((rating) => `<button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="${rating}" role="radio" aria-checked="false" aria-label="${rating} star${rating === 1 ? "" : "s"}" title="${rating} star${rating === 1 ? "" : "s"}">★</button>`).join("")}
+    </div>
+  </div>
+  <label class="research-feedback-details"><span>Detailed explanation <small>(optional)</small></span><textarea data-feedback-details rows="3" maxlength="2000" placeholder="Why did this feel helpful or unhelpful?"></textarea></label>`;
+}
+
 function renderResearchFeedback() {
-  return `<section class="research-result-feedback" aria-label="Research feedback"><p>Was this research helpful?</p><div class="research-feedback-actions"><button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="results" data-helpful="true">Like this research</button><button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="results" data-helpful="false">Not Helpful</button></div><p class="research-feedback-status" role="status"></p></section>`;
+  return `<section class="research-result-feedback" data-feedback-container aria-label="Research feedback"><p>Was this research helpful?</p>${renderResearchFeedbackFields()}<div class="research-feedback-actions"><button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="results" data-helpful="true">Helpful</button><button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="results" data-helpful="false">Not Helpful</button></div><p class="research-feedback-status" role="status"></p></section>`;
 }
 
 function renderFollowUpQuestions(questions = []) {
@@ -1735,13 +2412,59 @@ function showDailyResearchFeedback() {
   if (!state.dailyResearchFeedbackPending || !state.dailyResearchContext) return;
   const dialog = $("#research-feedback-dialog");
   if (!dialog) return;
+  resetResearchFeedbackContainer(dialog);
   dialog.classList.remove("hidden");
-  dialog.querySelector(".research-feedback-status").textContent = "";
-  dialog.querySelector('[data-helpful="true"]')?.focus();
+  dialog.querySelector('[data-action="select-feedback-rating"]')?.focus();
 }
 
 function closeDailyResearchFeedback() {
   $("#research-feedback-dialog")?.classList.add("hidden");
+}
+
+function feedbackContainer(element) {
+  return element?.closest?.("[data-feedback-container]") || null;
+}
+
+function selectResearchFeedbackRating(element) {
+  const container = feedbackContainer(element);
+  const rating = Math.max(1, Math.min(5, Number(element?.dataset.rating || 0)));
+  if (!container || !Number.isInteger(rating) || container.dataset.submitted === "true") return;
+  container.dataset.rating = String(rating);
+  $$("[data-action='select-feedback-rating']", container).forEach((button) => {
+    const buttonRating = Number(button.dataset.rating || 0);
+    button.classList.toggle("active", buttonRating <= rating);
+    button.setAttribute("aria-checked", String(buttonRating === rating));
+  });
+  const status = container.querySelector(".research-feedback-status");
+  if (status?.dataset.validation === "rating") {
+    status.textContent = "";
+    delete status.dataset.validation;
+  }
+}
+
+function resetResearchFeedbackContainer(container) {
+  if (!container) return;
+  delete container.dataset.rating;
+  delete container.dataset.submitted;
+  $$("[data-action='select-feedback-rating']", container).forEach((button) => {
+    button.classList.remove("active");
+    button.setAttribute("aria-checked", "false");
+    button.disabled = false;
+  });
+  $$("[data-action='research-feedback']", container).forEach((button) => {
+    button.disabled = false;
+    delete button.dataset.busy;
+  });
+  const details = container.querySelector("[data-feedback-details]");
+  if (details) {
+    details.value = "";
+    details.disabled = false;
+  }
+  const status = container.querySelector(".research-feedback-status");
+  if (status) {
+    status.textContent = "";
+    delete status.dataset.validation;
+  }
 }
 
 async function submitResearchFeedback(element) {
@@ -1749,26 +2472,46 @@ async function submitResearchFeedback(element) {
   const scope = element.dataset.feedbackScope || "results";
   const helpful = element.dataset.helpful === "true";
   const research = scope === "daily" ? state.dailyResearchContext : state.currentResearch;
-  const container = scope === "daily" ? $("#research-feedback-dialog") : element.closest(".research-result-feedback");
+  const container = feedbackContainer(element);
   const status = container?.querySelector(".research-feedback-status");
-  const buttons = container ? $$("[data-action='research-feedback']", container) : [element];
-  buttons.forEach((button) => { button.dataset.busy = "true"; });
-  buttons.forEach((button) => { button.disabled = true; });
+  const rating = Number(container?.dataset.rating || 0);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    if (status) {
+      status.textContent = "Choose a star rating from 1 to 5.";
+      status.dataset.validation = "rating";
+    }
+    container?.querySelector('[data-action="select-feedback-rating"]')?.focus();
+    return;
+  }
+  const details = String(container?.querySelector("[data-feedback-details]")?.value || "").trim().slice(0, 2000);
+  const controls = container ? $$("[data-action='research-feedback'], [data-action='select-feedback-rating'], [data-feedback-details]", container) : [element];
+  controls.forEach((control) => {
+    control.disabled = true;
+    if (control.matches?.("[data-action='research-feedback']")) control.dataset.busy = "true";
+  });
   if (status) status.textContent = "Saving…";
+  let succeeded = false;
   try {
-    const data = await api("/api/research-feedback", { method: "POST", body: JSON.stringify({ helpful, source: scope === "daily" ? "daily-return" : "research-results", research }) });
-    if (!helpful && !data.recorded) throw new Error(data.sync?.reason || "The feedback row could not be recorded.");
+    const data = await api("/api/research-feedback", { method: "POST", body: JSON.stringify({ helpful, rating, details, source: scope === "daily" ? "daily-return" : "research-results", research }) });
+    if (!data.recorded) throw new Error(data.feedbackSync?.reason || data.sync?.reason || "The feedback row could not be recorded.");
+    succeeded = true;
+    if (container) container.dataset.submitted = "true";
     if (scope === "daily") {
       state.dailyResearchFeedbackPending = false;
       try { localStorage.setItem(researchFeedbackStorageKey(), JSON.stringify({ status: "done" })); } catch {}
       closeDailyResearchFeedback();
     } else if (status) {
-      status.textContent = helpful ? "Thanks — Waffles saved your response." : "Thanks — this research was recorded for review.";
+      status.textContent = "Thanks — your rating and feedback were recorded.";
     }
   } catch (error) {
     if (status) status.textContent = error.message;
   } finally {
-    buttons.forEach((button) => { button.disabled = false; delete button.dataset.busy; });
+    if (!succeeded) {
+      controls.forEach((control) => {
+        control.disabled = false;
+        if (control.matches?.("[data-action='research-feedback']")) delete control.dataset.busy;
+      });
+    }
   }
 }
 
@@ -1958,7 +2701,9 @@ function adminFunctionsPanel() {
     ["admin-publish-activity", "+", "Publish activity", "Add an upcoming event or volunteer opportunity."],
     ["admin-manage-activities", "V", "Manage or delete activities", "Review the activity list and remove expired entries."],
     ["admin-manage-users", "U", "Administrator access", "Add registered administrators or remove existing access."],
-    ["admin-keyword-controls", "#", "Primary keyword controls", "Block terms from Primary Keywords and the Error sheet record."]
+    ["admin-keyword-controls", "#", "Primary keyword controls", "Block terms from Primary Keywords and the Error sheet record."],
+    ["admin-community-blocklist", "✱", "Community restricted words", "Share and edit chat masking rules across all administrators."],
+    ["admin-community-reports", "!", "Community reports", "Review member reports and mark them reviewed or dismissed."]
   ];
   openPanel({
     title: "Administrator Functions",
@@ -1985,6 +2730,56 @@ function adminKeywordsPanel() {
     html: `<form id="primary-keyword-blocklist-form" class="admin-keyword-settings"><div><strong>Blocked words and phrases</strong><small>Words listed here cannot appear as Primary Keywords or in the Error sheet Primary Keywords record.</small></div><label>One term per line<textarea name="keywords" rows="8" placeholder="waffles&#10;village">${escapeHtml((state.primaryKeywordBlocklist || []).join("\n"))}</textarea></label><button type="submit" class="primary-button">Save blocked keywords</button><p class="form-error" role="status"></p></form>`
   });
   loadPrimaryKeywordBlocklist();
+}
+
+function adminCommunityBlocklistPanel() {
+  if (!state.user?.isAdmin) return toast("Administrator access is required.");
+  openPanel({
+    title: "Community restricted words",
+    eyebrow: "Shared administrator controls",
+    html: `<form id="community-blocklist-form" class="admin-keyword-settings"><div><strong>Shared restricted words and phrases</strong><small>One administrator's changes are immediately shared with every administrator. Matching text in community chat, Moments, and comments is replaced with asterisks.</small></div><label>One term per line<textarea name="terms" rows="10" placeholder="restricted phrase">${escapeHtml((state.communityBlocklist || []).join("\n"))}</textarea></label><button type="submit" class="primary-button">Save shared restrictions</button><p class="form-error" role="status"></p></form>`
+  });
+  loadCommunityBlocklist();
+}
+
+async function loadCommunityBlocklist() {
+  const form = $("#community-blocklist-form");
+  if (!form) return;
+  const status = form.querySelector(".form-error");
+  try {
+    const data = await api("/api/admin/community-blocklist");
+    state.communityBlocklist = data.terms || [];
+    form.elements.terms.value = state.communityBlocklist.join("\n");
+    status.textContent = "";
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function submitCommunityBlocklist(event) {
+  event.preventDefault();
+  const form = event.target;
+  const status = form.querySelector(".form-error");
+  status.textContent = "Saving shared restrictions…";
+  try {
+    const data = await api("/api/admin/community-blocklist", { method: "PUT", body: JSON.stringify({ text: new FormData(form).get("terms") }) });
+    state.communityBlocklist = data.terms || [];
+    form.elements.terms.value = state.communityBlocklist.join("\n");
+    status.textContent = "Saved for every administrator.";
+    toast("Community restrictions saved.");
+  } catch (error) { status.textContent = error.message; }
+}
+
+function adminCommunityReportsHtml(reports = []) {
+  return reports.map((report) => `<article class="admin-report-row"><div><small>${escapeHtml(report.status)} · ${escapeHtml(new Date(report.createdAt).toLocaleString())}</small><strong>${escapeHtml(report.reportedName || "Unknown member")}</strong><p>${escapeHtml(report.reason)}</p>${report.messageBody ? `<blockquote>${escapeHtml(report.messageBody)}</blockquote>` : ""}<span>Reported by ${escapeHtml(report.reporterName || "member")}</span></div>${report.status === "open" ? `<div class="community-actions"><button type="button" class="secondary-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="reviewed">Reviewed</button><button type="button" class="text-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="dismissed">Dismiss</button></div>` : ""}</article>`).join("") || `<p class="record-empty">There are no community reports.</p>`;
+}
+
+async function adminCommunityReportsPanel() {
+  if (!state.user?.isAdmin) return toast("Administrator access is required.");
+  openPanel({ title: "Community reports", eyebrow: "Shared administrator controls", html: `<div id="community-report-list"><p class="record-empty">Loading reports…</p></div>` });
+  try {
+    const data = await api("/api/admin/community-reports");
+    state.communityReports = data.reports || [];
+    $("#community-report-list").innerHTML = adminCommunityReportsHtml(state.communityReports);
+  } catch (error) { $("#community-report-list").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
 }
 
 function announcementLabels() {
@@ -2958,6 +3753,12 @@ document.addEventListener("click", (event) => {
   if (action === "admin-manage-activities") activitiesPanel();
   if (action === "admin-manage-users") adminUsersPanel();
   if (action === "admin-keyword-controls") adminKeywordsPanel();
+  if (action === "admin-community-blocklist") adminCommunityBlocklistPanel();
+  if (action === "admin-community-reports") adminCommunityReportsPanel();
+  if (action === "review-community-report") {
+    api(`/api/admin/community-reports/${encodeURIComponent(actionElement.dataset.reportId)}`, { method: "PATCH", body: JSON.stringify({ status: actionElement.dataset.reportStatus }) })
+      .then(() => adminCommunityReportsPanel()).catch((error) => toast(error.message));
+  }
   if (action === "open-announcements") announcementsPanel();
   if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
   if (action === "save-announcement") submitAnnouncementForm(actionElement.closest("form"));
@@ -2988,12 +3789,24 @@ document.addEventListener("click", (event) => {
   if (action === "explain-resource") showResourceExplanation(actionElement);
   if (action === "like-resource") toggleResourceLike(actionElement);
   if (action === "dislike-resource") toggleResourceDislike(actionElement);
+  if (action === "select-feedback-rating") selectResearchFeedbackRating(actionElement);
   if (action === "research-feedback") submitResearchFeedback(actionElement);
   if (action === "apply-follow-up") applyFollowUp(actionElement);
   if (action === "refresh-resources") loadResources(true);
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
-  if (["open-community", "community-tab", "support-tab", "send-sticker", "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection", "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room", "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user", "delete-community-post"].includes(action)) communityAction(actionElement, action);
+  if ([
+    "open-community", "community-tab", "support-tab", "send-sticker", "send-custom-sticker", "save-custom-sticker", "delete-custom-sticker",
+    "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection",
+    "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room",
+    "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user",
+    "delete-community-post", "delete-community-comment", "toggle-moment-composer", "open-community-profile", "open-own-moments",
+    "open-moment-photo", "focus-community-comment", "toggle-comment-stickers", "comment-custom-sticker", "clear-comment-image",
+    "clear-community-attachment", "share-community-location", "toggle-meeting-scheduler", "join-community-meeting",
+    "create-community-document", "create-community-document-kind", "open-community-document", "share-community-document",
+    "share-community-document-room", "delete-community-document", "print-community-document", "return-community-room",
+    "save-community-message", "unsave-community-message", "report-community-message", "mark-community-read", "open-community-notification"
+  ].includes(action)) communityAction(actionElement, action);
 });
 
 document.addEventListener("input", (event) => {
@@ -3006,6 +3819,16 @@ document.addEventListener("change", (event) => {
   if (localMusic) handleLocalMusicUpload(localMusic);
   const communityImage = event.target.closest("[data-community-image]");
   if (communityImage) handleCommunityImage(communityImage);
+  const communityAttachment = event.target.closest("[data-community-attachment]");
+  if (communityAttachment) handleCommunityAttachment(communityAttachment);
+  const communityAvatar = event.target.closest("[data-community-avatar]");
+  if (communityAvatar) handleCommunityAvatar(communityAvatar);
+  const communityCover = event.target.closest("[data-community-cover]");
+  if (communityCover) handleCommunityCover(communityCover);
+  const communitySticker = event.target.closest("[data-community-sticker]");
+  if (communitySticker) handleCommunityStickerUpload(communitySticker);
+  const communityCommentImage = event.target.closest("[data-community-comment-image]");
+  if (communityCommentImage) handleCommunityCommentImage(communityCommentImage);
 });
 
 document.addEventListener("submit", (event) => {
@@ -3020,12 +3843,18 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "activity-form") submitActivity(event);
   if (event.target.id === "admin-add-form") submitAdminAdd(event);
   if (event.target.id === "primary-keyword-blocklist-form") submitPrimaryKeywordBlocklist(event);
+  if (event.target.id === "community-blocklist-form") submitCommunityBlocklist(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);
   if (event.target.id === "community-search-form") submitCommunitySearch(event);
   if (event.target.id === "community-group-form") submitCommunityGroup(event);
   if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
   if (event.target.id === "community-post-form") submitCommunityPost(event);
+  if (event.target.matches("[data-community-comment-form]")) submitCommunityComment(event);
+  if (event.target.id === "community-privacy-form") submitCommunityPrivacy(event);
+  if (event.target.id === "community-meeting-form") submitCommunityMeeting(event);
+  if (event.target.id === "community-document-create-form" || event.target.id === "community-document-edit-form") submitCommunityDocument(event);
+  if (event.target.id === "community-form-response-form") submitCommunityFormResponse(event);
 });
 
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
@@ -3048,6 +3877,7 @@ $("#environment-status")?.addEventListener("click", () => {
   setAuthMode("register");
   await hydrateLocalMusic();
   applySettings();
+  state.meetingRuntime = new VillageMeetingRuntime({ api, getUser: () => state.user, toast, onClose: () => {} });
   try {
     const { user } = await api("/api/auth/me");
     state.user = user;
