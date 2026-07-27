@@ -24,8 +24,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=cinematic-3d-admin-20260724d/);
-  assert.match(html, /app\.js\?v=cinematic-3d-admin-20260724d/);
+  assert.match(html, /styles\.css\?v=community-workspace-20260726d/);
+  assert.match(html, /app\.js\?v=community-workspace-20260726d/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
@@ -36,7 +36,7 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(app, /activity-form"\) submitActivity/);
   assert.match(app, /primary-keyword-blocklist-form/);
   assert.match(app, /submitPrimaryKeywordBlocklist/);
-  assert.match(app, /finally \{[\s\S]*button\.disabled = false; delete button\.dataset\.busy/);
+  assert.match(app, /finally \{[\s\S]*control\.disabled = false;[\s\S]*delete control\.dataset\.busy/);
   assert.match(app, /class="hotspot-outline"/);
   assert.match(css, /\.hotspot-outline \{[^}]*display:\s*none/);
   assert.match(css, /body\.scene-3d \.celestial \{[^}]*display:\s*none/);
@@ -76,6 +76,23 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(app, /autoSubmit/);
   assert.match(css, /\.guide-chat/);
   assert.match(css, /\.guide-message/);
+});
+
+test("research feedback adds a 1-5 rating and optional details without changing My record feedback", async () => {
+  const [html, css, app] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8")
+  ]);
+  assert.equal((html.match(/data-action="select-feedback-rating"/g) || []).length, 5);
+  assert.match(html, /data-feedback-details[^>]*maxlength="2000"/);
+  assert.match(app, /function renderResearchFeedbackFields\(\)/);
+  assert.match(app, /data-action="select-feedback-rating"/);
+  assert.match(app, /rating,\s*details,\s*source/);
+  assert.match(css, /\.feedback-star-bar/);
+  assert.match(css, /\.research-feedback-details textarea/);
+  assert.match(app, /<form id="feedback-form" class="feedback-form">/);
+  assert.doesNotMatch(app, /<form id="feedback-form"[^>]*data-feedback-container/);
 });
 
 test("every building opens through a capybara loading walk into its illustrated scene", async () => {
@@ -173,10 +190,34 @@ test("administrator functions are collected behind an admin-only header control"
     "admin-publish-activity",
     "admin-manage-activities",
     "admin-manage-users",
-    "admin-keyword-controls"
+    "admin-keyword-controls",
+    "admin-community-blocklist",
+    "admin-community-reports"
   ]) assert.match(app, new RegExp(`data-action="\\$\\{escapeHtml\\(action\\)\\}"|${action}`));
   assert.match(css, /\.admin-function-grid/);
   assert.match(css, /\.admin-function-button/);
+});
+
+test("Village Community includes Moments, Self, shared files, documents, and live meetings", async () => {
+  const [app, css, meeting] = await Promise.all([
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/community-meeting.mjs", import.meta.url), "utf8")
+  ]);
+  for (const tab of ["direct", "groups", "moments", "inbox", "self"]) assert.match(app, new RegExp(`\\["${tab}"`));
+  for (const action of ["data-community-attachment", "share-community-location", "open-community-document", "toggle-meeting-scheduler", "save-community-message", "report-community-message"]) {
+    assert.match(app, new RegExp(action));
+  }
+  assert.match(app, /moment-camera-button/);
+  assert.match(app, /data-community-cover/);
+  assert.match(app, /momentVisibilityDays/);
+  assert.match(app, /allowStrangerRequests/);
+  assert.match(app, /allowStrangerMoments/);
+  assert.match(app, /custom-sticker-button/);
+  assert.match(css, /\.moments-page/);
+  assert.match(css, /\.community-self/);
+  assert.match(css, /\.village-meeting/);
+  for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
 });
 
 test("User Count Apps Script maps numeric values from the live first-row headers", async () => {
@@ -184,6 +225,12 @@ test("User Count Apps Script maps numeric values from the live first-row headers
   assert.match(script, /var metricKeys = Object\.keys\(metrics\)/);
   assert.match(script, /normalizeHeader_\(metricKey\) === normalizedHeader/);
   assert.match(script, /setValues\(\[row\]\)\.setNumberFormat\("0\.##"\)/);
+  assert.match(script, /var targetRow = 2/);
+  assert.doesNotMatch(script, /user-count-row:|PropertiesService/);
+  assert.match(script, /data\.action === "record-feedback"/);
+  assert.match(script, /function appendFeedback_\(data\)/);
+  assert.match(script, /status \+ ": " \+ details/);
+  assert.match(script, /Feedback sheet needs row-1 headers/);
   assert.match(script, /LockService\.getScriptLock\(\)/);
   assert.match(script, /lock\.releaseLock\(\)/);
   assert.doesNotMatch(script, /Total Guest Logins|Most Number of Online Users|How many poeple feel helpful/);
