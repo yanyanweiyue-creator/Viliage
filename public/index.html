@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=cinematic-3d-admin-20260724d" />
+    <link rel="stylesheet" href="/styles.css?v=community-workspace-20260726d" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -156,12 +156,23 @@
           <div class="intro-actions"><button type="button" id="intro-back" class="secondary-button" data-action="intro-back">← Back</button><button type="button" id="intro-next" class="primary-button" data-action="intro-next">Next →</button></div>
         </div>
       </section>
-      <section id="research-feedback-dialog" class="research-feedback-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="research-feedback-title">
+      <section id="research-feedback-dialog" class="research-feedback-dialog hidden" data-feedback-container role="dialog" aria-modal="true" aria-labelledby="research-feedback-title">
         <div class="research-feedback-card">
           <img class="village-character research-feedback-character" src="/assets/character-waffles.svg" alt="" />
           <p class="eyebrow">Daily research check-in</p>
-          <h2 id="research-feedback-title">Are the researching help?</h2>
+          <h2 id="research-feedback-title">Was this research helpful?</h2>
           <p>Your answer helps Waffles improve future resource searches.</p>
+          <div class="research-feedback-rating">
+            <span class="research-feedback-label">Rate this research (1–5 stars)</span>
+            <div class="feedback-star-bar" role="radiogroup" aria-label="Research rating">
+              <button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="1" role="radio" aria-checked="false" aria-label="1 star" title="1 star">★</button>
+              <button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="2" role="radio" aria-checked="false" aria-label="2 stars" title="2 stars">★</button>
+              <button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="3" role="radio" aria-checked="false" aria-label="3 stars" title="3 stars">★</button>
+              <button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="4" role="radio" aria-checked="false" aria-label="4 stars" title="4 stars">★</button>
+              <button type="button" class="feedback-star-button" data-action="select-feedback-rating" data-rating="5" role="radio" aria-checked="false" aria-label="5 stars" title="5 stars">★</button>
+            </div>
+          </div>
+          <label class="research-feedback-details"><span>Detailed explanation <small>(optional)</small></span><textarea data-feedback-details rows="3" maxlength="2000" placeholder="Why did this feel helpful or unhelpful?"></textarea></label>
           <div class="research-feedback-actions">
             <button type="button" class="primary-button" data-action="research-feedback" data-feedback-scope="daily" data-helpful="true">Helpful</button>
             <button type="button" class="secondary-button research-feedback-negative" data-action="research-feedback" data-feedback-scope="daily" data-helpful="false">Not really</button>
@@ -242,7 +253,7 @@
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </section>
 
-    <script src="/site-config.js?v=cinematic-3d-admin-20260724d"></script>
-    <script type="module" src="/app.js?v=cinematic-3d-admin-20260724d"></script>
+    <script src="/site-config.js?v=community-workspace-20260726d"></script>
+    <script type="module" src="/app.js?v=community-workspace-20260726d"></script>
   </body>
 </html>
