@@ -173,6 +173,15 @@ function defaultCommunity() {
     notifications: [],
     documents: [],
     documentShares: [],
+    documentFolders: [],
+    documentCollaborators: [],
+    documentVersions: [],
+    documentComments: [],
+    documentPresence: [],
+    documentAudit: [],
+    documentApprovals: [],
+    documentSignatures: [],
+    documentIntegrations: [],
     formResponses: [],
     meetings: [],
     meetingParticipants: [],
@@ -206,6 +215,15 @@ async function loadCommunity() {
       notifications: saved.notifications || [],
       documents: saved.documents || [],
       documentShares: saved.documentShares || [],
+      documentFolders: saved.documentFolders || [],
+      documentCollaborators: saved.documentCollaborators || [],
+      documentVersions: saved.documentVersions || [],
+      documentComments: saved.documentComments || [],
+      documentPresence: saved.documentPresence || [],
+      documentAudit: saved.documentAudit || [],
+      documentApprovals: saved.documentApprovals || [],
+      documentSignatures: saved.documentSignatures || [],
+      documentIntegrations: saved.documentIntegrations || [],
       formResponses: saved.formResponses || [],
       meetings: saved.meetings || [],
       meetingParticipants: saved.meetingParticipants || [],
@@ -219,6 +237,29 @@ async function loadCommunity() {
 
 async function saveCommunity(community) {
   await saveJsonAtomically(COMMUNITY_FILE, community);
+}
+
+function localDocumentPermission(community, document, userId) {
+  if (!document) return "none";
+  if (document.ownerId === userId) return "owner";
+  const collaborator = community.documentCollaborators.find((item) => item.documentId === document.id && item.userId === userId);
+  if (collaborator && (!collaborator.expiresAt || new Date(collaborator.expiresAt).getTime() > Date.now())) return collaborator.permission;
+  const roomShared = community.documentShares.some((share) => share.documentId === document.id && community.members.some((member) => member.roomId === share.roomId && member.userId === userId));
+  return roomShared ? "viewer" : "none";
+}
+
+function localDocumentDto(community, document, user, users) {
+  const permission = localDocumentPermission(community, document, user.id);
+  return {
+    ...document,
+    ownerName: users.find((candidate) => candidate.id === document.ownerId)?.name || "Village member",
+    permission,
+    mine: document.ownerId === user.id,
+    canEdit: ["owner", "editor"].includes(permission),
+    canComment: ["owner", "editor", "commenter"].includes(permission),
+    publicShareToken: document.ownerId === user.id ? document.publicShareToken || "" : "",
+    restrictions: document.restrictions || { download: false, copy: false, print: false }
+  };
 }
 
 async function loadPrimaryKeywordBlocklist() {
@@ -1411,6 +1452,29 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { resources: data.rows, source: data.source, warning: data.warning || null, updatedAt: new Date().toISOString() });
   }
 
+  const publicDocumentMatch = url.pathname.match(/^\/api\/community\/public-documents\/([^/]+)$/);
+  if (req.method === "GET" && publicDocumentMatch) {
+    const community = await loadCommunity();
+    const users = await loadUsers();
+    const document = community.documents.find((item) => item.publicShareToken === decodeURIComponent(publicDocumentMatch[1]) && !item.trashedAt && (!item.permissionExpiresAt || new Date(item.permissionExpiresAt).getTime() > Date.now()));
+    if (!document) return sendError(res, 404, "This document link is unavailable or has expired.");
+    return sendJson(res, 200, {
+      document: {
+        id: document.id,
+        ownerName: users.find((candidate) => candidate.id === document.ownerId)?.name || "Village member",
+        kind: document.kind,
+        title: document.title,
+        content: document.content || {},
+        settings: document.settings || {},
+        publicPermission: document.publicPermission || "viewer",
+        restrictions: document.restrictions || { download: false, copy: false, print: false },
+        watermark: document.watermark || "",
+        encrypted: Boolean(document.encrypted),
+        updatedAt: document.updatedAt
+      }
+    });
+  }
+
   const user = await ensureLocalAdmin(await getSessionUser(req) || (req.headers["x-village-guest"] === "1" ? guestUser() : null));
   if (!user) return sendError(res, 401, "Please sign in first.");
 
@@ -1826,55 +1890,172 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
-  if (url.pathname === "/api/community/documents") {
+  if (url.pathname === "/api/community/document-folders") {
     const community = await loadCommunity();
     if (req.method === "GET") {
-      const users = await loadUsers();
-      const documents = community.documents.filter((document) => document.ownerId === user.id || community.documentShares.some((share) => share.documentId === document.id && community.members.some((member) => member.roomId === share.roomId && member.userId === user.id))).slice(-100).reverse().map((document) => ({ ...document, ownerName: users.find((candidate) => candidate.id === document.ownerId)?.name || "Village member", mine: document.ownerId === user.id }));
+      return sendJson(res, 200, {
+        folders: community.documentFolders.filter((folder) => folder.ownerId === user.id).map((folder) => ({
+          ...folder,
+          documentCount: community.documents.filter((document) => document.ownerId === user.id && document.folderId === folder.id && !document.trashedAt).length
+        }))
+      });
+    }
+    if (req.method === "POST") {
+      const input = await readJsonBody(req);
+      const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 80);
+      if (!name) return sendError(res, 400, "Add a folder name.");
+      const at = new Date().toISOString();
+      const folder = { id: randomBytes(12).toString("hex"), ownerId: user.id, parentId: String(input.parentId || ""), name, documentCount: 0, createdAt: at, updatedAt: at };
+      community.documentFolders.push(folder);
+      await saveCommunity(community);
+      return sendJson(res, 201, { folder });
+    }
+  }
+
+  const documentFolderMatch = url.pathname.match(/^\/api\/community\/document-folders\/([^/]+)$/);
+  if (documentFolderMatch) {
+    const community = await loadCommunity();
+    const folderId = decodeURIComponent(documentFolderMatch[1]);
+    const folder = community.documentFolders.find((item) => item.id === folderId && item.ownerId === user.id);
+    if (!folder) return sendError(res, 404, "Folder not found.");
+    if (req.method === "PATCH") {
+      const input = await readJsonBody(req);
+      folder.name = String(input.name || folder.name).trim().replace(/[<>\r\n]/g, " ").slice(0, 80);
+      folder.parentId = input.parentId === undefined ? folder.parentId : String(input.parentId || "");
+      folder.updatedAt = new Date().toISOString();
+      await saveCommunity(community);
+      return sendJson(res, 200, { folder });
+    }
+    if (req.method === "DELETE") {
+      community.documents.forEach((document) => { if (document.folderId === folderId && document.ownerId === user.id) document.folderId = ""; });
+      community.documentFolders = community.documentFolders.filter((item) => item.id !== folderId);
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  if (url.pathname === "/api/community/documents") {
+    const community = await loadCommunity();
+    const users = await loadUsers();
+    if (req.method === "GET") {
+      const view = String(url.searchParams.get("view") || "active");
+      const folderId = String(url.searchParams.get("folderId") || "");
+      const search = String(url.searchParams.get("search") || "").toLowerCase();
+      const documents = community.documents
+        .filter((document) => localDocumentPermission(community, document, user.id) !== "none")
+        .filter((document) => view === "trash" ? Boolean(document.trashedAt) : !document.trashedAt)
+        .filter((document) => view !== "favorites" || document.favorite)
+        .filter((document) => !folderId || document.folderId === folderId)
+        .filter((document) => !search || `${document.title} ${document.content?.plainText || ""}`.toLowerCase().includes(search))
+        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+        .slice(0, 300)
+        .map((document) => localDocumentDto(community, document, user, users));
       return sendJson(res, 200, { documents });
     }
     if (req.method === "POST") {
       const input = await readJsonBody(req);
       const kind = ["doc", "pdf", "form"].includes(String(input.kind || "").toLowerCase()) ? String(input.kind).toLowerCase() : "doc";
-      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 120);
+      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 180);
       const content = input.content && typeof input.content === "object" ? input.content : {};
+      const settings = input.settings && typeof input.settings === "object" ? input.settings : {};
       if (!title) return sendError(res, 400, "Add a document title.");
-      if (JSON.stringify(content).length > 100000) return sendError(res, 400, "This village document is too large.");
+      if (JSON.stringify(content).length > 900000) return sendError(res, 400, "This Village document is too large.");
       const at = new Date().toISOString();
-      const document = { id: randomBytes(12).toString("hex"), ownerId: user.id, kind, title, content, mine: true, createdAt: at, updatedAt: at };
+      const document = {
+        id: randomBytes(12).toString("hex"), ownerId: user.id, kind, title, content, settings,
+        folderId: String(input.folderId || ""), favorite: Boolean(input.favorite), trashedAt: null,
+        templateKey: String(input.templateKey || ""), versionNumber: 1, publicShareToken: "",
+        publicPermission: "viewer", permissionExpiresAt: "", restrictions: { download: false, copy: false, print: false },
+        watermark: "", encrypted: false, createdAt: at, updatedAt: at
+      };
       community.documents.push(document);
+      community.documentVersions.push({ id: randomBytes(12).toString("hex"), documentId: document.id, versionNumber: 1, title, content, settings, changeSummary: "Document created", userId: user.id, createdAt: at });
+      community.documentAudit.push({ id: randomBytes(8).toString("hex"), documentId: document.id, userId: user.id, action: "create", metadata: { templateKey: document.templateKey }, createdAt: at });
       await saveCommunity(community);
-      return sendJson(res, 201, { document });
+      return sendJson(res, 201, { document: localDocumentDto(community, document, user, users) });
     }
   }
 
-  const documentMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)(?:\/(share|responses))?$/);
+  const documentMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)(?:\/(share|responses|workspace|metadata|versions|comments|presence|collaborators|share-link|audit|approvals|signatures|integrations|assist))?$/);
   if (documentMatch) {
     const documentId = decodeURIComponent(documentMatch[1]);
     const operation = documentMatch[2] || "";
     const community = await loadCommunity();
+    const users = await loadUsers();
     const document = community.documents.find((item) => item.id === documentId);
-    const canRead = document && (document.ownerId === user.id || community.documentShares.some((share) => share.documentId === documentId && community.members.some((member) => member.roomId === share.roomId && member.userId === user.id)));
-    if (!canRead) return sendError(res, 404, "Village document not found.");
-    if (!operation && req.method === "GET") return sendJson(res, 200, { document: { ...document, mine: document.ownerId === user.id } });
+    const permission = localDocumentPermission(community, document, user.id);
+    if (!document || permission === "none") return sendError(res, 404, "Village document not found.");
+    const canEdit = ["owner", "editor"].includes(permission);
+    const canComment = ["owner", "editor", "commenter"].includes(permission);
+    const dto = () => localDocumentDto(community, document, user, users);
+
+    if (!operation && req.method === "GET") return sendJson(res, 200, { document: dto() });
     if (!operation && req.method === "PATCH") {
-      if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can edit it.");
+      if (!canEdit) return sendError(res, 403, "You need edit permission for this document.");
       const input = await readJsonBody(req);
-      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 120);
+      const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 180);
       const content = input.content && typeof input.content === "object" ? input.content : {};
+      const settings = input.settings && typeof input.settings === "object" ? input.settings : {};
       if (!title) return sendError(res, 400, "Add a document title.");
-      if (JSON.stringify(content).length > 100000) return sendError(res, 400, "This village document is too large.");
-      Object.assign(document, { title, content, updatedAt: new Date().toISOString() });
+      const at = new Date().toISOString();
+      Object.assign(document, { title, content, settings, updatedAt: at });
+      if (document.ownerId === user.id) {
+        document.folderId = String(input.folderId || document.folderId || "");
+        document.favorite = Boolean(input.favorite);
+        document.templateKey = String(input.templateKey || document.templateKey || "");
+        const security = settings.security || {};
+        document.restrictions = { download: Boolean(security.restrictDownload), copy: Boolean(security.restrictCopy), print: Boolean(security.restrictPrint) };
+        document.watermark = String(security.watermark || "");
+        document.encrypted = Boolean(security.encrypted);
+      }
+      if (input.createVersion) {
+        document.versionNumber = Number(document.versionNumber || 1) + 1;
+        community.documentVersions.push({ id: randomBytes(12).toString("hex"), documentId, versionNumber: document.versionNumber, title, content, settings, changeSummary: String(input.changeSummary || "Saved changes"), userId: user.id, createdAt: at });
+      }
+      community.documentAudit.push({ id: randomBytes(8).toString("hex"), documentId, userId: user.id, action: "edit", metadata: { autosave: !input.createVersion }, createdAt: at });
       await saveCommunity(community);
-      return sendJson(res, 200, { document: { ...document, mine: true } });
+      return sendJson(res, 200, { document: dto() });
     }
     if (!operation && req.method === "DELETE") {
       if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can delete it.");
-      community.documents = community.documents.filter((item) => item.id !== documentId);
-      community.documentShares = community.documentShares.filter((item) => item.documentId !== documentId);
-      community.formResponses = community.formResponses.filter((item) => item.documentId !== documentId);
+      if (url.searchParams.get("permanent") === "1") {
+        community.documents = community.documents.filter((item) => item.id !== documentId);
+        for (const key of ["documentShares", "documentCollaborators", "documentVersions", "documentComments", "documentPresence", "documentAudit", "documentApprovals", "documentSignatures", "documentIntegrations", "formResponses"]) {
+          community[key] = community[key].filter((item) => item.documentId !== documentId);
+        }
+      } else {
+        document.trashedAt = new Date().toISOString();
+      }
       await saveCommunity(community);
       return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "metadata" && req.method === "PATCH") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the owner can organize this document.");
+      const input = await readJsonBody(req);
+      if (input.title !== undefined) document.title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 180);
+      if (input.folderId !== undefined) document.folderId = String(input.folderId || "");
+      if (input.favorite !== undefined) document.favorite = Boolean(input.favorite);
+      if (input.trashed !== undefined) document.trashedAt = input.trashed ? new Date().toISOString() : null;
+      document.updatedAt = new Date().toISOString();
+      await saveCommunity(community);
+      return sendJson(res, 200, { document: dto() });
+    }
+    if (operation === "workspace" && req.method === "GET") {
+      const names = (id) => community.profiles[id]?.displayName || users.find((candidate) => candidate.id === id)?.name || "Village member";
+      const collaborators = community.documentCollaborators.filter((item) => item.documentId === documentId).map((item) => ({ ...item, name: names(item.userId), email: users.find((candidate) => candidate.id === item.userId)?.email || "" }));
+      return sendJson(res, 200, {
+        document: dto(),
+        versions: community.documentVersions.filter((item) => item.documentId === documentId).sort((a, b) => b.versionNumber - a.versionNumber).map((item) => ({ ...item, author: names(item.userId) })),
+        comments: community.documentComments.filter((item) => item.documentId === documentId).map((item) => ({ ...item, author: names(item.userId), mentionedName: names(item.mentionedUserId), assignedName: names(item.assignedTo), mine: item.userId === user.id })),
+        collaborators,
+        presence: community.documentPresence.filter((item) => item.documentId === documentId && Date.now() - new Date(item.lastSeenAt).getTime() < 45000).map((item) => ({ ...item, name: names(item.userId), mine: item.userId === user.id })),
+        approvals: community.documentApprovals.filter((item) => item.documentId === documentId).map((item) => ({ ...item, requesterName: names(item.requestedBy), reviewerName: names(item.reviewerId), mine: item.reviewerId === user.id })),
+        signatures: community.documentSignatures.filter((item) => item.documentId === documentId).map((item) => ({ ...item, signerName: names(item.userId) })),
+        integrations: document.ownerId === user.id ? community.documentIntegrations.filter((item) => item.documentId === documentId) : [],
+        audit: document.ownerId === user.id ? community.documentAudit.filter((item) => item.documentId === documentId).map((item) => ({ ...item, actorName: names(item.userId) })) : [],
+        responses: document.ownerId === user.id ? community.formResponses.filter((item) => item.documentId === documentId).map((item) => ({ ...item, author: names(item.userId) })) : [],
+        permission
+      });
     }
     if (operation === "share" && req.method === "POST") {
       if (document.ownerId !== user.id) return sendError(res, 403, "Only the document owner can share it.");
@@ -1892,7 +2073,6 @@ async function handleApi(req, res, url) {
     if (operation === "responses" && req.method === "POST") {
       if (document.kind !== "form") return sendError(res, 400, "Responses are available for forms only.");
       const response = (await readJsonBody(req)).response;
-      if (JSON.stringify(response || {}).length > 25000) return sendError(res, 400, "The form response is too large.");
       const formResponse = { id: randomBytes(12).toString("hex"), documentId, userId: user.id, response: response && typeof response === "object" ? response : {}, createdAt: new Date().toISOString() };
       community.formResponses.push(formResponse);
       await saveCommunity(community);
@@ -1900,9 +2080,164 @@ async function handleApi(req, res, url) {
     }
     if (operation === "responses" && req.method === "GET") {
       if (document.ownerId !== user.id) return sendError(res, 403, "Only the form owner can review responses.");
-      const users = await loadUsers();
-      return sendJson(res, 200, { responses: community.formResponses.filter((item) => item.documentId === documentId).slice().reverse().map((item) => ({ ...item, author: community.profiles[item.userId]?.displayName || users.find((candidate) => candidate.id === item.userId)?.name || "Village member" })) });
+      return sendJson(res, 200, { responses: community.formResponses.filter((item) => item.documentId === documentId).map((item) => ({ ...item, author: users.find((candidate) => candidate.id === item.userId)?.name || "Village member" })) });
     }
+    if (operation === "versions" && req.method === "GET") {
+      return sendJson(res, 200, { versions: community.documentVersions.filter((item) => item.documentId === documentId).sort((a, b) => b.versionNumber - a.versionNumber).map((item) => ({ ...item, author: users.find((candidate) => candidate.id === item.userId)?.name || "Village member" })) });
+    }
+    if (operation === "versions" && req.method === "POST") {
+      if (!canEdit) return sendError(res, 403, "You need edit permission to create a version.");
+      const input = await readJsonBody(req);
+      const at = new Date().toISOString();
+      document.versionNumber = Number(document.versionNumber || 1) + 1;
+      document.updatedAt = at;
+      const version = { id: randomBytes(12).toString("hex"), documentId, versionNumber: document.versionNumber, title: document.title, content: document.content, settings: document.settings, changeSummary: String(input.changeSummary || "Named version").slice(0, 240), userId: user.id, author: user.name, createdAt: at };
+      community.documentVersions.push(version);
+      await saveCommunity(community);
+      return sendJson(res, 201, { version });
+    }
+    if (operation === "comments" && req.method === "GET") return sendJson(res, 200, { comments: community.documentComments.filter((item) => item.documentId === documentId) });
+    if (operation === "comments" && req.method === "POST") {
+      if (!canComment) return sendError(res, 403, "You need comment permission for this document.");
+      const input = await readJsonBody(req);
+      const text = String(input.body || "").trim().slice(0, 2500);
+      if (!text) return sendError(res, 400, "Write a comment first.");
+      const at = new Date().toISOString();
+      const comment = { id: randomBytes(12).toString("hex"), documentId, userId: user.id, parentId: String(input.parentId || ""), anchorText: String(input.anchorText || "").slice(0, 500), body: text, author: user.name, mentionedUserId: String(input.mentionedUserId || ""), assignedTo: String(input.assignedTo || ""), status: "open", mine: true, createdAt: at, updatedAt: at };
+      community.documentComments.push(comment);
+      await saveCommunity(community);
+      return sendJson(res, 201, { comment });
+    }
+    if (operation === "presence" && req.method === "GET") return sendJson(res, 200, { presence: community.documentPresence.filter((item) => item.documentId === documentId && Date.now() - new Date(item.lastSeenAt).getTime() < 45000) });
+    if (operation === "presence" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const sessionId = String(input.sessionId || "").slice(0, 80);
+      if (!sessionId) return sendError(res, 400, "Presence session is missing.");
+      let presence = community.documentPresence.find((item) => item.documentId === documentId && item.userId === user.id && item.sessionId === sessionId);
+      if (!presence) { presence = { documentId, userId: user.id, sessionId }; community.documentPresence.push(presence); }
+      Object.assign(presence, { cursor: input.cursor || {}, name: user.name, lastSeenAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, lastSeenAt: presence.lastSeenAt });
+    }
+    if (operation === "presence" && req.method === "DELETE") {
+      const sessionId = String(url.searchParams.get("sessionId") || "");
+      community.documentPresence = community.documentPresence.filter((item) => item.documentId !== documentId || item.userId !== user.id || (sessionId && item.sessionId !== sessionId));
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "collaborators" && req.method === "POST") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the owner can invite collaborators.");
+      const input = await readJsonBody(req);
+      const account = users.find((candidate) => input.userId ? candidate.id === String(input.userId) : candidate.email.toLowerCase() === String(input.email || "").toLowerCase());
+      if (!account || account.id === user.id) return sendError(res, 400, "Choose another registered Village member.");
+      const permissionValue = ["viewer", "commenter", "editor"].includes(input.permission) ? input.permission : "viewer";
+      const at = new Date().toISOString();
+      let collaborator = community.documentCollaborators.find((item) => item.documentId === documentId && item.userId === account.id);
+      if (!collaborator) { collaborator = { documentId, userId: account.id, createdAt: at }; community.documentCollaborators.push(collaborator); }
+      Object.assign(collaborator, { permission: permissionValue, expiresAt: String(input.expiresAt || ""), updatedAt: at });
+      await saveCommunity(community);
+      return sendJson(res, 201, { collaborator: { ...collaborator, name: account.name, email: account.email } });
+    }
+    if (operation === "collaborators" && req.method === "DELETE") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the owner can remove collaborators.");
+      community.documentCollaborators = community.documentCollaborators.filter((item) => item.documentId !== documentId || item.userId !== url.searchParams.get("userId"));
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "share-link" && req.method === "POST") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the owner can manage the share link.");
+      const input = await readJsonBody(req);
+      document.publicShareToken = input.enabled === false ? "" : document.publicShareToken || randomBytes(24).toString("hex");
+      document.publicPermission = ["viewer", "commenter", "editor"].includes(input.permission) ? input.permission : "viewer";
+      document.permissionExpiresAt = String(input.expiresAt || "");
+      document.restrictions = { download: Boolean(input.restrictDownload), copy: Boolean(input.restrictCopy), print: Boolean(input.restrictPrint) };
+      document.watermark = String(input.watermark || "").slice(0, 120);
+      await saveCommunity(community);
+      return sendJson(res, 200, { enabled: Boolean(document.publicShareToken), token: document.publicShareToken, permission: document.publicPermission, expiresAt: document.permissionExpiresAt, restrictions: document.restrictions, watermark: document.watermark });
+    }
+    if (operation === "approvals" && req.method === "POST") {
+      if (!canEdit) return sendError(res, 403, "You need edit permission to request approval.");
+      const input = await readJsonBody(req);
+      const reviewer = users.find((candidate) => input.reviewerId ? candidate.id === String(input.reviewerId) : candidate.email.toLowerCase() === String(input.email || "").toLowerCase());
+      if (!reviewer || reviewer.id === user.id) return sendError(res, 400, "Choose another registered reviewer.");
+      const at = new Date().toISOString();
+      if (!community.documentCollaborators.some((item) => item.documentId === documentId && item.userId === reviewer.id)) community.documentCollaborators.push({ documentId, userId: reviewer.id, permission: "viewer", expiresAt: "", createdAt: at, updatedAt: at });
+      const approval = { id: randomBytes(12).toString("hex"), documentId, requestedBy: user.id, requesterName: user.name, reviewerId: reviewer.id, reviewerName: reviewer.name, status: "pending", note: String(input.note || "").slice(0, 1000), mine: false, createdAt: at, updatedAt: at };
+      community.documentApprovals.push(approval);
+      await saveCommunity(community);
+      return sendJson(res, 201, { approval });
+    }
+    if (operation === "signatures" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const signature = { id: randomBytes(12).toString("hex"), documentId, userId: user.id, signerName: user.name, signatureText: String(input.signatureText || user.name).slice(0, 160), signatureDataUrl: "", createdAt: new Date().toISOString() };
+      community.documentSignatures.unshift(signature);
+      await saveCommunity(community);
+      return sendJson(res, 201, { signature });
+    }
+    if (operation === "integrations" && req.method === "POST") {
+      if (document.ownerId !== user.id) return sendError(res, 403, "Only the owner can manage integrations.");
+      const input = await readJsonBody(req);
+      const integration = { id: randomBytes(12).toString("hex"), documentId, name: String(input.name || "").slice(0, 80), type: input.type || "link", config: input.config || {}, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      community.documentIntegrations.unshift(integration);
+      await saveCommunity(community);
+      return sendJson(res, 201, { integration });
+    }
+    if (operation === "integrations" && req.method === "DELETE") {
+      community.documentIntegrations = community.documentIntegrations.filter((item) => item.id !== url.searchParams.get("id"));
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (operation === "audit" && req.method === "GET") return sendJson(res, 200, { audit: document.ownerId === user.id ? community.documentAudit.filter((item) => item.documentId === documentId) : [] });
+    if (operation === "assist" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const text = String(input.text || "").trim();
+      if (!text) return sendError(res, 400, "Select or write some text first.");
+      const result = input.action === "summarize" ? text.split(/(?<=[.!?])\s+/).slice(0, 3).join(" ") : text;
+      return sendJson(res, 200, { text: result });
+    }
+  }
+
+  const documentCommentMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/comments\/([^/]+)$/);
+  if (documentCommentMatch) {
+    const community = await loadCommunity();
+    const document = community.documents.find((item) => item.id === decodeURIComponent(documentCommentMatch[1]));
+    const comment = community.documentComments.find((item) => item.id === decodeURIComponent(documentCommentMatch[2]));
+    if (!document || !comment || localDocumentPermission(community, document, user.id) === "none") return sendError(res, 404, "Comment not found.");
+    if (req.method === "PATCH") {
+      if (comment.userId !== user.id && document.ownerId !== user.id) return sendError(res, 403, "Only the comment author or document owner can update it.");
+      const input = await readJsonBody(req);
+      if (input.body !== undefined) comment.body = String(input.body || "").slice(0, 2500);
+      comment.status = input.status === "resolved" ? "resolved" : "open";
+      comment.updatedAt = new Date().toISOString();
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, status: comment.status, body: comment.body, updatedAt: comment.updatedAt });
+    }
+  }
+
+  const documentVersionRestoreMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/versions\/([^/]+)\/restore$/);
+  if (req.method === "POST" && documentVersionRestoreMatch) {
+    const community = await loadCommunity();
+    const documentId = decodeURIComponent(documentVersionRestoreMatch[1]);
+    const document = community.documents.find((item) => item.id === documentId);
+    const version = community.documentVersions.find((item) => item.id === decodeURIComponent(documentVersionRestoreMatch[2]) && item.documentId === documentId);
+    if (!document || !version || !["owner", "editor"].includes(localDocumentPermission(community, document, user.id))) return sendError(res, 404, "Version not found.");
+    Object.assign(document, { title: version.title, content: version.content, settings: version.settings, versionNumber: Number(document.versionNumber || 1) + 1, updatedAt: new Date().toISOString() });
+    await saveCommunity(community);
+    return sendJson(res, 200, { document: localDocumentDto(community, document, user, await loadUsers()) });
+  }
+
+  const documentApprovalMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/approvals\/([^/]+)$/);
+  if (req.method === "PATCH" && documentApprovalMatch) {
+    const community = await loadCommunity();
+    const document = community.documents.find((item) => item.id === decodeURIComponent(documentApprovalMatch[1]));
+    const approval = community.documentApprovals.find((item) => item.id === decodeURIComponent(documentApprovalMatch[2]));
+    if (!document || !approval || (approval.reviewerId !== user.id && document.ownerId !== user.id)) return sendError(res, 404, "Approval request not found.");
+    const input = await readJsonBody(req);
+    approval.status = ["approved", "changes_requested", "cancelled"].includes(input.status) ? input.status : "pending";
+    approval.note = String(input.note || approval.note || "").slice(0, 1000);
+    approval.updatedAt = new Date().toISOString();
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, status: approval.status, note: approval.note, updatedAt: approval.updatedAt });
   }
 
   if (url.pathname === "/api/community/meetings") {
