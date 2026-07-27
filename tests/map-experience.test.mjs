@@ -24,8 +24,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=community-workspace-20260726d/);
-  assert.match(html, /app\.js\?v=community-workspace-20260726d/);
+  assert.match(html, /styles\.css\?v=document-studio-20260727b/);
+  assert.match(html, /app\.js\?v=document-studio-20260727b/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
@@ -357,4 +357,29 @@ test("2D buildings select their island before opening building functions", async
   assert.match(css, /body\.scene-2d \.map-stage\.focus-autism \.map-hotspot\[data-island="autism"\]/);
   assert.match(css, /body\.scene-2d \.map-stage\.focus-adhd \.map-hotspot\[data-island="adhd"\]/);
   assert.match(surface, /closest\?\.\("\.island-hit-area, \.building, \.map-hotspot"\)/);
+});
+
+test("community groups keep descriptions and menus aligned and documents open the full studio", async () => {
+  const [css, app, studio, exporter] = await Promise.all([
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/community-documents.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../public/document-export.mjs", import.meta.url), "utf8")
+  ]);
+  assert.match(css, /\.village-room-card\s*\{[^}]*grid-template-columns:\s*3rem minmax\(0,1fr\) auto/);
+  assert.match(css, /\.village-room-card > \.secondary-button\s*\{[^}]*white-space:\s*nowrap/);
+  assert.match(css, /\.village-room-card > \.community-room-open\s*\{[^}]*border:\s*0/);
+  assert.match(css, /\.village-document-studio\.editor-mode\s*\{[^}]*grid-template-rows/);
+  assert.match(css, /\.doc-editor-layout\s*\{[^}]*grid-template-columns:\s*13rem minmax\(0,1fr\) 20rem/);
+  assert.match(app, /import \{ VillageDocumentStudio \}/);
+  assert.match(app, /state\.documentRuntime\.openDocument\(documentId\)/);
+  assert.match(studio, /contenteditable="\$\{editable\}"/);
+  for (const capability of ["insert-table", "insert-link", "insert-toc", "voice-input", "save-version", "collaborators", "approvals", "signatures", "integrations"]) {
+    assert.match(studio, new RegExp(capability));
+  }
+  for (const template of ["Resume", "Report", "Meeting notes", "Project plan", "Agreement", "Application form", "Letter"]) {
+    assert.match(studio, new RegExp(template));
+  }
+  assert.match(exporter, /0x06054b50/);
+  assert.match(exporter, /word\/document\.xml/);
 });
