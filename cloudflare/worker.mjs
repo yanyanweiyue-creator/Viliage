@@ -254,26 +254,98 @@ function safeAttachment(input = {}) {
 
 function communityDocumentInput(input = {}) {
   const kind = ["doc", "pdf", "form"].includes(String(input.kind || "").toLowerCase()) ? String(input.kind).toLowerCase() : "doc";
-  const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 120);
+  const title = String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 180);
   if (!title) throw new Error("Add a document title.");
   const content = input.content && typeof input.content === "object" ? input.content : {};
   const encoded = JSON.stringify(content);
-  if (encoded.length > 100000) throw new Error("This village document is too large.");
-  return { kind, title, content, encoded };
+  if (encoded.length > 900000) throw new Error("This Village document is too large. Remove an embedded image or attachment and try again.");
+  const settings = input.settings && typeof input.settings === "object" ? input.settings : {};
+  const settingsEncoded = JSON.stringify(settings);
+  if (settingsEncoded.length > 25000) throw new Error("Document settings are too large.");
+  const folderId = String(input.folderId || "").trim().slice(0, 80) || null;
+  const templateKey = String(input.templateKey || "").trim().replace(/[^a-z0-9_-]/gi, "").slice(0, 60) || null;
+  return { kind, title, content, encoded, settings, settingsEncoded, folderId, templateKey };
+}
+
+function documentPermission(document, userId) {
+  if (!document) return "none";
+  if (document.owner_id === userId) return "owner";
+  const expiresAt = document.collaborator_expires_at ? new Date(document.collaborator_expires_at).getTime() : 0;
+  if (document.collaborator_permission && (!expiresAt || expiresAt > Date.now())) return document.collaborator_permission;
+  return document.room_shared ? "viewer" : "none";
+}
+
+function canEditDocument(document, userId) {
+  return ["owner", "editor"].includes(documentPermission(document, userId));
+}
+
+function canCommentDocument(document, userId) {
+  return ["owner", "editor", "commenter"].includes(documentPermission(document, userId));
+}
+
+function mapCommunityDocument(document, userId, extra = {}) {
+  const permission = documentPermission(document, userId);
+  return {
+    id: document.id,
+    ownerId: document.owner_id,
+    ownerName: document.owner_name,
+    kind: document.kind,
+    title: document.title,
+    content: parseJson(document.content_json, {}),
+    settings: parseJson(document.settings_json, {}),
+    folderId: document.folder_id || "",
+    favorite: Boolean(document.favorite),
+    trashedAt: document.trashed_at || null,
+    templateKey: document.template_key || "",
+    versionNumber: Number(document.version_number || 1),
+    publicShareToken: document.owner_id === userId ? document.public_share_token || "" : "",
+    publicPermission: document.public_permission || "viewer",
+    permissionExpiresAt: document.permission_expires_at || "",
+    restrictions: {
+      download: Boolean(document.restrict_download),
+      copy: Boolean(document.restrict_copy),
+      print: Boolean(document.restrict_print)
+    },
+    watermark: document.watermark || "",
+    encrypted: Boolean(document.encrypted),
+    permission,
+    mine: document.owner_id === userId,
+    canEdit: canEditDocument(document, userId),
+    canComment: canCommentDocument(document, userId),
+    createdAt: document.created_at,
+    updatedAt: document.updated_at,
+    ...extra
+  };
+}
+
+async function recordDocumentAudit(env, documentId, userId, action, metadata = {}) {
+  const encoded = JSON.stringify(metadata && typeof metadata === "object" ? metadata : {});
+  await env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(documentId, userId, String(action || "view").slice(0, 80), encoded.slice(0, 10000), new Date().toISOString()).run();
 }
 
 async function communityDocumentForUser(env, documentId, userId) {
   return env.DB.prepare(`
-    SELECT document.*, owner.name AS owner_name FROM community_documents document
+    SELECT document.*, owner.name AS owner_name,
+      collaborator.permission AS collaborator_permission,
+      collaborator.expires_at AS collaborator_expires_at,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM community_document_shares share
+        JOIN chat_members member ON member.room_id = share.room_id
+        WHERE share.document_id = document.id AND member.user_id = ?
+      ) THEN 1 ELSE 0 END AS room_shared
+    FROM community_documents document
     JOIN users owner ON owner.id = document.owner_id
+    LEFT JOIN community_document_collaborators collaborator
+      ON collaborator.document_id = document.id AND collaborator.user_id = ?
     WHERE document.id = ? AND (
-      document.owner_id = ? OR EXISTS (
+      document.owner_id = ? OR collaborator.user_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM community_document_shares share
         JOIN chat_members member ON member.room_id = share.room_id
         WHERE share.document_id = document.id AND member.user_id = ?
       )
     ) LIMIT 1
-  `).bind(documentId, userId, userId).first();
+  `).bind(userId, userId, documentId, userId, userId).first();
 }
 
 async function roomForMember(env, roomId, userId) {
@@ -573,6 +645,42 @@ function responseLanguageName(language = "en") {
 
 function responseText(data) {
   return (data.output || []).flatMap((item) => item.content || []).filter((part) => part.type === "output_text").map((part) => part.text).join("\n").trim();
+}
+
+async function assistDocumentText(env, { action, text, language = "English", instruction = "" }) {
+  const source = String(text || "").trim().slice(0, 30000);
+  if (!source) throw new Error("Select or write some document text first.");
+  const allowed = {
+    continue: "Continue the writing naturally without repeating the source.",
+    summarize: "Summarize the source accurately and concisely.",
+    rewrite: "Rewrite the source for clarity while preserving its meaning.",
+    polish: "Polish grammar, spelling, tone, and flow without inventing facts.",
+    translate: `Translate the source into ${String(language || "English").slice(0, 60)}.`,
+    grammar: "Return a corrected version and preserve the original structure."
+  };
+  const task = allowed[action];
+  if (!task) throw new Error("Choose a supported writing action.");
+  if (!env.OPENAI_API_KEY) {
+    if (action === "summarize") return source.split(/(?<=[.!?])\s+/).slice(0, 3).join(" ");
+    if (action === "grammar" || action === "polish") return source.replace(/\s+/g, " ").trim();
+    throw new Error("AI writing is not configured on this environment.");
+  }
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: env.OPENAI_MODEL || "gpt-5.4",
+      reasoning: { effort: "low" },
+      text: { verbosity: "medium" },
+      instructions: `You are the Village document writing assistant. ${task} Return only the requested document text, with no preface, markdown fence, diagnosis, or invented claims. Respect this optional direction: ${String(instruction || "none").slice(0, 500)}.`,
+      input: source
+    }),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!response.ok) throw new Error(`Writing assistant returned ${response.status}.`);
+  const result = responseText(await response.json());
+  if (!result) throw new Error("The writing assistant returned an empty response.");
+  return result;
 }
 
 async function expandKeywords(env, { topic, description, profile, directKeywords, limit }) {
@@ -1051,6 +1159,37 @@ async function api(request, env, ctx) {
   if (request.method === "GET" && url.pathname === "/api/resources") {
     const data = await resources(env, url.searchParams.get("refresh") === "1");
     return json({ resources: data.rows, source: data.source, warning: data.warning || null, updatedAt: new Date().toISOString() });
+  }
+  const publicDocumentMatch = url.pathname.match(/^\/api\/community\/public-documents\/([^/]+)$/);
+  if (request.method === "GET" && publicDocumentMatch) {
+    const token = decodeURIComponent(publicDocumentMatch[1]);
+    const document = await env.DB.prepare(`
+      SELECT document.*, owner.name AS owner_name
+      FROM community_documents document JOIN users owner ON owner.id = document.owner_id
+      WHERE document.public_share_token = ? AND document.trashed_at IS NULL
+        AND (document.permission_expires_at IS NULL OR document.permission_expires_at > ?)
+      LIMIT 1
+    `).bind(token, new Date().toISOString()).first();
+    if (!document) return fail("This document link is unavailable or has expired.", 404);
+    return json({
+      document: {
+        id: document.id,
+        ownerName: document.owner_name,
+        kind: document.kind,
+        title: document.title,
+        content: parseJson(document.content_json, {}),
+        settings: parseJson(document.settings_json, {}),
+        publicPermission: document.public_permission || "viewer",
+        restrictions: {
+          download: Boolean(document.restrict_download),
+          copy: Boolean(document.restrict_copy),
+          print: Boolean(document.restrict_print)
+        },
+        watermark: document.watermark || "",
+        encrypted: Boolean(document.encrypted),
+        updatedAt: document.updated_at
+      }
+    });
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/password/request") {
@@ -1762,26 +1901,119 @@ async function api(request, env, ctx) {
     return json({ ok: true, optionIndex });
   }
 
+  if (url.pathname === "/api/community/document-folders") {
+    if (request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT folder.*, COUNT(document.id) AS document_count
+        FROM community_document_folders folder
+        LEFT JOIN community_documents document
+          ON document.folder_id = folder.id AND document.owner_id = folder.owner_id AND document.trashed_at IS NULL
+        WHERE folder.owner_id = ?
+        GROUP BY folder.id ORDER BY folder.name COLLATE NOCASE
+      `).bind(user.id));
+      return json({ folders: rows.map((row) => ({ id: row.id, parentId: row.parent_id || "", name: row.name, documentCount: Number(row.document_count || 0), createdAt: row.created_at, updatedAt: row.updated_at })) });
+    }
+    if (request.method === "POST") {
+      const input = await body(request);
+      const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 80);
+      const parentId = String(input.parentId || "").trim() || null;
+      if (!name) return fail("Add a folder name.");
+      if (parentId && !await env.DB.prepare("SELECT id FROM community_document_folders WHERE id = ? AND owner_id = ? LIMIT 1").bind(parentId, user.id).first()) return fail("Parent folder not found.", 404);
+      const at = new Date().toISOString();
+      const folder = { id: randomBytes(12).toString("hex"), parentId: parentId || "", name, documentCount: 0, createdAt: at, updatedAt: at };
+      try {
+        await env.DB.prepare("INSERT INTO community_document_folders (id, owner_id, parent_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(folder.id, user.id, parentId, name, at, at).run();
+      } catch { return fail("A folder with that name already exists here.", 409); }
+      return json({ folder }, 201);
+    }
+  }
+
+  const documentFolderMatch = url.pathname.match(/^\/api\/community\/document-folders\/([^/]+)$/);
+  if (documentFolderMatch) {
+    const folderId = decodeURIComponent(documentFolderMatch[1]);
+    const folder = await env.DB.prepare("SELECT * FROM community_document_folders WHERE id = ? AND owner_id = ? LIMIT 1").bind(folderId, user.id).first();
+    if (!folder) return fail("Folder not found.", 404);
+    if (request.method === "PATCH") {
+      const input = await body(request);
+      const name = String(input.name || folder.name).trim().replace(/[<>\r\n]/g, " ").slice(0, 80);
+      const parentId = input.parentId === undefined ? folder.parent_id : String(input.parentId || "").trim() || null;
+      if (!name || parentId === folderId) return fail("Choose a valid folder name and location.");
+      const at = new Date().toISOString();
+      try {
+        await env.DB.prepare("UPDATE community_document_folders SET name = ?, parent_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+          .bind(name, parentId, at, folderId, user.id).run();
+      } catch { return fail("That folder name is already in use.", 409); }
+      return json({ folder: { id: folderId, parentId: parentId || "", name, updatedAt: at } });
+    }
+    if (request.method === "DELETE") {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE community_documents SET folder_id = NULL WHERE folder_id = ? AND owner_id = ?").bind(folderId, user.id),
+        env.DB.prepare("UPDATE community_document_folders SET parent_id = NULL WHERE parent_id = ? AND owner_id = ?").bind(folderId, user.id),
+        env.DB.prepare("DELETE FROM community_document_folders WHERE id = ? AND owner_id = ?").bind(folderId, user.id)
+      ]);
+      return json({ ok: true });
+    }
+  }
+
   if (url.pathname === "/api/community/documents") {
     if (request.method === "GET") {
       const rows = await allRows(env.DB.prepare(`
-        SELECT DISTINCT document.*, owner.name AS owner_name
+        SELECT DISTINCT document.*, owner.name AS owner_name,
+          collaborator.permission AS collaborator_permission,
+          collaborator.expires_at AS collaborator_expires_at,
+          CASE WHEN member.user_id IS NOT NULL THEN 1 ELSE 0 END AS room_shared
         FROM community_documents document
         JOIN users owner ON owner.id = document.owner_id
+        LEFT JOIN community_document_collaborators collaborator
+          ON collaborator.document_id = document.id AND collaborator.user_id = ?
         LEFT JOIN community_document_shares share ON share.document_id = document.id
         LEFT JOIN chat_members member ON member.room_id = share.room_id
-        WHERE document.owner_id = ? OR member.user_id = ?
-        ORDER BY document.updated_at DESC LIMIT 100
-      `).bind(user.id, user.id));
-      return json({ documents: rows.map((row) => ({ id: row.id, ownerId: row.owner_id, ownerName: row.owner_name, kind: row.kind, title: row.title, content: parseJson(row.content_json, {}), mine: row.owner_id === user.id, createdAt: row.created_at, updatedAt: row.updated_at })) });
+        WHERE document.owner_id = ? OR collaborator.user_id = ? OR member.user_id = ?
+        ORDER BY document.updated_at DESC LIMIT 300
+      `).bind(user.id, user.id, user.id, user.id));
+      const search = String(url.searchParams.get("search") || "").trim().toLowerCase();
+      const folderId = String(url.searchParams.get("folderId") || "");
+      const view = String(url.searchParams.get("view") || "active");
+      const documents = rows
+        .filter((row) => (view === "trash" ? Boolean(row.trashed_at) : !row.trashed_at))
+        .filter((row) => view !== "favorites" || Boolean(row.favorite))
+        .filter((row) => !folderId || row.folder_id === folderId)
+        .filter((row) => !search || `${row.title} ${parseJson(row.content_json, {}).plainText || ""}`.toLowerCase().includes(search))
+        .map((row) => mapCommunityDocument(row, user.id));
+      return json({ documents });
     }
     if (request.method === "POST") {
       let input;
-      try { input = communityDocumentInput(await body(request)); }
+      let payload;
+      try {
+        payload = await body(request);
+        input = communityDocumentInput(payload);
+      }
       catch (error) { return fail(error.message); }
       const at = new Date().toISOString();
-      const document = { id: randomBytes(12).toString("hex"), ownerId: user.id, kind: input.kind, title: input.title, content: input.content, mine: true, createdAt: at, updatedAt: at };
-      await env.DB.prepare("INSERT INTO community_documents (id, owner_id, kind, title, content_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(document.id, user.id, input.kind, input.title, input.encoded, at, at).run();
+      if (input.folderId && !await env.DB.prepare("SELECT id FROM community_document_folders WHERE id = ? AND owner_id = ? LIMIT 1").bind(input.folderId, user.id).first()) return fail("Folder not found.", 404);
+      const document = {
+        id: randomBytes(12).toString("hex"), ownerId: user.id, ownerName: user.name, kind: input.kind, title: input.title,
+        content: input.content, settings: input.settings, folderId: input.folderId || "", favorite: Boolean(payload.favorite),
+        templateKey: input.templateKey || "", versionNumber: 1, permission: "owner", mine: true, canEdit: true, canComment: true,
+        restrictions: { download: false, copy: false, print: false }, watermark: "", encrypted: false, createdAt: at, updatedAt: at
+      };
+      const versionId = randomBytes(12).toString("hex");
+      await env.DB.batch([
+        env.DB.prepare(`
+          INSERT INTO community_documents
+            (id, owner_id, kind, title, content_json, folder_id, favorite, settings_json, template_key, version_number, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        `).bind(document.id, user.id, input.kind, input.title, input.encoded, input.folderId, payload.favorite ? 1 : 0, input.settingsEncoded, input.templateKey, at, at),
+        env.DB.prepare(`
+          INSERT INTO community_document_versions
+            (id, document_id, version_number, title, content_json, settings_json, change_summary, created_by, created_at)
+          VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+        `).bind(versionId, document.id, input.title, input.encoded, input.settingsEncoded, "Document created", user.id, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'create', ?, ?)")
+          .bind(document.id, user.id, JSON.stringify({ templateKey: input.templateKey || "" }), at)
+      ]);
       return json({ document }, 201);
     }
   }
@@ -1794,21 +2026,75 @@ async function api(request, env, ctx) {
     if (!document) return fail("Village document not found.", 404);
 
     if (!operation && request.method === "GET") {
-      return json({ document: { id: document.id, ownerId: document.owner_id, ownerName: document.owner_name, kind: document.kind, title: document.title, content: parseJson(document.content_json, {}), mine: document.owner_id === user.id, createdAt: document.created_at, updatedAt: document.updated_at } });
+      ctx.waitUntil(recordDocumentAudit(env, documentId, user.id, "view").catch(() => {}));
+      return json({ document: mapCommunityDocument(document, user.id) });
     }
     if (!operation && request.method === "PATCH") {
-      if (document.owner_id !== user.id) return fail("Only the document owner can edit it.", 403);
+      if (!canEditDocument(document, user.id)) return fail("You need edit permission for this document.", 403);
       let input;
-      try { input = communityDocumentInput({ ...await body(request), kind: document.kind }); }
+      let payload;
+      try {
+        payload = await body(request);
+        input = communityDocumentInput({ ...payload, kind: document.kind });
+      }
       catch (error) { return fail(error.message); }
+      if (input.folderId && document.owner_id === user.id && !await env.DB.prepare("SELECT id FROM community_document_folders WHERE id = ? AND owner_id = ? LIMIT 1").bind(input.folderId, user.id).first()) return fail("Folder not found.", 404);
       const at = new Date().toISOString();
-      await env.DB.prepare("UPDATE community_documents SET title = ?, content_json = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(input.title, input.encoded, at, documentId, user.id).run();
-      return json({ document: { id: documentId, ownerId: user.id, kind: document.kind, title: input.title, content: input.content, mine: true, createdAt: document.created_at, updatedAt: at } });
+      const security = input.settings?.security && typeof input.settings.security === "object" ? input.settings.security : {};
+      const createVersion = payload.createVersion !== false;
+      const nextVersion = Number(document.version_number || 1) + (createVersion ? 1 : 0);
+      const updates = [
+        env.DB.prepare(`
+          UPDATE community_documents SET title = ?, content_json = ?, settings_json = ?,
+            folder_id = CASE WHEN owner_id = ? THEN ? ELSE folder_id END,
+            favorite = CASE WHEN owner_id = ? THEN ? ELSE favorite END,
+            template_key = CASE WHEN owner_id = ? THEN ? ELSE template_key END,
+            version_number = ?,
+            restrict_download = CASE WHEN owner_id = ? THEN ? ELSE restrict_download END,
+            restrict_copy = CASE WHEN owner_id = ? THEN ? ELSE restrict_copy END,
+            restrict_print = CASE WHEN owner_id = ? THEN ? ELSE restrict_print END,
+            watermark = CASE WHEN owner_id = ? THEN ? ELSE watermark END,
+            encrypted = CASE WHEN owner_id = ? THEN ? ELSE encrypted END,
+            updated_at = ?
+          WHERE id = ?
+        `).bind(
+          input.title, input.encoded, input.settingsEncoded,
+          user.id, input.folderId, user.id, payload.favorite ? 1 : 0,
+          user.id, input.templateKey, nextVersion,
+          user.id, security.restrictDownload ? 1 : 0,
+          user.id, security.restrictCopy ? 1 : 0,
+          user.id, security.restrictPrint ? 1 : 0,
+          user.id, String(security.watermark || "").trim().slice(0, 120) || null,
+          user.id, security.encrypted ? 1 : 0,
+          at, documentId
+        ),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'edit', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ autosave: !createVersion, versionNumber: nextVersion }), at)
+      ];
+      if (createVersion) {
+        updates.push(env.DB.prepare(`
+          INSERT INTO community_document_versions
+            (id, document_id, version_number, title, content_json, settings_json, change_summary, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(randomBytes(12).toString("hex"), documentId, nextVersion, input.title, input.encoded, input.settingsEncoded, String(payload.changeSummary || "Saved changes").trim().slice(0, 240), user.id, at));
+      }
+      await env.DB.batch(updates);
+      const refreshed = await communityDocumentForUser(env, documentId, user.id);
+      return json({ document: mapCommunityDocument(refreshed, user.id) });
     }
     if (!operation && request.method === "DELETE") {
       if (document.owner_id !== user.id) return fail("Only the document owner can delete it.", 403);
-      await env.DB.prepare("DELETE FROM community_documents WHERE id = ? AND owner_id = ?").bind(documentId, user.id).run();
-      return json({ ok: true });
+      const permanent = url.searchParams.get("permanent") === "1";
+      if (permanent) {
+        await env.DB.prepare("DELETE FROM community_documents WHERE id = ? AND owner_id = ?").bind(documentId, user.id).run();
+        return json({ ok: true, permanent: true });
+      }
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("UPDATE community_documents SET trashed_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(at, at, documentId, user.id),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'trash', '{}', ?)").bind(documentId, user.id, at)
+      ]);
+      return json({ ok: true, trashedAt: at });
     }
     if (operation === "share" && request.method === "POST") {
       if (document.owner_id !== user.id) return fail("Only the document owner can share it.", 403);
@@ -1844,6 +2130,440 @@ async function api(request, env, ctx) {
       `).bind(documentId));
       return json({ responses: rows.map((row) => ({ id: row.id, userId: row.user_id, author: row.author, response: parseJson(row.response_json, {}), createdAt: row.created_at })) });
     }
+  }
+
+  const documentWorkspaceMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/(workspace|metadata|versions|comments|presence|collaborators|share-link|audit|approvals|signatures|integrations|assist)$/);
+  if (documentWorkspaceMatch) {
+    const documentId = decodeURIComponent(documentWorkspaceMatch[1]);
+    const operation = documentWorkspaceMatch[2];
+    const document = await communityDocumentForUser(env, documentId, user.id);
+    if (!document) return fail("Village document not found.", 404);
+    const permission = documentPermission(document, user.id);
+
+    if (operation === "metadata" && request.method === "PATCH") {
+      if (document.owner_id !== user.id) return fail("Only the owner can organize this document.", 403);
+      const input = await body(request);
+      const title = input.title === undefined ? document.title : String(input.title || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 180);
+      if (!title) return fail("Add a document title.");
+      const folderId = input.folderId === undefined ? document.folder_id : String(input.folderId || "").trim() || null;
+      if (folderId && !await env.DB.prepare("SELECT id FROM community_document_folders WHERE id = ? AND owner_id = ? LIMIT 1").bind(folderId, user.id).first()) return fail("Folder not found.", 404);
+      const favorite = input.favorite === undefined ? Number(document.favorite || 0) : input.favorite ? 1 : 0;
+      const trashedAt = input.trashed === undefined ? document.trashed_at : input.trashed ? new Date().toISOString() : null;
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("UPDATE community_documents SET title = ?, folder_id = ?, favorite = ?, trashed_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+          .bind(title, folderId, favorite, trashedAt, at, documentId, user.id),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'organize', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ title, folderId, favorite: Boolean(favorite), trashed: Boolean(trashedAt) }), at)
+      ]);
+      const refreshed = await communityDocumentForUser(env, documentId, user.id);
+      return json({ document: mapCommunityDocument(refreshed, user.id) });
+    }
+
+    if (operation === "workspace" && request.method === "GET") {
+      const presenceCutoff = new Date(Date.now() - 45_000).toISOString();
+      await env.DB.prepare("DELETE FROM community_document_presence WHERE document_id = ? AND last_seen_at < ?").bind(documentId, presenceCutoff).run();
+      const [versions, comments, collaborators, presence, approvals, signatures, integrations, audit, responses] = await Promise.all([
+        allRows(env.DB.prepare(`
+          SELECT version.id, version.version_number, version.change_summary, version.created_at,
+            COALESCE(profile.display_name, account.name) AS author
+          FROM community_document_versions version JOIN users account ON account.id = version.created_by
+          LEFT JOIN community_profiles profile ON profile.user_id = version.created_by
+          WHERE version.document_id = ? ORDER BY version.version_number DESC LIMIT 100
+        `).bind(documentId)),
+        allRows(env.DB.prepare(`
+          SELECT comment.*, COALESCE(profile.display_name, account.name) AS author,
+            mentioned.name AS mentioned_name, assigned.name AS assigned_name
+          FROM community_document_comments comment JOIN users account ON account.id = comment.user_id
+          LEFT JOIN community_profiles profile ON profile.user_id = comment.user_id
+          LEFT JOIN users mentioned ON mentioned.id = comment.mentioned_user_id
+          LEFT JOIN users assigned ON assigned.id = comment.assigned_to
+          WHERE comment.document_id = ? ORDER BY comment.created_at
+        `).bind(documentId)),
+        allRows(env.DB.prepare(`
+          SELECT collaborator.*, account.name, account.email, account.avatar_data_url
+          FROM community_document_collaborators collaborator JOIN users account ON account.id = collaborator.user_id
+          WHERE collaborator.document_id = ? ORDER BY account.name COLLATE NOCASE
+        `).bind(documentId)),
+        allRows(env.DB.prepare(`
+          SELECT presence.*, COALESCE(profile.display_name, account.name) AS name, account.avatar_data_url
+          FROM community_document_presence presence JOIN users account ON account.id = presence.user_id
+          LEFT JOIN community_profiles profile ON profile.user_id = presence.user_id
+          WHERE presence.document_id = ? AND presence.last_seen_at >= ? ORDER BY presence.last_seen_at DESC
+        `).bind(documentId, presenceCutoff)),
+        allRows(env.DB.prepare(`
+          SELECT approval.*, requester.name AS requester_name, reviewer.name AS reviewer_name
+          FROM community_document_approvals approval
+          JOIN users requester ON requester.id = approval.requested_by
+          JOIN users reviewer ON reviewer.id = approval.reviewer_id
+          WHERE approval.document_id = ? ORDER BY approval.updated_at DESC
+        `).bind(documentId)),
+        allRows(env.DB.prepare(`
+          SELECT signature.*, account.name AS signer_name
+          FROM community_document_signatures signature JOIN users account ON account.id = signature.user_id
+          WHERE signature.document_id = ? ORDER BY signature.created_at DESC
+        `).bind(documentId)),
+        document.owner_id === user.id ? allRows(env.DB.prepare("SELECT * FROM community_document_integrations WHERE document_id = ? ORDER BY updated_at DESC").bind(documentId)) : Promise.resolve([]),
+        document.owner_id === user.id ? allRows(env.DB.prepare(`
+          SELECT audit.*, account.name AS actor_name FROM community_document_audit audit
+          JOIN users account ON account.id = audit.user_id
+          WHERE audit.document_id = ? ORDER BY audit.created_at DESC LIMIT 200
+        `).bind(documentId)) : Promise.resolve([]),
+        document.owner_id === user.id ? allRows(env.DB.prepare(`
+          SELECT response.*, COALESCE(profile.display_name, account.name) AS author
+          FROM community_form_responses response
+          JOIN users account ON account.id = response.user_id
+          LEFT JOIN community_profiles profile ON profile.user_id = response.user_id
+          WHERE response.document_id = ? ORDER BY response.created_at DESC
+        `).bind(documentId)) : Promise.resolve([])
+      ]);
+      ctx.waitUntil(recordDocumentAudit(env, documentId, user.id, "open-workspace").catch(() => {}));
+      return json({
+        document: mapCommunityDocument(document, user.id),
+        versions: versions.map((row) => ({ id: row.id, versionNumber: Number(row.version_number), changeSummary: row.change_summary, author: row.author, createdAt: row.created_at })),
+        comments: comments.map((row) => ({ id: row.id, userId: row.user_id, parentId: row.parent_id || "", anchorText: row.anchor_text, body: row.body, author: row.author, mentionedUserId: row.mentioned_user_id || "", mentionedName: row.mentioned_name || "", assignedTo: row.assigned_to || "", assignedName: row.assigned_name || "", status: row.status, mine: row.user_id === user.id, createdAt: row.created_at, updatedAt: row.updated_at })),
+        collaborators: collaborators.map((row) => ({ userId: row.user_id, name: row.name, email: row.email, avatarDataUrl: row.avatar_data_url || "", permission: row.permission, expiresAt: row.expires_at || "", createdAt: row.created_at })),
+        presence: presence.map((row) => ({ userId: row.user_id, sessionId: row.session_id, name: row.name, avatarDataUrl: row.avatar_data_url || "", cursor: parseJson(row.cursor_json, {}), mine: row.user_id === user.id, lastSeenAt: row.last_seen_at })),
+        approvals: approvals.map((row) => ({ id: row.id, requestedBy: row.requested_by, requesterName: row.requester_name, reviewerId: row.reviewer_id, reviewerName: row.reviewer_name, status: row.status, note: row.note, mine: row.reviewer_id === user.id, createdAt: row.created_at, updatedAt: row.updated_at })),
+        signatures: signatures.map((row) => ({ id: row.id, userId: row.user_id, signerName: row.signer_name, signatureText: row.signature_text, signatureDataUrl: row.signature_data_url || "", createdAt: row.created_at })),
+        integrations: integrations.map((row) => ({ id: row.id, name: row.name, type: row.integration_type, config: parseJson(row.config_json, {}), createdAt: row.created_at, updatedAt: row.updated_at })),
+        audit: audit.map((row) => ({ id: Number(row.id), actorName: row.actor_name, action: row.action, metadata: parseJson(row.metadata_json, {}), createdAt: row.created_at })),
+        responses: responses.map((row) => ({ id: row.id, userId: row.user_id, author: row.author, response: parseJson(row.response_json, {}), createdAt: row.created_at })),
+        permission
+      });
+    }
+
+    if (operation === "versions" && request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT version.*, account.name AS author FROM community_document_versions version
+        JOIN users account ON account.id = version.created_by
+        WHERE version.document_id = ? ORDER BY version.version_number DESC LIMIT 100
+      `).bind(documentId));
+      return json({ versions: rows.map((row) => ({ id: row.id, versionNumber: Number(row.version_number), title: row.title, content: parseJson(row.content_json, {}), settings: parseJson(row.settings_json, {}), changeSummary: row.change_summary, author: row.author, createdAt: row.created_at })) });
+    }
+    if (operation === "versions" && request.method === "POST") {
+      if (!canEditDocument(document, user.id)) return fail("You need edit permission to create a version.", 403);
+      const at = new Date().toISOString();
+      const versionNumber = Number(document.version_number || 1) + 1;
+      const versionId = randomBytes(12).toString("hex");
+      const summary = String((await body(request)).changeSummary || "Named version").trim().slice(0, 240);
+      await env.DB.batch([
+        env.DB.prepare("UPDATE community_documents SET version_number = ?, updated_at = ? WHERE id = ?").bind(versionNumber, at, documentId),
+        env.DB.prepare(`
+          INSERT INTO community_document_versions
+            (id, document_id, version_number, title, content_json, settings_json, change_summary, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(versionId, documentId, versionNumber, document.title, document.content_json, document.settings_json || "{}", summary, user.id, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'version', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ versionNumber, summary }), at)
+      ]);
+      return json({ version: { id: versionId, versionNumber, changeSummary: summary, author: user.name, createdAt: at } }, 201);
+    }
+
+    if (operation === "comments" && request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT comment.*, account.name AS author FROM community_document_comments comment
+        JOIN users account ON account.id = comment.user_id
+        WHERE comment.document_id = ? ORDER BY comment.created_at
+      `).bind(documentId));
+      return json({ comments: rows.map((row) => ({ id: row.id, userId: row.user_id, parentId: row.parent_id || "", anchorText: row.anchor_text, body: row.body, author: row.author, mentionedUserId: row.mentioned_user_id || "", assignedTo: row.assigned_to || "", status: row.status, mine: row.user_id === user.id, createdAt: row.created_at, updatedAt: row.updated_at })) });
+    }
+    if (operation === "comments" && request.method === "POST") {
+      if (!canCommentDocument(document, user.id)) return fail("You need comment permission for this document.", 403);
+      const input = await body(request);
+      const text = String(input.body || "").trim().slice(0, 2500);
+      const parentId = String(input.parentId || "").trim() || null;
+      const anchorText = String(input.anchorText || "").trim().slice(0, 500);
+      const mentionedUserId = String(input.mentionedUserId || "").trim() || null;
+      const assignedTo = String(input.assignedTo || "").trim() || null;
+      if (!text) return fail("Write a comment first.");
+      if (parentId && !await env.DB.prepare("SELECT id FROM community_document_comments WHERE id = ? AND document_id = ? LIMIT 1").bind(parentId, documentId).first()) return fail("The parent comment no longer exists.", 404);
+      const at = new Date().toISOString();
+      const commentId = randomBytes(12).toString("hex");
+      await env.DB.batch([
+        env.DB.prepare(`
+          INSERT INTO community_document_comments
+            (id, document_id, user_id, parent_id, anchor_text, body, mentioned_user_id, assigned_to, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(commentId, documentId, user.id, parentId, anchorText, text, mentionedUserId, assignedTo, at, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'comment', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ commentId, assignedTo, mentionedUserId }), at)
+      ]);
+      const notifyIds = [...new Set([mentionedUserId, assignedTo].filter((id) => id && id !== user.id))];
+      for (const recipientId of notifyIds) {
+        ctx.waitUntil(createUserNotification(env, recipientId, "document-comment", document.title, `${user.name}: ${text}`, { documentId, commentId }).catch(() => {}));
+      }
+      return json({ comment: { id: commentId, userId: user.id, parentId: parentId || "", anchorText, body: text, author: user.name, mentionedUserId: mentionedUserId || "", assignedTo: assignedTo || "", status: "open", mine: true, createdAt: at, updatedAt: at } }, 201);
+    }
+
+    if (operation === "presence" && request.method === "GET") {
+      const cutoff = new Date(Date.now() - 45_000).toISOString();
+      const rows = await allRows(env.DB.prepare(`
+        SELECT presence.*, account.name, account.avatar_data_url FROM community_document_presence presence
+        JOIN users account ON account.id = presence.user_id
+        WHERE presence.document_id = ? AND presence.last_seen_at >= ? ORDER BY presence.last_seen_at DESC
+      `).bind(documentId, cutoff));
+      return json({ presence: rows.map((row) => ({ userId: row.user_id, sessionId: row.session_id, name: row.name, avatarDataUrl: row.avatar_data_url || "", cursor: parseJson(row.cursor_json, {}), mine: row.user_id === user.id, lastSeenAt: row.last_seen_at })) });
+    }
+    if (operation === "presence" && request.method === "POST") {
+      const input = await body(request);
+      const sessionId = String(input.sessionId || "").trim().replace(/[^a-z0-9_-]/gi, "").slice(0, 80);
+      const cursor = input.cursor && typeof input.cursor === "object" ? input.cursor : {};
+      if (!sessionId) return fail("Presence session is missing.");
+      const at = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO community_document_presence (document_id, user_id, session_id, cursor_json, last_seen_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(document_id, user_id, session_id)
+        DO UPDATE SET cursor_json = excluded.cursor_json, last_seen_at = excluded.last_seen_at
+      `).bind(documentId, user.id, sessionId, JSON.stringify(cursor).slice(0, 5000), at).run();
+      return json({ ok: true, lastSeenAt: at });
+    }
+    if (operation === "presence" && request.method === "DELETE") {
+      const sessionId = String(url.searchParams.get("sessionId") || "");
+      await env.DB.prepare("DELETE FROM community_document_presence WHERE document_id = ? AND user_id = ? AND (? = '' OR session_id = ?)").bind(documentId, user.id, sessionId, sessionId).run();
+      return json({ ok: true });
+    }
+
+    if (operation === "collaborators" && request.method === "GET") {
+      if (document.owner_id !== user.id) return fail("Only the owner can manage collaborators.", 403);
+      const rows = await allRows(env.DB.prepare(`
+        SELECT collaborator.*, account.name, account.email FROM community_document_collaborators collaborator
+        JOIN users account ON account.id = collaborator.user_id
+        WHERE collaborator.document_id = ? ORDER BY account.name COLLATE NOCASE
+      `).bind(documentId));
+      return json({ collaborators: rows.map((row) => ({ userId: row.user_id, name: row.name, email: row.email, permission: row.permission, expiresAt: row.expires_at || "", createdAt: row.created_at })) });
+    }
+    if (operation === "collaborators" && request.method === "POST") {
+      if (document.owner_id !== user.id) return fail("Only the owner can invite collaborators.", 403);
+      const input = await body(request);
+      const permissionValue = ["viewer", "commenter", "editor"].includes(input.permission) ? input.permission : "viewer";
+      const account = input.userId
+        ? await env.DB.prepare("SELECT id, name, email FROM users WHERE id = ? LIMIT 1").bind(String(input.userId)).first()
+        : await env.DB.prepare("SELECT id, name, email FROM users WHERE email = ? LIMIT 1").bind(String(input.email || "").trim().toLowerCase()).first();
+      if (!account || account.id === user.id) return fail("Choose another registered Village member.");
+      const expiresAt = input.expiresAt && Number.isFinite(new Date(input.expiresAt).getTime()) ? new Date(input.expiresAt).toISOString() : null;
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare(`
+          INSERT INTO community_document_collaborators (document_id, user_id, permission, expires_at, invited_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(document_id, user_id)
+          DO UPDATE SET permission = excluded.permission, expires_at = excluded.expires_at, updated_at = excluded.updated_at
+        `).bind(documentId, account.id, permissionValue, expiresAt, user.id, at, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'share-user', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ collaboratorId: account.id, permission: permissionValue, expiresAt }), at)
+      ]);
+      ctx.waitUntil(createUserNotification(env, account.id, "document-share", document.title, `${user.name} invited you as ${permissionValue}.`, { documentId }).catch(() => {}));
+      return json({ collaborator: { userId: account.id, name: account.name, email: account.email, permission: permissionValue, expiresAt: expiresAt || "", createdAt: at } }, 201);
+    }
+    if (operation === "collaborators" && request.method === "DELETE") {
+      if (document.owner_id !== user.id) return fail("Only the owner can remove collaborators.", 403);
+      const collaboratorId = String(url.searchParams.get("userId") || "");
+      await env.DB.prepare("DELETE FROM community_document_collaborators WHERE document_id = ? AND user_id = ?").bind(documentId, collaboratorId).run();
+      ctx.waitUntil(recordDocumentAudit(env, documentId, user.id, "remove-collaborator", { collaboratorId }).catch(() => {}));
+      return json({ ok: true });
+    }
+
+    if (operation === "share-link" && request.method === "POST") {
+      if (document.owner_id !== user.id) return fail("Only the owner can manage the share link.", 403);
+      const input = await body(request);
+      const enabled = input.enabled !== false;
+      const token = enabled ? (document.public_share_token || randomBytes(24).toString("hex")) : null;
+      const publicPermission = ["viewer", "commenter", "editor"].includes(input.permission) ? input.permission : "viewer";
+      const expiresAt = input.expiresAt && Number.isFinite(new Date(input.expiresAt).getTime()) ? new Date(input.expiresAt).toISOString() : null;
+      const watermark = String(input.watermark || "").trim().slice(0, 120) || null;
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare(`
+          UPDATE community_documents SET public_share_token = ?, public_permission = ?, permission_expires_at = ?,
+            restrict_download = ?, restrict_copy = ?, restrict_print = ?, watermark = ?, updated_at = ?
+          WHERE id = ? AND owner_id = ?
+        `).bind(token, publicPermission, expiresAt, input.restrictDownload ? 1 : 0, input.restrictCopy ? 1 : 0, input.restrictPrint ? 1 : 0, watermark, at, documentId, user.id),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'share-link', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ enabled, permission: publicPermission, expiresAt }), at)
+      ]);
+      return json({ enabled, token: token || "", permission: publicPermission, expiresAt: expiresAt || "", restrictions: { download: Boolean(input.restrictDownload), copy: Boolean(input.restrictCopy), print: Boolean(input.restrictPrint) }, watermark: watermark || "" });
+    }
+
+    if (operation === "audit" && request.method === "GET") {
+      if (document.owner_id !== user.id) return fail("Only the owner can view access records.", 403);
+      const rows = await allRows(env.DB.prepare(`
+        SELECT audit.*, account.name AS actor_name FROM community_document_audit audit
+        JOIN users account ON account.id = audit.user_id
+        WHERE audit.document_id = ? ORDER BY audit.created_at DESC LIMIT 300
+      `).bind(documentId));
+      return json({ audit: rows.map((row) => ({ id: Number(row.id), actorName: row.actor_name, action: row.action, metadata: parseJson(row.metadata_json, {}), createdAt: row.created_at })) });
+    }
+
+    if (operation === "approvals" && request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT approval.*, requester.name AS requester_name, reviewer.name AS reviewer_name
+        FROM community_document_approvals approval
+        JOIN users requester ON requester.id = approval.requested_by
+        JOIN users reviewer ON reviewer.id = approval.reviewer_id
+        WHERE approval.document_id = ? ORDER BY approval.updated_at DESC
+      `).bind(documentId));
+      return json({ approvals: rows.map((row) => ({ id: row.id, requestedBy: row.requested_by, requesterName: row.requester_name, reviewerId: row.reviewer_id, reviewerName: row.reviewer_name, status: row.status, note: row.note, mine: row.reviewer_id === user.id, createdAt: row.created_at, updatedAt: row.updated_at })) });
+    }
+    if (operation === "approvals" && request.method === "POST") {
+      if (!canEditDocument(document, user.id)) return fail("You need edit permission to request approval.", 403);
+      const input = await body(request);
+      const reviewer = input.reviewerId
+        ? await env.DB.prepare("SELECT id, name FROM users WHERE id = ? LIMIT 1").bind(String(input.reviewerId)).first()
+        : await env.DB.prepare("SELECT id, name FROM users WHERE email = ? LIMIT 1").bind(String(input.email || "").trim().toLowerCase()).first();
+      if (!reviewer || reviewer.id === user.id) return fail("Choose another registered reviewer.");
+      const at = new Date().toISOString();
+      const approvalId = randomBytes(12).toString("hex");
+      const note = String(input.note || "").trim().slice(0, 1000);
+      await env.DB.batch([
+        env.DB.prepare(`
+          INSERT INTO community_document_approvals (id, document_id, requested_by, reviewer_id, note, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(approvalId, documentId, user.id, reviewer.id, note, at, at),
+        env.DB.prepare(`
+          INSERT OR IGNORE INTO community_document_collaborators
+            (document_id, user_id, permission, expires_at, invited_by, created_at, updated_at)
+          VALUES (?, ?, 'viewer', NULL, ?, ?, ?)
+        `).bind(documentId, reviewer.id, user.id, at, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'request-approval', ?, ?)")
+          .bind(documentId, user.id, JSON.stringify({ approvalId, reviewerId: reviewer.id }), at)
+      ]);
+      ctx.waitUntil(createUserNotification(env, reviewer.id, "document-approval", document.title, `${user.name} requested your approval.`, { documentId, approvalId }).catch(() => {}));
+      return json({ approval: { id: approvalId, requestedBy: user.id, requesterName: user.name, reviewerId: reviewer.id, reviewerName: reviewer.name, status: "pending", note, mine: false, createdAt: at, updatedAt: at } }, 201);
+    }
+
+    if (operation === "signatures" && request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT signature.*, account.name AS signer_name FROM community_document_signatures signature
+        JOIN users account ON account.id = signature.user_id
+        WHERE signature.document_id = ? ORDER BY signature.created_at DESC
+      `).bind(documentId));
+      return json({ signatures: rows.map((row) => ({ id: row.id, userId: row.user_id, signerName: row.signer_name, signatureText: row.signature_text, signatureDataUrl: row.signature_data_url || "", createdAt: row.created_at })) });
+    }
+    if (operation === "signatures" && request.method === "POST") {
+      const input = await body(request);
+      const signatureText = String(input.signatureText || user.name).trim().slice(0, 160);
+      let signatureDataUrl = null;
+      try { signatureDataUrl = safeImageDataUrl(input.signatureDataUrl); }
+      catch (error) { return fail(error.message); }
+      if (!signatureText) return fail("Add your signature name.");
+      const signatureId = randomBytes(12).toString("hex");
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO community_document_signatures (id, document_id, user_id, signature_text, signature_data_url, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(signatureId, documentId, user.id, signatureText, signatureDataUrl, at),
+        env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'sign', ?, ?)").bind(documentId, user.id, JSON.stringify({ signatureId }), at)
+      ]);
+      return json({ signature: { id: signatureId, userId: user.id, signerName: user.name, signatureText, signatureDataUrl: signatureDataUrl || "", createdAt: at } }, 201);
+    }
+
+    if (operation === "integrations" && request.method === "GET") {
+      if (document.owner_id !== user.id) return fail("Only the owner can manage integrations.", 403);
+      const rows = await allRows(env.DB.prepare("SELECT * FROM community_document_integrations WHERE document_id = ? ORDER BY updated_at DESC").bind(documentId));
+      return json({ integrations: rows.map((row) => ({ id: row.id, name: row.name, type: row.integration_type, config: parseJson(row.config_json, {}), createdAt: row.created_at, updatedAt: row.updated_at })) });
+    }
+    if (operation === "integrations" && request.method === "POST") {
+      if (document.owner_id !== user.id) return fail("Only the owner can manage integrations.", 403);
+      const input = await body(request);
+      const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 80);
+      const type = ["link", "webhook", "api"].includes(input.type) ? input.type : "link";
+      const config = input.config && typeof input.config === "object" ? input.config : {};
+      const endpoint = String(config.url || "").trim();
+      if (!name) return fail("Name the integration.");
+      if (endpoint && !/^https:\/\//i.test(endpoint)) return fail("Integration URLs must use HTTPS.");
+      const at = new Date().toISOString();
+      const integrationId = randomBytes(12).toString("hex");
+      await env.DB.prepare(`
+        INSERT INTO community_document_integrations (id, document_id, owner_id, name, integration_type, config_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(integrationId, documentId, user.id, name, type, JSON.stringify(config).slice(0, 10000), at, at).run();
+      return json({ integration: { id: integrationId, name, type, config, createdAt: at, updatedAt: at } }, 201);
+    }
+    if (operation === "integrations" && request.method === "DELETE") {
+      if (document.owner_id !== user.id) return fail("Only the owner can manage integrations.", 403);
+      const integrationId = String(url.searchParams.get("id") || "");
+      await env.DB.prepare("DELETE FROM community_document_integrations WHERE id = ? AND document_id = ? AND owner_id = ?").bind(integrationId, documentId, user.id).run();
+      return json({ ok: true });
+    }
+
+    if (operation === "assist" && request.method === "POST") {
+      if (!canEditDocument(document, user.id)) return fail("You need edit permission to use writing assistance.", 403);
+      try {
+        const input = await body(request);
+        const text = await assistDocumentText(env, input);
+        ctx.waitUntil(recordDocumentAudit(env, documentId, user.id, "ai-assist", { action: input.action }).catch(() => {}));
+        return json({ text });
+      } catch (error) { return fail(error.message, 400); }
+    }
+  }
+
+  const documentCommentMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/comments\/([^/]+)$/);
+  if (documentCommentMatch) {
+    const documentId = decodeURIComponent(documentCommentMatch[1]);
+    const commentId = decodeURIComponent(documentCommentMatch[2]);
+    const document = await communityDocumentForUser(env, documentId, user.id);
+    if (!document) return fail("Village document not found.", 404);
+    const comment = await env.DB.prepare("SELECT * FROM community_document_comments WHERE id = ? AND document_id = ? LIMIT 1").bind(commentId, documentId).first();
+    if (!comment) return fail("Comment not found.", 404);
+    if (request.method === "PATCH") {
+      const input = await body(request);
+      const canModerate = comment.user_id === user.id || document.owner_id === user.id;
+      if (!canModerate) return fail("Only the comment author or document owner can update it.", 403);
+      const status = input.status === "resolved" ? "resolved" : "open";
+      const text = input.body === undefined ? comment.body : String(input.body || "").trim().slice(0, 2500);
+      if (!text) return fail("Comment text cannot be empty.");
+      const at = new Date().toISOString();
+      await env.DB.prepare("UPDATE community_document_comments SET body = ?, status = ?, resolved_at = ?, updated_at = ? WHERE id = ? AND document_id = ?")
+        .bind(text, status, status === "resolved" ? at : null, at, commentId, documentId).run();
+      return json({ ok: true, status, body: text, updatedAt: at });
+    }
+    if (request.method === "DELETE") {
+      if (comment.user_id !== user.id && document.owner_id !== user.id) return fail("Only the comment author or document owner can delete it.", 403);
+      await env.DB.prepare("DELETE FROM community_document_comments WHERE id = ? AND document_id = ?").bind(commentId, documentId).run();
+      return json({ ok: true });
+    }
+  }
+
+  const documentVersionRestoreMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/versions\/([^/]+)\/restore$/);
+  if (request.method === "POST" && documentVersionRestoreMatch) {
+    const documentId = decodeURIComponent(documentVersionRestoreMatch[1]);
+    const versionId = decodeURIComponent(documentVersionRestoreMatch[2]);
+    const document = await communityDocumentForUser(env, documentId, user.id);
+    if (!document || !canEditDocument(document, user.id)) return fail("You need edit permission to restore this version.", 403);
+    const version = await env.DB.prepare("SELECT * FROM community_document_versions WHERE id = ? AND document_id = ? LIMIT 1").bind(versionId, documentId).first();
+    if (!version) return fail("Version not found.", 404);
+    const at = new Date().toISOString();
+    const nextVersion = Number(document.version_number || 1) + 1;
+    await env.DB.batch([
+      env.DB.prepare("UPDATE community_documents SET title = ?, content_json = ?, settings_json = ?, version_number = ?, updated_at = ? WHERE id = ?")
+        .bind(version.title, version.content_json, version.settings_json || "{}", nextVersion, at, documentId),
+      env.DB.prepare(`
+        INSERT INTO community_document_versions
+          (id, document_id, version_number, title, content_json, settings_json, change_summary, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(randomBytes(12).toString("hex"), documentId, nextVersion, version.title, version.content_json, version.settings_json || "{}", `Restored version ${version.version_number}`, user.id, at),
+      env.DB.prepare("INSERT INTO community_document_audit (document_id, user_id, action, metadata_json, created_at) VALUES (?, ?, 'restore-version', ?, ?)")
+        .bind(documentId, user.id, JSON.stringify({ restoredVersion: Number(version.version_number), newVersion: nextVersion }), at)
+    ]);
+    const refreshed = await communityDocumentForUser(env, documentId, user.id);
+    return json({ document: mapCommunityDocument(refreshed, user.id) });
+  }
+
+  const documentApprovalMatch = url.pathname.match(/^\/api\/community\/documents\/([^/]+)\/approvals\/([^/]+)$/);
+  if (request.method === "PATCH" && documentApprovalMatch) {
+    const documentId = decodeURIComponent(documentApprovalMatch[1]);
+    const approvalId = decodeURIComponent(documentApprovalMatch[2]);
+    const document = await communityDocumentForUser(env, documentId, user.id);
+    if (!document) return fail("Village document not found.", 404);
+    const approval = await env.DB.prepare("SELECT * FROM community_document_approvals WHERE id = ? AND document_id = ? LIMIT 1").bind(approvalId, documentId).first();
+    if (!approval || (approval.reviewer_id !== user.id && document.owner_id !== user.id)) return fail("Approval request not found.", 404);
+    const input = await body(request);
+    const status = ["approved", "changes_requested", "cancelled"].includes(input.status) ? input.status : "pending";
+    const note = String(input.note || approval.note || "").trim().slice(0, 1000);
+    const at = new Date().toISOString();
+    await env.DB.prepare("UPDATE community_document_approvals SET status = ?, note = ?, updated_at = ? WHERE id = ? AND document_id = ?").bind(status, note, at, approvalId, documentId).run();
+    if (approval.requested_by !== user.id) ctx.waitUntil(createUserNotification(env, approval.requested_by, "document-approval", document.title, `${user.name}: ${status.replace("_", " ")}`, { documentId, approvalId }).catch(() => {}));
+    return json({ ok: true, status, note, updatedAt: at });
   }
 
   if (request.method === "GET" && url.pathname === "/api/community/notifications") {
