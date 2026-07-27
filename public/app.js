@@ -6,6 +6,7 @@ import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-log
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
 import { VillageMeetingRuntime } from "./community-meeting.mjs?v=village-community-20260726";
+import { VillageDocumentStudio } from "./community-documents.mjs?v=village-docs-20260727";
 
 const config = window.CAPY_CONFIG;
 const GUIDE_CHARACTERS = Object.freeze({
@@ -79,6 +80,7 @@ const state = {
   communityActiveProfileId: null,
   communityDocumentRoomId: null,
   meetingRuntime: null,
+  documentRuntime: null,
   announcements: [],
   activities: [],
   selectedAnnouncementId: null,
@@ -1733,25 +1735,19 @@ function communityDocumentEditorHtml(document = null, { kind = "doc", roomId = "
 async function openCommunityDocuments({ kind = "", roomId = state.communityRoom?.id || "", documentId = "" } = {}) {
   state.communityDocumentRoomId = roomId;
   clearInterval(state.communityTimer);
-  const roomName = state.communityRoom?.name || "";
+  closePanel();
+  if (!state.documentRuntime) return toast("The document studio is still loading.");
   if (documentId) return openCommunityDocument(documentId, roomId);
-  if (kind) {
-    openPanel({ title: `Create ${kind.toUpperCase()}`, eyebrow: "Village document studio", html: communityDocumentEditorHtml(null, { kind, roomId }) });
-    return;
-  }
-  openPanel({
-    title: "Village documents",
-    eyebrow: roomId ? `Create for ${roomName}` : "Your community workspace",
-    html: `<div class="village-document-hub">${roomId ? `<button type="button" class="text-button" data-action="return-community-room">← Back to chat</button>` : `<button type="button" class="text-button" data-action="community-tab" data-community-tab="self">← Back to Self</button>`}<div class="document-kind-picker">${[["doc","DOC","Write a village note or plan"],["pdf","PDF","Create a polished printable page"],["form","FORM","Collect structured responses"]].map(([value,label,description]) => `<button type="button" data-action="create-community-document-kind" data-document-kind="${value}"><span>${label}</span><strong>${description}</strong></button>`).join("")}</div><div class="village-document-list">${communityDocumentsHtml(state.communityDocuments)}</div></div>`
-  });
+  if (kind) return state.documentRuntime.createKind(kind, { roomId });
+  return state.documentRuntime.openHub({ roomId });
 }
 
 async function openCommunityDocument(documentId, roomId = state.communityDocumentRoomId || state.communityRoom?.id || "") {
   try {
-    const data = await api(`/api/community/documents/${encodeURIComponent(documentId)}`);
-    let responses = [];
-    if (data.document.kind === "form" && data.document.mine) responses = (await api(`/api/community/documents/${encodeURIComponent(documentId)}/responses`).catch(() => ({ responses: [] }))).responses || [];
-    openPanel({ title: data.document.title, eyebrow: "Village document", html: communityDocumentEditorHtml(data.document, { roomId, responses }) });
+    state.communityDocumentRoomId = roomId;
+    closePanel();
+    state.documentRuntime.roomId = roomId;
+    await state.documentRuntime.openDocument(documentId);
   } catch (error) { toast(error.message); }
 }
 
@@ -3878,10 +3874,13 @@ $("#environment-status")?.addEventListener("click", () => {
   await hydrateLocalMusic();
   applySettings();
   state.meetingRuntime = new VillageMeetingRuntime({ api, getUser: () => state.user, toast, onClose: () => {} });
+  state.documentRuntime = new VillageDocumentStudio({ api, getUser: () => state.user, toast, onClose: () => {} });
   try {
     const { user } = await api("/api/auth/me");
     state.user = user;
   } catch {}
   routeForUser();
+  const publicDocumentToken = new URLSearchParams(window.location.search).get("village-document");
+  if (publicDocumentToken) state.documentRuntime.openPublic(publicDocumentToken).catch((error) => toast(error.message));
   refreshAnnouncementBadge();
 })();
