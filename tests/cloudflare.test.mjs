@@ -38,6 +38,13 @@ async function applyAccountSchema(database) {
   database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
 }
 
+async function applyCommunitySchema(database) {
+  await applyAccountSchema(database);
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql"]) {
+    database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  }
+}
+
 test("Cloudflare D1 migration creates durable account and session tables", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
@@ -65,12 +72,16 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0008_disliked_resources.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0009_announcements_admins.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0011_community_workspace.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
-  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms"]);
+  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "10");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_documents'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_meetings'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_notifications'").get().count, 1);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "11");
   database.close();
 });
 
@@ -183,8 +194,23 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
   for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) {
     database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
+  database.prepare("INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?)").run(
+    "user_count_metrics:2026-07-24",
+    JSON.stringify({
+      "Total Guest Sessions": 2,
+      "Total Accounts Created": 1,
+      "Total Searches Completed": 4,
+      "__recommendation_usefulness_score_total": 6,
+      "__recommendation_usefulness_response_count": 2
+    }),
+    new Date().toISOString()
+  );
   const sheetWrites = [];
-  const env = cloudflareEnv(database, { USER_COUNT_SHEET_WEBHOOK_URL: "https://counts.example/sync" });
+  const feedbackWrites = [];
+  const env = cloudflareEnv(database, {
+    USER_COUNT_SHEET_WEBHOOK_URL: "https://counts.example/sync",
+    FEEDBACK_SHEET_WEBHOOK_URL: "https://feedback.example/sync"
+  });
   const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1"];
   const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
     { c: ["https://example.com/school", "Inclusive school support", "Autism", "Education", "", "All ages", "School"].map((value) => ({ v: value })) }
@@ -194,6 +220,10 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     if (String(url).includes("docs.google.com/spreadsheets")) return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
     if (String(url) === "https://counts.example/sync") {
       sheetWrites.push(JSON.parse(options.body));
+      return Response.json({ ok: true, row: 2 });
+    }
+    if (String(url) === "https://feedback.example/sync") {
+      feedbackWrites.push(JSON.parse(options.body));
       return Response.json({ ok: true, row: 2 });
     }
     return originalFetch(url, options);
@@ -214,7 +244,7 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     await worker.fetch(new Request("https://village.example/api/research-feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
-      body: JSON.stringify({ helpful: true, source: "research-results" })
+      body: JSON.stringify({ helpful: true, rating: 4, details: "Clear and relevant.", source: "research-results" })
     }), env, ctx);
 
     const scheduled = [];
@@ -224,13 +254,18 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     assert.equal(latest.action, "record-user-count");
     assert.equal(latest.sheetGid, "1958570867");
     assert.deepEqual(latest.metrics, {
-      "Total Guest Sessions": 1,
-      "Total Accounts Created": 1,
-      "Total Searches Completed": 1,
-      "Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)": 5
+      "Total Guest Sessions": 3,
+      "Total Accounts Created": 2,
+      "Total Searches Completed": 5,
+      "Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)": 3.33
     });
     assert.equal(Object.values(latest.metrics).every((value) => typeof value === "number"), true);
-    assert.equal("date" in latest.metrics, false);
+    assert.equal("date" in latest, false);
+    assert.equal(feedbackWrites.length, 1);
+    assert.equal(feedbackWrites[0].sheetGid, "981733839");
+    assert.equal(feedbackWrites[0]["Star(1-5)"], 4);
+    assert.equal(feedbackWrites[0].Feedback, "Clear and relevant.");
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'user_count_metrics:all-time'").get().count, 1);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -335,6 +370,15 @@ test("designated administrator can publish announcements and grant administrator
   const adminList = await memberAdminView.json();
   assert.equal(adminList.users.every((item) => item.isAdmin), true);
   assert.equal(adminList.users.some((item) => item.email === "member@example.com"), true);
+
+  const savedCommunityTerms = await worker.fetch(new Request("https://village.example/api/admin/community-blocklist", {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ text: "pineapple\nno spoilers" })
+  }), env, ctx);
+  assert.equal(savedCommunityTerms.status, 200);
+  assert.deepEqual((await savedCommunityTerms.json()).terms, ["pineapple", "no spoilers"]);
+  const sharedCommunityTerms = await worker.fetch(new Request("https://village.example/api/admin/community-blocklist", { headers: { Cookie: member.cookie } }), env, ctx);
+  assert.equal(sharedCommunityTerms.status, 200);
+  assert.deepEqual((await sharedCommunityTerms.json()).terms, ["pineapple", "no spoilers"]);
   database.close();
 });
 
@@ -349,10 +393,13 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
   const originalFetch = globalThis.fetch;
   let sheetPayload;
   const errorPayloads = [];
+  const feedbackPayloads = [];
   globalThis.fetch = async (url, options) => {
     const payload = JSON.parse(options.body);
     if (String(url).includes("error.example")) {
       errorPayloads.push(payload);
+    } else if (String(url).includes("feedback.example")) {
+      feedbackPayloads.push(payload);
     } else {
       sheetPayload = payload;
     }
@@ -398,13 +445,22 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     const researchFeedback = await worker.fetch(new Request("https://village.example/api/research-feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({ helpful: false, source: "research-results", research: { fullInput: "Find respite support", diagnosis: "Autism", category: "Support", primaryKeywords: ["respite"], confirmedKeywords: ["caregiver"], predictedKeywords: ["family support"], locatedKeywords: ["respite"], requestedCount: 5, providedCount: 4, highScoreCount: 3 } })
-    }), cloudflareEnv(database, { ERROR_SHEET_WEBHOOK_URL: "https://error.example/sync", ERROR_SHEET_GID: "1952899933" }), ctx);
+      body: JSON.stringify({ helpful: false, rating: 2, details: "The result was too broad.", source: "research-results", research: { fullInput: "Find respite support", diagnosis: "Autism", category: "Support", primaryKeywords: ["respite"], confirmedKeywords: ["caregiver"], predictedKeywords: ["family support"], locatedKeywords: ["respite"], requestedCount: 5, providedCount: 4, highScoreCount: 3 } })
+    }), cloudflareEnv(database, { ERROR_SHEET_WEBHOOK_URL: "https://error.example/sync", ERROR_SHEET_GID: "1952899933", FEEDBACK_SHEET_WEBHOOK_URL: "https://feedback.example/sync" }), ctx);
     assert.equal(researchFeedback.status, 200);
     assert.equal((await researchFeedback.json()).recorded, true);
     assert.equal(errorPayloads[1].Event, "research_not_helpful");
     assert.equal(errorPayloads[1]["Full Input"], "Find respite support");
     assert.equal(errorPayloads[1]["Confirmed Keywords"], "caregiver");
+    assert.match(errorPayloads[1].Reason, /Rating: 2\/5/);
+    assert.equal(feedbackPayloads.length, 1);
+    assert.equal(feedbackPayloads[0].action, "record-feedback");
+    assert.equal(feedbackPayloads[0].sheetGid, "981733839");
+    assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
+    assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
+    assert.equal(feedbackPayloads[0].Feedback, "The result was too broad.");
+    assert.equal(feedbackPayloads[0]["Star(1-5)"], 2);
+    assert.equal(feedbackPayloads[0]["Helpful / Nonhelpful"], "Nonhelpful");
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -516,10 +572,7 @@ test("Cloudflare password reset accepts pending codes generated before the fallb
 
 test("opted-in users can connect, accept, and exchange a private D1 message", async () => {
   const database = new DatabaseSync(":memory:");
-  await applyAccountSchema(database);
-  database.exec(await readFile(new URL("../migrations/0002_community_chat.sql", import.meta.url), "utf8"));
-  database.exec(await readFile(new URL("../migrations/0003_community_controls.sql", import.meta.url), "utf8"));
-  database.exec(await readFile(new URL("../migrations/0004_group_invitations.sql", import.meta.url), "utf8"));
+  await applyCommunitySchema(database);
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -553,7 +606,7 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql", "0011_community_workspace.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -599,9 +652,9 @@ test("community controls isolate history, restrict moments to friends, and enfor
   const samRoom = await samMessages.json();
   assert.equal(samRoom.messages.length, 1);
   assert.deepEqual(samRoom.members.map((member) => member.displayName).sort(), ["Alex", "Sam"]);
-  const rejectedLanguage = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: sam.cookie }, body: JSON.stringify({ message: "go die" }) }), env, ctx);
-  assert.equal(rejectedLanguage.status, 400);
-  assert.match((await rejectedLanguage.json()).error, /harmful|abusive/i);
+  const maskedLanguage = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: sam.cookie }, body: JSON.stringify({ message: "go die" }) }), env, ctx);
+  assert.equal(maskedLanguage.status, 201);
+  assert.equal((await maskedLanguage.json()).message.body, "** ***");
   await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/join", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: "{}" }), env, ctx);
   const systemInvite = await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/invite", { method: "POST", headers: { "Content-Type": "application/json", Cookie: alex.cookie }, body: JSON.stringify({ memberIds: [sam.user.id] }) }), env, ctx);
   assert.equal((await systemInvite.json()).invited, 1);
@@ -631,6 +684,162 @@ test("community controls isolate history, restrict moments to friends, and enfor
   await cleanupPromise;
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'old-system'").get().count, 0);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'recent-system'").get().count, 1);
+  database.close();
+});
+
+test("community workspace shares moderation, documents, Moments, and live meeting state end to end", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const pending = [];
+  const workspaceCtx = { waitUntil(promise) { pending.push(Promise.resolve(promise)); } };
+  const flushPending = async () => {
+    while (pending.length) await Promise.all(pending.splice(0));
+  };
+  const request = async (member, path, { method = "GET", payload } = {}) => {
+    const response = await worker.fetch(new Request(`https://village.example${path}`, {
+      method,
+      headers: {
+        ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(member?.cookie ? { Cookie: member.cookie } : {})
+      },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) })
+    }), env, workspaceCtx);
+    return { response, data: await response.json() };
+  };
+  const register = async (name, email) => {
+    const result = await request(null, "/api/auth/register", {
+      method: "POST",
+      payload: { name, email, password: "safe-password" }
+    });
+    assert.equal(result.response.status, 201);
+    const member = {
+      user: result.data.user,
+      cookie: result.response.headers.get("set-cookie").split(";")[0]
+    };
+    const settings = await request(member, "/api/community/settings", {
+      method: "POST",
+      payload: { enabled: true, displayName: name, notificationsEnabled: true }
+    });
+    assert.equal(settings.response.status, 200);
+    return member;
+  };
+  const connect = async (from, to) => {
+    const created = await request(from, "/api/community/connect", { method: "POST", payload: { targetUserId: to.user.id } });
+    assert.equal(created.response.status, 201);
+    const connection = database.prepare("SELECT id FROM chat_connections WHERE requester_id = ? AND recipient_id = ? AND status = 'pending'").get(from.user.id, to.user.id);
+    const accepted = await request(to, `/api/community/connections/${connection.id}/accept`, { method: "POST", payload: {} });
+    assert.equal(accepted.response.status, 200);
+    return accepted.data.roomId;
+  };
+
+  const owner = await register("Village Owner", "yanyanweiyue@gmail.com");
+  const sam = await register("Sam", "workspace-sam@example.com");
+  const lee = await register("Lee", "workspace-lee@example.com");
+  const samRoomId = await connect(owner, sam);
+  await connect(owner, lee);
+  await flushPending();
+
+  const blockedTerms = await request(owner, "/api/admin/community-blocklist", {
+    method: "PUT",
+    payload: { terms: ["no spoilers"] }
+  });
+  assert.equal(blockedTerms.response.status, 200);
+  assert.deepEqual(blockedTerms.data.terms, ["no spoilers"]);
+
+  const sent = await request(owner, `/api/community/rooms/${samRoomId}/messages`, {
+    method: "POST",
+    payload: { message: "No spoilers please" }
+  });
+  assert.equal(sent.response.status, 201);
+  assert.equal(sent.data.message.body, "** ******** please");
+
+  const post = await request(owner, "/api/community/posts", {
+    method: "POST",
+    payload: {
+      text: "No spoilers in this update",
+      allowedUserIds: [sam.user.id],
+      deniedUserIds: [lee.user.id]
+    }
+  });
+  assert.equal(post.response.status, 201);
+  assert.equal(post.data.post.body, "** ******** in this update");
+  await flushPending();
+
+  const samMoments = await request(sam, "/api/community/posts");
+  const leeMoments = await request(lee, "/api/community/posts");
+  assert.equal(samMoments.data.posts.length, 1);
+  assert.equal(leeMoments.data.posts.length, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_notifications WHERE user_id = ? AND kind = 'moment'").get(sam.user.id).count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_notifications WHERE user_id = ? AND kind = 'moment'").get(lee.user.id).count, 0);
+
+  const comment = await request(sam, `/api/community/posts/${post.data.post.id}/comments`, {
+    method: "POST",
+    payload: { text: "No spoilers from me" }
+  });
+  assert.equal(comment.response.status, 201);
+  assert.equal(comment.data.comment.body, "** ******** from me");
+
+  const createdDocument = await request(owner, "/api/community/documents", {
+    method: "POST",
+    payload: {
+      kind: "form",
+      title: "Village activity poll",
+      content: {
+        introduction: "Choose the next activity.",
+        fields: [{ id: "activity", label: "Activity", type: "text", required: true }]
+      }
+    }
+  });
+  assert.equal(createdDocument.response.status, 201);
+  const documentId = createdDocument.data.document.id;
+  const shared = await request(owner, `/api/community/documents/${documentId}/share`, {
+    method: "POST",
+    payload: { roomId: samRoomId }
+  });
+  assert.equal(shared.response.status, 201);
+  const samDocuments = await request(sam, "/api/community/documents");
+  assert.equal(samDocuments.data.documents[0].id, documentId);
+  const samMessages = await request(sam, `/api/community/rooms/${samRoomId}/messages`);
+  assert.ok(samMessages.data.messages.some((message) => message.messageType === "document" && message.metadata.documentId === documentId));
+  const submitted = await request(sam, `/api/community/documents/${documentId}/responses`, {
+    method: "POST",
+    payload: { response: { activity: "Quiet art circle" } }
+  });
+  assert.equal(submitted.response.status, 201);
+  const responses = await request(owner, `/api/community/documents/${documentId}/responses`);
+  assert.equal(responses.data.responses[0].response.activity, "Quiet art circle");
+
+  const meeting = await request(owner, "/api/community/meetings", {
+    method: "POST",
+    payload: {
+      roomId: samRoomId,
+      title: "Village planning",
+      startsAt: new Date(Date.now() + 60000).toISOString(),
+      durationMinutes: 30,
+      settings: { waitingRoom: false, recordingAllowed: true, captionsEnabled: true }
+    }
+  });
+  assert.equal(meeting.response.status, 201);
+  const meetingId = meeting.data.meeting.id;
+  assert.equal((await request(sam, `/api/community/meetings?roomId=${encodeURIComponent(samRoomId)}`)).data.meetings[0].id, meetingId);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/state`, { method: "PATCH", payload: { raisedHand: true } })).data.participant.raisedHand, true);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/whiteboard`, { method: "POST", payload: { event: { type: "line", points: [[1, 2], [3, 4]] } } })).response.status, 201);
+  const poll = await request(owner, `/api/community/meetings/${meetingId}/polls`, {
+    method: "POST",
+    payload: { question: "Which activity?", options: ["Art", "Music"] }
+  });
+  assert.equal(poll.response.status, 201);
+  assert.equal((await request(sam, `/api/community/polls/${poll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } })).response.status, 200);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "offer", payload: { sdp: "test" } } })).response.status, 201);
+  const signals = await request(sam, `/api/community/meetings/${meetingId}/signals?after=`);
+  assert.equal(signals.data.signals[0].payload.sdp, "test");
+  const meetingState = await request(owner, `/api/community/meetings/${meetingId}`);
+  assert.equal(meetingState.data.participants.find((participant) => participant.userId === sam.user.id).raisedHand, true);
+  assert.equal(meetingState.data.polls[0].votes[0], 1);
+  await flushPending();
   database.close();
 });
 
