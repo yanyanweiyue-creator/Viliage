@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, request } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -312,6 +312,15 @@ test("registration and survey automatically send the expected Google Sheet field
 
 test("hourly user count sync fills the User Count sheet with numeric metrics only", async () => {
   await unlink(userCountFile).catch(() => {});
+  await writeFile(userCountFile, JSON.stringify({
+    "2026-07-24": {
+      "Total Guest Sessions": 2,
+      "Total Accounts Created": 1,
+      "Total Searches Completed": 4,
+      "__recommendation_usefulness_score_total": 6,
+      "__recommendation_usefulness_response_count": 2
+    }
+  }));
   const received = [];
   const webhook = createHttpServer(async (req, res) => {
     const chunks = [];
@@ -322,6 +331,7 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
   });
   await new Promise((resolve) => webhook.listen(0, "127.0.0.1", resolve));
   process.env.USER_COUNT_SHEET_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
+  process.env.FEEDBACK_SHEET_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
 
   const server = createAppServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -347,7 +357,7 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     assert.equal(search.status, 200);
     assert.deepEqual(JSON.parse(search.text).followUpQuestions, []);
 
-    const helpfulBody = JSON.stringify({ helpful: true, source: "research-results" });
+    const helpfulBody = JSON.stringify({ helpful: true, rating: 4, details: "Clear and relevant.", source: "research-results" });
     const helpful = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(helpfulBody), "X-Village-Guest": "1" },
@@ -356,16 +366,22 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     assert.equal(helpful.status, 200);
 
     await delay(250);
-    const latest = received.at(-1);
+    const latest = received.filter((entry) => entry.action === "record-user-count").at(-1);
     assert.equal(latest.action, "record-user-count");
     assert.equal(latest.sheetGid, "1958570867");
-    assert.equal(latest.metrics["Total Guest Sessions"], 1);
-    assert.equal(latest.metrics["Total Accounts Created"], 1);
-    assert.equal(latest.metrics["Total Searches Completed"], 1);
-    assert.equal(latest.metrics["Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)"], 5);
+    assert.equal(latest.metrics["Total Guest Sessions"], 3);
+    assert.equal(latest.metrics["Total Accounts Created"], 2);
+    assert.equal(latest.metrics["Total Searches Completed"], 5);
+    assert.equal(latest.metrics["Average Recommendation System Usefulness on a 1-5 Scale (5 being the best, 1 being the worst)"], 3.33);
     assert.deepEqual(Object.values(latest.metrics).map((value) => typeof value), ["number", "number", "number", "number"]);
+    assert.equal("date" in latest, false);
+    const feedbackWrite = received.find((entry) => entry.action === "record-feedback");
+    assert.equal(feedbackWrite.sheetGid, "981733839");
+    assert.equal(feedbackWrite["Star(1-5)"], 4);
+    assert.equal(feedbackWrite.Feedback, "Clear and relevant.");
   } finally {
     delete process.env.USER_COUNT_SHEET_WEBHOOK_URL;
+    delete process.env.FEEDBACK_SHEET_WEBHOOK_URL;
     server.closeAllConnections();
     webhook.closeAllConnections();
     await Promise.all([
@@ -377,12 +393,15 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
 
 test("resource shortages and dislikes are appended to the Error database webhook", async () => {
   const errorRows = [];
+  const feedbackRows = [];
   const webhook = createHttpServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    errorRows.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (payload.action === "record-feedback") feedbackRows.push(payload);
+    else errorRows.push(payload);
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, row: errorRows.length + 1 }));
+    res.end(JSON.stringify({ ok: true, row: errorRows.length + feedbackRows.length + 1 }));
   });
   await new Promise((resolve) => webhook.listen(0, "127.0.0.1", resolve));
   process.env.ERROR_SHEET_WEBHOOK_URL = `http://127.0.0.1:${webhook.address().port}`;
@@ -440,7 +459,7 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(errorRows[0]["Requested resources"], 5);
     assert.equal(errorRows[0]["High score resources"], 0);
 
-    const feedbackBody = JSON.stringify({ helpful: false, source: "research-results", research: result.researchContext });
+    const feedbackBody = JSON.stringify({ helpful: false, rating: 2, details: "These results were too broad.", source: "research-results", research: result.researchContext });
     const researchFeedback = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(feedbackBody), Cookie: cookie },
@@ -450,6 +469,12 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(JSON.parse(researchFeedback.text).recorded, true);
     assert.equal(errorRows[1].Event, "research_not_helpful");
     assert.equal(errorRows[1]["Full Input"], "Medicaid assistance");
+    assert.match(errorRows[1].Reason, /Rating: 2\/5/);
+    assert.equal(feedbackRows.length, 1);
+    assert.equal(feedbackRows[0].sheetGid, "981733839");
+    assert.equal(feedbackRows[0]["Star(1-5)"], 2);
+    assert.equal(feedbackRows[0].Feedback, "These results were too broad.");
+    assert.equal(feedbackRows[0]["Helpful / Nonhelpful"], "Nonhelpful");
 
     const dislikeBody = JSON.stringify({ resource: { name: "Not Useful Resource", url: "https://example.org/not-useful", description: "Not the right fit.", topic: "Education", score: 12 }, disliked: true });
     const dislike = await httpRequest(`http://127.0.0.1:${port}/api/resources/dislike`, {
