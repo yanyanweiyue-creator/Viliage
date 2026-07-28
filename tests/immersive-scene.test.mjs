@@ -68,7 +68,7 @@ test("every 3D building center is grounded inside its own island", async () => {
   }
 });
 
-test("settings use a dedicated header icon, avatar opens My Record, and no settings building remains", async () => {
+test("settings use a dedicated control, the avatar opens My Record, and no settings building remains", async () => {
   const source = await readFile(new URL("../public/site-config.js", import.meta.url), "utf8");
   const context = { window: {} };
   vm.runInNewContext(source, context);
@@ -76,4 +76,5 @@ test("settings use a dedicated header icon, avatar opens My Record, and no setti
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   assert.match(html, /settings-icon-button" data-action="open-settings"/);
   assert.match(html, /avatar-button" data-action="open-profile"/);
+  assert.match(html, /id="record-status-action" data-action="open-profile"/);
 });
