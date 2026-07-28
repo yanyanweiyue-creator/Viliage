@@ -96,6 +96,7 @@ In the GitHub repository, add Actions secrets:
 - `CLOUDFLARE_API_TOKEN` — a Cloudflare API token allowed to edit Workers and D1.
 - `CLOUDFLARE_ACCOUNT_ID` — shown in the Cloudflare dashboard.
 - `SHEET_WEBHOOK_SECRET` — the same long random value stored as the Apps Script `WEBHOOK_SECRET` project property.
+- `USER_SHEET_WEBHOOK_URL`, `ERROR_SHEET_WEBHOOK_URL`, `FEEDBACK_SHEET_WEBHOOK_URL`, `USER_COUNT_SHEET_WEBHOOK_URL`, and `PASSWORD_EMAIL_WEBHOOK_URL` — the canonical authenticated Apps Script `/exec` URL. The deployment workflow refreshes every Worker webhook secret from these values so historical URLs cannot drift.
 
 After those are configured, every push to `main` runs `.github/workflows/deploy-cloudflare.yml`. Migration failure stops deployment, which prevents new code from running against an incompatible database.
 

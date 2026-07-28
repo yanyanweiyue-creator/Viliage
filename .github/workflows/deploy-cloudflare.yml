@@ -34,13 +34,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Configure authenticated Sheets webhook
+      - name: Configure authenticated Sheets webhooks
         run: |
           test -n "$SHEET_WEBHOOK_SECRET"
+          test -n "$USER_SHEET_WEBHOOK_URL"
+          test -n "$ERROR_SHEET_WEBHOOK_URL"
+          test -n "$FEEDBACK_SHEET_WEBHOOK_URL"
+          test -n "$USER_COUNT_SHEET_WEBHOOK_URL"
+          test -n "$PASSWORD_EMAIL_WEBHOOK_URL"
           printf '%s' "$SHEET_WEBHOOK_SECRET" | npx wrangler@4 secret put SHEET_WEBHOOK_SECRET
+          printf '%s' "$USER_SHEET_WEBHOOK_URL" | npx wrangler@4 secret put USER_SHEET_WEBHOOK_URL
+          printf '%s' "$ERROR_SHEET_WEBHOOK_URL" | npx wrangler@4 secret put ERROR_SHEET_WEBHOOK_URL
+          printf '%s' "$FEEDBACK_SHEET_WEBHOOK_URL" | npx wrangler@4 secret put FEEDBACK_SHEET_WEBHOOK_URL
+          printf '%s' "$USER_COUNT_SHEET_WEBHOOK_URL" | npx wrangler@4 secret put USER_COUNT_SHEET_WEBHOOK_URL
+          printf '%s' "$PASSWORD_EMAIL_WEBHOOK_URL" | npx wrangler@4 secret put PASSWORD_EMAIL_WEBHOOK_URL
         env:
           CI: "true"
           SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+          USER_SHEET_WEBHOOK_URL: ${{ secrets.USER_SHEET_WEBHOOK_URL }}
+          ERROR_SHEET_WEBHOOK_URL: ${{ secrets.ERROR_SHEET_WEBHOOK_URL }}
+          FEEDBACK_SHEET_WEBHOOK_URL: ${{ secrets.FEEDBACK_SHEET_WEBHOOK_URL }}
+          USER_COUNT_SHEET_WEBHOOK_URL: ${{ secrets.USER_COUNT_SHEET_WEBHOOK_URL }}
+          PASSWORD_EMAIL_WEBHOOK_URL: ${{ secrets.PASSWORD_EMAIL_WEBHOOK_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
