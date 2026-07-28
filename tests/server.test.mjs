@@ -68,6 +68,11 @@ test("Google Sheet resource fetch pins the header row for live sync", async () =
   assert.match(workerCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(gid\)\}&headers=1/);
 });
 
+test("local atomic JSON writes use a unique temporary file per request", async () => {
+  const serverCode = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(serverCode, /process\.pid\}\.\$\{Date\.now\(\)\}\.\$\{randomBytes\(6\)\.toString\("hex"\)\}\.tmp/);
+});
+
 test("local guest entry is temporary and Community stays registered-only", async () => {
   const server = createAppServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
