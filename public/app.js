@@ -5,7 +5,7 @@ import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
-import { VillageMeetingRuntime } from "./community-meeting.mjs?v=zoom-meeting-20260727c";
+import { VillageMeetingRuntime } from "./community-meeting.mjs?v=meeting-collaboration-20260727a";
 import { VillageDocumentStudio } from "./community-documents.mjs?v=village-docs-20260727";
 
 const config = window.CAPY_CONFIG;
