@@ -24,6 +24,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Run the full test suite
+        run: npm test
+
       - name: Apply safe D1 migrations
         run: npx wrangler@4 d1 migrations apply it-takes-a-village-db --remote
         env:

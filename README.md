@@ -49,13 +49,15 @@ The approved illustration remains the 2D visual source. Invisible polygonal hit 
 
 ## Google Sheet resource database
 
-The server reads the selected worksheet through the public Google Visualization endpoint and refreshes its cache every 60 seconds:
+The server reads the selected resource worksheet through the public Google Visualization endpoint and refreshes its cache every 60 seconds:
 
 `https://docs.google.com/spreadsheets/d/1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0/edit?gid=1709372674`
 
 To switch databases later, set `RESOURCE_SHEET_ID` and `RESOURCE_SHEET_GID` in `.env`; no application-code change is required.
 
-Add rows beneath the existing headers and the app will pick them up automatically. Keep `Resource Name`, `URL`, `Description`, `Diagnosis`, `Category1/2`, `Age`, `Tag1–5`, `Location1–4`, `Price`, and optional `Issues` or `Issue1–4` columns. If the sheet becomes private, use a service account or an authenticated backend instead of exposing credentials to the browser.
+Add rows beneath the existing headers and the app will pick them up automatically. Keep `Resource Name`, `URL`, `Description`, `Diagnosis`, `Category1/2`, `Age`, `Tag1–5`, `Location1–4`, `Price`, and optional `Issues` or `Issue1–4` columns.
+
+Do not share a multi-tab workbook containing `User Data`, `Error`, `Feedback`, or `User Count` as “Anyone with the link.” Publish only the resource worksheet to the web, or move resources into a separate public-only workbook. Account and analytics tabs must remain private. If the resource worksheet cannot be published separately, use a service account or authenticated backend instead.
 
 ## Personalized scoring engine
 
@@ -76,19 +78,23 @@ Use `integrations/google-apps-script.gs`:
 3. Paste the script, save, and deploy it as a Web App.
 4. Copy the deployment `/exec` URL into `USER_SHEET_WEBHOOK_URL`.
 
-The script finds the header row, updates the same user instead of creating duplicates, wraps long text, sizes columns appropriately, and deliberately writes only a safety marker in `Password`. Passwords and password hashes must never be stored in a spreadsheet.
+Keep `USER_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0` and `USER_SHEET_GID=697062702` to target the supplied `User Data` tab. The script requires both identifiers, fails instead of writing to a fallback tab, and requires these existing row-1 headers: `Unique User ID`, `Email`, `Username`, `Password`, `Summary of Survey Response`, `Survey Response (Unedited)`, `Summary of Search History`, `Save Resource`, and `Dislike Resource`. A trailing space in an existing header, including `Survey Response (Unedited) `, is accepted. The script preserves row 1, never creates columns, and updates an existing row by `Unique User ID` with an `Email` fallback while holding a script lock.
+
+The application sends the raw survey object and search-history records as JSON, sends the generated survey summary separately, and sends saved and disliked resources as JSON. `Password` always receives only the safety marker “Not stored — secure hash only.” Passwords and password hashes must never be stored in a spreadsheet.
+
+Before enabling this sync, restrict the workbook itself to authorized collaborators. Hiding or protecting the `User Data` tab does not make it private while the whole workbook is link-shared.
 
 The same script now handles `send-password-reset` requests with `GmailApp.sendEmail`. After replacing the script, create a **new Apps Script deployment version**, then set its `/exec` URL as `PASSWORD_EMAIL_WEBHOOK_URL`; if that secret is omitted, the app automatically reuses `USER_SHEET_WEBHOOK_URL` for password email delivery. Users can request a six-digit code from the Login screen; only a hash is stored, requests are rate-limited, codes expire after 10 minutes, and a successful reset invalidates existing sessions.
 
 The script also handles `log-resource-error` requests for the Error database spreadsheet. Set the deployment `/exec` URL as `ERROR_SHEET_WEBHOOK_URL`, keep `ERROR_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0`, and keep `ERROR_SHEET_GID=1952899933`. A search writes one row when it returns fewer resources than requested or fewer than three displayed resources score at least 20; a user's **Not Helpful** research response also writes one row. Rows map directly to `Helpful?`, `Full Input`, `Diagnosis`, `Category`, `Primary Keywords`, `Confirmed Keywords`, `Predicted Keywords`, and `Located Key Words`, with `Helpful?` set to `No`.
 
-The script handles `record-feedback` requests for the `Feedback` tab. Set `FEEDBACK_SHEET_WEBHOOK_URL` to the same redeployed `/exec` URL and keep `FEEDBACK_SHEET_GID=981733839`. Each Helpful or Nonhelpful response appends one row under the existing row-1 headers. The status and optional explanation are combined in the `Feedback` cell, with the selected 1–5 star rating in `Star(1-5)`. If `FEEDBACK_SHEET_WEBHOOK_URL` is omitted, the app reuses the user-sheet or error-sheet webhook.
+The script handles `record-feedback` requests for the `Feedback` tab. Set `FEEDBACK_SHEET_WEBHOOK_URL` to the same redeployed `/exec` URL and keep `FEEDBACK_SHEET_GID=981733839`. Each Helpful or Nonhelpful response appends one row under the existing row-1 headers. Semantic aliases preserve compatibility between the payload's older `Unique User ID (if applicable)` / `Email (if applicable)` keys and the live `Unique User ID (N/A if guest)) ` / `Email (N/A if guest)` headers, without renaming the sheet columns. The status and optional explanation are combined in the `Feedback` cell, with the selected 1–5 star rating in `Star(1-5)`. If `FEEDBACK_SHEET_WEBHOOK_URL` is omitted, the app reuses the user-sheet or error-sheet webhook.
 
 The same Apps Script also handles hourly `record-user-count` updates for the `User Count` tab. Set `USER_COUNT_SHEET_WEBHOOK_URL` to the redeployed `/exec` URL and keep `USER_COUNT_SHEET_GID=1958570867`. It overwrites row 2 with all-time cumulative guest sessions, accounts created, searches completed, and the weighted average recommendation usefulness. No daily rows or date column are added.
 
 Resource research is a one-submit flow: the API immediately runs the existing filters and scoring, then returns the summary and score-sorted cards together. The summary uses the current building guide—Muffins for Education, Bacon for Legal, Granola for Recreation, and Eggy for Caregiver Support—and falls back to an instant deterministic summary if the short AI-summary deadline is exceeded.
 
-The supplied user sheet currently has eight row-1 headers: `User name`, `Password`, `response of survey`, `AI personal record`, `history`, `feedback`, `Chat History`, and `Email`. The server sends all eight exact keys whenever the account, survey, resource-search history, feedback, or community-message history changes. The Apps Script identifies an existing row by `userId` when available, otherwise by `Email`, and only falls back to `User name`; therefore repeated updates keep one account on one row. The `Password` cell contains only the safety marker “Not stored — secure hash only.” After changing `integrations/google-apps-script.gs`, create a new Apps Script deployment version so the existing `/exec` URL uses the update.
+Every user sync is sent with `action=upsert-user` plus the configured `spreadsheetId` and `sheetGid`, so the same Apps Script deployment can safely serve the User Data, Error database, Feedback, and User Count tabs. After changing `integrations/google-apps-script.gs`, create a new Apps Script deployment version so the existing `/exec` URL uses the update.
 
 ## Live local environment
 
@@ -135,7 +141,7 @@ Cloudflare deployment is now supported with Workers, Static Assets, and a D1 dat
 
 The local Node server also persists SHA-256-hashed session tokens in `data/sessions.json` and atomically updates user data. Both data files are ignored by Git, so pulling new source code does not replace local accounts.
 
-For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, `USER_SHEET_WEBHOOK_URL`, `ERROR_SHEET_WEBHOOK_URL`, and `ERROR_SHEET_GID` as server configuration and mount the `data/` directory on durable storage.
+For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, `USER_SHEET_WEBHOOK_URL`, `USER_SHEET_ID`, `USER_SHEET_GID`, `ERROR_SHEET_WEBHOOK_URL`, and `ERROR_SHEET_GID` as server configuration and mount the `data/` directory on durable storage.
 
 Before a real public launch, add email verification/password reset, rate limiting, abuse monitoring, and a privacy/security review for the data you collect. Cloudflare provides HTTPS for the deployed Worker and D1 supplies the durable account store.
 

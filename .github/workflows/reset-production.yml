@@ -1,0 +1,59 @@
+name: Reset production account data
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RESET-VILLAGE-PRODUCTION to continue
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    if: inputs.confirmation == 'RESET-VILLAGE-PRODUCTION'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Show account count before reset
+        run: >-
+          npx wrangler@4 d1 execute it-takes-a-village-db --remote
+          --command "SELECT COUNT(*) AS accounts_before_reset FROM users"
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Clear account-owned production data
+        run: npx wrangler@4 d1 execute it-takes-a-village-db --remote --file=./scripts/reset-production.sql
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify production reset
+        run: >-
+          npx wrangler@4 d1 execute it-takes-a-village-db --remote
+          --command "SELECT
+          (SELECT COUNT(*) FROM users) AS accounts,
+          (SELECT COUNT(*) FROM sessions) AS sessions,
+          (SELECT COUNT(*) FROM password_reset_codes) AS password_resets,
+          (SELECT COUNT(*) FROM chat_rooms WHERE system_managed = 0) AS user_rooms,
+          (SELECT COUNT(*) FROM announcements) AS announcements,
+          (SELECT COUNT(*) FROM activities WHERE created_by IS NOT NULL) AS user_activities"
+        env:
+          CI: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

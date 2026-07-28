@@ -419,8 +419,14 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     const result = await response.json();
     assert.equal(result.sync.synced, true);
     assert.equal(result.sync.row, 7);
-    assert.equal(sheetPayload.feedback, "The island guide was helpful.");
+    assert.equal(sheetPayload.action, "upsert-user");
+    assert.equal(sheetPayload.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
+    assert.equal(sheetPayload.sheetGid, "697062702");
+    assert.match(sheetPayload["Unique User ID"], /^[a-f0-9]{24}$/);
     assert.equal(sheetPayload.Email, "feedback@example.com");
+    assert.equal(sheetPayload.Username, "Feedback User");
+    assert.equal(sheetPayload.Password, "Not stored — secure hash only");
+    assert.equal("feedback" in sheetPayload, false);
 
     const likeResponse = await worker.fetch(new Request("https://village.example/api/resources/like", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, liked: true })
@@ -428,9 +434,9 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(likeResponse.status, 200);
     const likeResult = await likeResponse.json();
     assert.equal(likeResult.likedResources[0].name, "Saved Resource");
-    assert.match(sheetPayload["Save resource"], /Saved Resource/);
-    assert.match(sheetPayload["Like resource"], /Saved Resource/);
-    assert.equal(sheetPayload["Dislike resource"], "[]");
+    assert.match(sheetPayload["Save Resource"], /Saved Resource/);
+    assert.equal("Like resource" in sheetPayload, false);
+    assert.equal(sheetPayload["Dislike Resource"], "[]");
 
     const dislikeResponse = await worker.fetch(new Request("https://village.example/api/resources/dislike", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, disliked: true })
@@ -439,8 +445,8 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     const dislikeResult = await dislikeResponse.json();
     assert.equal(dislikeResult.likedResources.length, 0);
     assert.equal(dislikeResult.dislikedResources[0].name, "Saved Resource");
-    assert.equal(sheetPayload["Save resource"], "[]");
-    assert.match(sheetPayload["Dislike resource"], /Saved Resource/);
+    assert.equal(sheetPayload["Save Resource"], "[]");
+    assert.match(sheetPayload["Dislike Resource"], /Saved Resource/);
     assert.equal(errorPayloads[0].Event, "resource_disliked");
     assert.equal(errorPayloads[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorPayloads[0].sheetGid, "1952899933");
@@ -462,6 +468,7 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(feedbackPayloads.length, 1);
     assert.equal(feedbackPayloads[0].action, "record-feedback");
     assert.equal(feedbackPayloads[0].sheetGid, "981733839");
+    assert.equal(feedbackPayloads[0]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
     assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
     assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
     assert.equal(feedbackPayloads[0].Feedback, "The result was too broad.");

@@ -252,8 +252,33 @@ test("live meetings expose raised hands, a collaborative whiteboard, floating po
   }
 });
 
-test("User Count Apps Script maps numeric values from the live first-row headers", async () => {
+test("Google Apps Script strictly routes user upserts and maps existing headers", async () => {
   const script = await readFile(new URL("../integrations/google-apps-script.gs", import.meta.url), "utf8");
+  assert.match(script, /data\.action === "upsert-user"/);
+  assert.match(script, /function upsertUser_\(data\)/);
+  for (const header of [
+    "Unique User ID",
+    "Email",
+    "Username",
+    "Password",
+    "Summary of Survey Response",
+    "Survey Response \\(Unedited\\)",
+    "Summary of Search History",
+    "Save Resource",
+    "Dislike Resource"
+  ]) assert.match(script, new RegExp(header));
+  assert.match(script, /normalizeHeader_\(header\)/);
+  assert.match(script, /User Data sheet is missing required row-1 headers/);
+  assert.match(script, /existingRow < 0 && email/);
+  assert.match(script, /throw new Error\("spreadsheetId is required\."\)/);
+  assert.match(script, /throw new Error\("sheetGid is required\."\)/);
+  assert.match(script, /Sheet gid " \+ gid \+ " was not found/);
+  assert.doesNotMatch(script, /return spreadsheet\.getSheets\(\)\[0\]/);
+  assert.doesNotMatch(script, /setValues\(\[missingHeaders\]\)/);
+  assert.match(script, /function feedbackHeaderKey_\(value\)/);
+  assert.match(script, /\^unique user id \\\(\(\?:if applicable\|n\\\/a if guest\)\\\)\\\)\?\$/);
+  assert.match(script, /\^email \\\(\(\?:if applicable\|n\\\/a if guest\)\\\)\\\)\?\$/);
+  assert.match(script, /feedbackHeaderKey_\(key\) === normalizedHeader/);
   assert.match(script, /var metricKeys = Object\.keys\(metrics\)/);
   assert.match(script, /normalizeHeader_\(metricKey\) === normalizedHeader/);
   assert.match(script, /setValues\(\[row\]\)\.setNumberFormat\("0\.##"\)/);

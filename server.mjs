@@ -24,6 +24,8 @@ const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
+const USER_SHEET_ID = process.env.USER_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const USER_SHEET_GID = process.env.USER_SHEET_GID || "697062702";
 const USER_COUNT_SHEET_ID = process.env.USER_COUNT_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const USER_COUNT_SHEET_GID = process.env.USER_COUNT_SHEET_GID || "1958570867";
 const FEEDBACK_SHEET_ID = process.env.FEEDBACK_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -35,6 +37,7 @@ const COUNT_RECOMMENDATION_USEFULNESS = "Average Recommendation System Usefulnes
 const COUNT_USEFULNESS_SCORE_TOTAL = "__recommendation_usefulness_score_total";
 const COUNT_USEFULNESS_RESPONSE_COUNT = "__recommendation_usefulness_response_count";
 const USER_COUNT_SYNC_INTERVAL_MS = Math.max(100, Number(process.env.USER_COUNT_SYNC_INTERVAL_MS || 60 * 60_000));
+const RESOURCE_CACHE_TTL_MS = Math.max(0, Number(process.env.RESOURCE_CACHE_TTL_MS ?? 60_000));
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
@@ -685,7 +688,7 @@ export function normalizeSheetRows(table) {
 }
 
 async function getResources(force = false) {
-  if (!force && resourceCache.rows.length && Date.now() - resourceCache.time < 60_000) {
+  if (!force && resourceCache.rows.length && Date.now() - resourceCache.time < RESOURCE_CACHE_TTL_MS) {
     return { rows: resourceCache.rows, source: "google-sheet-cache" };
   }
   try {
@@ -1073,32 +1076,22 @@ async function guideChat({ message, language = "en", context = {} }) {
   return { ...normalizeGuideResponse(parsed, fallback), ai: true };
 }
 
-async function localChatHistory(userId) {
-  const community = await loadCommunity();
-  return community.messages.filter((message) => message.userId === userId).slice(-100).map((message) => ({
-    room: community.rooms.find((room) => room.id === message.roomId)?.name || "Village chat",
-    message: message.body,
-    at: message.createdAt
-  }));
-}
-
 async function syncUserRecord(user) {
   const webhook = process.env.USER_SHEET_WEBHOOK_URL;
   if (!webhook) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-  const chatHistory = await localChatHistory(user.id);
   const payload = {
-    "User name": user.name,
-    "Password": "Not stored — secure hash only",
-    "response of survey": JSON.stringify(user.profile?.responses || {}),
-    "AI personal record": user.profile?.summary || "",
-    "history": JSON.stringify(user.history || []),
-    "feedback": user.feedback || "",
-    "Chat History": JSON.stringify(chatHistory),
-    "Save resource": JSON.stringify(user.likedResources || []),
-    "Like resource": JSON.stringify(user.likedResources || []),
-    "Dislike resource": JSON.stringify(user.dislikedResources || []),
+    action: "upsert-user",
+    spreadsheetId: USER_SHEET_ID,
+    sheetGid: USER_SHEET_GID,
+    "Unique User ID": user.id,
     "Email": user.email,
-    userId: user.id
+    "Username": user.name,
+    "Password": "Not stored — secure hash only",
+    "Summary of Survey Response": user.profile?.summary || "",
+    "Survey Response (Unedited)": JSON.stringify(user.profile?.responses || {}),
+    "Summary of Search History": JSON.stringify(user.history || []),
+    "Save Resource": JSON.stringify(user.likedResources || []),
+    "Dislike Resource": JSON.stringify(user.dislikedResources || [])
   };
   const response = await fetch(webhook, {
     method: "POST",
@@ -1244,7 +1237,6 @@ function errorLogPayload({ event, reason, user, topic = "", diagnosis = "", desc
     Email: user?.email || "",
     userId: user?.id || "",
     Topic: topic || resource?.topic || "",
-    Diagnosis: diagnosis,
     "Search description": description,
     "Requested resources": requestedCount,
     "Provided resources": providedCount,

@@ -7,6 +7,8 @@ import { communitySimilarity, containsBlockedLanguage, maskBlockedLanguage, norm
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const DEFAULT_RESOURCE_SHEET_GID = "1709372674";
+const DEFAULT_USER_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const DEFAULT_USER_SHEET_GID = "697062702";
 const DEFAULT_USER_COUNT_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const DEFAULT_USER_COUNT_SHEET_GID = "1958570867";
 const DEFAULT_FEEDBACK_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
@@ -915,31 +917,21 @@ async function guideChat(env, { message, language = "en", context = {} }) {
   return { ...normalizeGuideResponse(parsed, fallback), ai: true };
 }
 
-async function userChatHistory(env, userId) {
-  const rows = await allRows(env.DB.prepare(`
-    SELECT r.name AS room, m.body AS message, m.created_at AS at
-    FROM chat_messages m JOIN chat_rooms r ON r.id = m.room_id
-    WHERE m.user_id = ? ORDER BY m.created_at DESC LIMIT 100
-  `).bind(userId));
-  return rows.reverse();
-}
-
 async function syncUser(env, user) {
   if (!env.USER_SHEET_WEBHOOK_URL) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-  const chatHistory = await userChatHistory(env, user.id);
   const payload = {
-    "User name": user.name,
-    "Password": "Not stored — secure hash only",
-    "response of survey": JSON.stringify(user.profile?.responses || {}),
-    "AI personal record": user.profile?.summary || "",
-    history: JSON.stringify(user.history || []),
-    feedback: user.feedback || "",
-    "Chat History": JSON.stringify(chatHistory),
-    "Save resource": JSON.stringify(user.likedResources || []),
-    "Like resource": JSON.stringify(user.likedResources || []),
-    "Dislike resource": JSON.stringify(user.dislikedResources || []),
+    action: "upsert-user",
+    spreadsheetId: env.USER_SHEET_ID || DEFAULT_USER_SHEET_ID,
+    sheetGid: env.USER_SHEET_GID || DEFAULT_USER_SHEET_GID,
+    "Unique User ID": user.id,
     "Email": user.email,
-    userId: user.id
+    "Username": user.name,
+    "Password": "Not stored — secure hash only",
+    "Summary of Survey Response": user.profile?.summary || "",
+    "Survey Response (Unedited)": JSON.stringify(user.profile?.responses || {}),
+    "Summary of Search History": JSON.stringify(user.history || []),
+    "Save Resource": JSON.stringify(user.likedResources || []),
+    "Dislike Resource": JSON.stringify(user.dislikedResources || [])
   };
   const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
@@ -1077,7 +1069,6 @@ function errorLogPayload(env, { event, reason, user, topic = "", diagnosis = "",
     Email: user?.email || "",
     userId: user?.id || "",
     Topic: topic || resource?.topic || "",
-    Diagnosis: diagnosis,
     "Search description": description,
     "Requested resources": requestedCount,
     "Provided resources": providedCount,
