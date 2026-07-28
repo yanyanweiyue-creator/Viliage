@@ -24,7 +24,12 @@ class FakeD1 {
 }
 
 function cloudflareEnv(database, extra = {}) {
-  return { DB: new FakeD1(database), ASSETS: { fetch: async () => new Response("asset") }, ...extra };
+  return {
+    DB: new FakeD1(database),
+    ASSETS: { fetch: async () => new Response("asset") },
+    SHEET_WEBHOOK_SECRET: "test-sheet-webhook-secret",
+    ...extra
+  };
 }
 
 const ctx = { waitUntil(promise) { promise.catch(() => {}); } };
@@ -420,6 +425,7 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(result.sync.synced, true);
     assert.equal(result.sync.row, 7);
     assert.equal(sheetPayload.action, "upsert-user");
+    assert.equal(sheetPayload.webhookSecret, "test-sheet-webhook-secret");
     assert.equal(sheetPayload.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(sheetPayload.sheetGid, "697062702");
     assert.match(sheetPayload["Unique User ID"], /^[a-f0-9]{24}$/);
@@ -448,6 +454,7 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(sheetPayload["Save Resource"], "[]");
     assert.match(sheetPayload["Dislike Resource"], /Saved Resource/);
     assert.equal(errorPayloads[0].Event, "resource_disliked");
+    assert.equal(errorPayloads[0].webhookSecret, "test-sheet-webhook-secret");
     assert.equal(errorPayloads[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorPayloads[0].sheetGid, "1952899933");
     assert.equal(errorPayloads[0]["Helpful?"], "No");
@@ -467,6 +474,7 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.match(errorPayloads[1].Reason, /Rating: 2\/5/);
     assert.equal(feedbackPayloads.length, 1);
     assert.equal(feedbackPayloads[0].action, "record-feedback");
+    assert.equal(feedbackPayloads[0].webhookSecret, "test-sheet-webhook-secret");
     assert.equal(feedbackPayloads[0].sheetGid, "981733839");
     assert.equal(feedbackPayloads[0]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
     assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
@@ -495,6 +503,7 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
     assert.equal(String(_url), "https://sheet.example/sync");
     const payload = JSON.parse(options.body);
     mailedCode = payload.code;
+    assert.equal(payload.webhookSecret, "test-sheet-webhook-secret");
     assert.equal(payload.fromAddress, "hello@village.example");
     return Response.json({ ok: true, delivered: true });
   };

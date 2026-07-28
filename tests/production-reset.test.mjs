@@ -44,11 +44,19 @@ test("production reset removes account-owned state and preserves shared defaults
       'reset-room', 'group', 'Reset room', '', 'reset-user',
       '2026-07-28T00:00:00.000Z', 0
     );
-    INSERT INTO app_meta (key, value, updated_at)
-    VALUES (
-      'user_count_metrics:all-time', '{"Total Accounts Created":1}',
-      '2026-07-28T00:00:00.000Z'
-    )
+    INSERT INTO app_meta (key, value, updated_at) VALUES
+      (
+        'user_count_metrics:all-time', '{"Total Accounts Created":1}',
+        '2026-07-28T00:00:00.000Z'
+      ),
+      (
+        'user_count_metrics:2026-07-28', '{"Daily Active Users":1}',
+        '2026-07-28T00:00:00.000Z'
+      ),
+      (
+        'userXcountXmetrics:keep', '{"Sentinel":1}',
+        '2026-07-28T00:00:00.000Z'
+      )
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
   `);
 
@@ -62,7 +70,16 @@ test("production reset removes account-owned state and preserves shared defaults
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM activities WHERE id LIKE 'seed-%'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 0").get().count, 0);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'user_count_metrics:all-time'").get().count, 0);
+  assert.equal(
+    database.prepare(
+      "SELECT COUNT(*) AS count FROM app_meta WHERE substr(key, 1, length('user_count_metrics:')) = 'user_count_metrics:'"
+    ).get().count,
+    0
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'userXcountXmetrics:keep'").get().count,
+    1
+  );
   assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "13");
 
   database.close();

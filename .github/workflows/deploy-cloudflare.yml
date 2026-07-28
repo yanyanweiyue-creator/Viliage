@@ -34,6 +34,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Configure authenticated Sheets webhook
+        run: |
+          test -n "$SHEET_WEBHOOK_SECRET"
+          printf '%s' "$SHEET_WEBHOOK_SECRET" | npx wrangler@4 secret put SHEET_WEBHOOK_SECRET
+        env:
+          CI: "true"
+          SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy Worker and static assets
         run: npx wrangler@4 deploy
         env:

@@ -281,9 +281,10 @@ test("Google Apps Script strictly routes user upserts and maps existing headers"
   assert.match(script, /feedbackHeaderKey_\(key\) === normalizedHeader/);
   assert.match(script, /var metricKeys = Object\.keys\(metrics\)/);
   assert.match(script, /normalizeHeader_\(metricKey\) === normalizedHeader/);
-  assert.match(script, /setValues\(\[row\]\)\.setNumberFormat\("0\.##"\)/);
+  assert.match(script, /setValues\(\[safeSheetRow_\(row\)\]\)\.setNumberFormat\("0\.##"\)/);
   assert.match(script, /var targetRow = 2/);
-  assert.doesNotMatch(script, /user-count-row:|PropertiesService/);
+  assert.doesNotMatch(script, /user-count-row:/);
+  assert.match(script, /PropertiesService\.getScriptProperties\(\)\.getProperty\("WEBHOOK_SECRET"\)/);
   assert.match(script, /data\.action === "record-feedback"/);
   assert.match(script, /function appendFeedback_\(data\)/);
   assert.match(script, /status \+ ": " \+ details/);

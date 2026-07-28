@@ -76,9 +76,10 @@ Use `integrations/google-apps-script.gs`:
 1. Open the supplied user-record spreadsheet.
 2. Choose **Extensions → Apps Script**.
 3. Paste the script, save, and deploy it as a Web App.
-4. Copy the deployment `/exec` URL into `USER_SHEET_WEBHOOK_URL`.
+4. In **Project Settings → Script properties**, add `WEBHOOK_SECRET` with a long random value.
+5. Set that same value as server-only `SHEET_WEBHOOK_SECRET`, then copy the deployment `/exec` URL into `USER_SHEET_WEBHOOK_URL`.
 
-Keep `USER_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0` and `USER_SHEET_GID=697062702` to target the supplied `User Data` tab. The script requires both identifiers, fails instead of writing to a fallback tab, and requires these existing row-1 headers: `Unique User ID`, `Email`, `Username`, `Password`, `Summary of Survey Response`, `Survey Response (Unedited)`, `Summary of Search History`, `Save Resource`, and `Dislike Resource`. A trailing space in an existing header, including `Survey Response (Unedited) `, is accepted. The script preserves row 1, never creates columns, and updates an existing row by `Unique User ID` with an `Email` fallback while holding a script lock.
+Keep `USER_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0` and `USER_SHEET_GID=697062702` to target the supplied `User Data` tab. The script requires the shared secret and both identifiers, pins each action to this database and its expected gid, and fails instead of writing to a fallback tab. It requires these existing row-1 headers: `Unique User ID`, `Email`, `Username`, `Password`, `Summary of Survey Response`, `Survey Response (Unedited)`, `Summary of Search History`, `Save Resource`, and `Dislike Resource`. A trailing space in an existing header, including `Survey Response (Unedited) `, is accepted. The script preserves row 1, never creates columns, and updates an existing row by `Unique User ID` with an `Email` fallback while holding a script lock.
 
 The application sends the raw survey object and search-history records as JSON, sends the generated survey summary separately, and sends saved and disliked resources as JSON. `Password` always receives only the safety marker “Not stored — secure hash only.” Passwords and password hashes must never be stored in a spreadsheet.
 
@@ -141,7 +142,7 @@ Cloudflare deployment is now supported with Workers, Static Assets, and a D1 dat
 
 The local Node server also persists SHA-256-hashed session tokens in `data/sessions.json` and atomically updates user data. Both data files are ignored by Git, so pulling new source code does not replace local accounts.
 
-For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, `USER_SHEET_WEBHOOK_URL`, `USER_SHEET_ID`, `USER_SHEET_GID`, `ERROR_SHEET_WEBHOOK_URL`, and `ERROR_SHEET_GID` as server configuration and mount the `data/` directory on durable storage.
+For other Node hosts, add `OPENAI_API_KEY`, `OPENAI_MODEL`, `RESOURCE_SHEET_ID`, `RESOURCE_SHEET_GID`, `SHEET_WEBHOOK_SECRET`, `USER_SHEET_WEBHOOK_URL`, `USER_SHEET_ID`, `USER_SHEET_GID`, `ERROR_SHEET_WEBHOOK_URL`, and `ERROR_SHEET_GID` as server configuration and mount the `data/` directory on durable storage.
 
 Before a real public launch, add email verification/password reset, rate limiting, abuse monitoring, and a privacy/security review for the data you collect. Cloudflare provides HTTPS for the deployed Worker and D1 supplies the durable account store.
 

@@ -20,6 +20,7 @@ process.env.USER_COUNT_SYNC_INTERVAL_MS = "100";
 process.env.RESOURCE_CACHE_TTL_MS = "0";
 process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE = primaryKeywordBlocklistFile;
 process.env.PASSWORD_RESET_SECRET = "local-test-reset-secret";
+process.env.SHEET_WEBHOOK_SECRET = "test-sheet-webhook-secret";
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
   await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {}), unlink(userCountFile).catch(() => {}), unlink(primaryKeywordBlocklistFile).catch(() => {})]);
@@ -212,6 +213,7 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(register.status, 201);
     assert.equal(JSON.parse(register.text).user.onboardingCompleted, false);
     assert.equal(received[0].action, "upsert-user");
+    assert.equal(received[0].webhookSecret, "test-sheet-webhook-secret");
     assert.equal(received[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(received[0].sheetGid, "697062702");
     assert.match(received[0]["Unique User ID"], /^[a-f0-9]{24}$/);
@@ -244,6 +246,7 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(received[1]["Email"], email);
     assert.deepEqual(Object.keys(received[1]).sort(), [
       "action",
+      "webhookSecret",
       "spreadsheetId",
       "sheetGid",
       "Unique User ID",

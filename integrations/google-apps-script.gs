@@ -5,10 +5,12 @@
  * 2. Extensions -> Apps Script, paste this file, and save.
  * 3. Deploy -> New deployment -> Web app.
  * 4. Execute as: Me. Who has access: Anyone (or your organization, if the app is internal).
- * 5. Copy the /exec URL into USER_SHEET_WEBHOOK_URL on the server.
- * 6. Reuse the same /exec URL for ERROR_SHEET_WEBHOOK_URL when this project is
+ * 5. Add a long random WEBHOOK_SECRET in Project Settings -> Script properties.
+ * 6. Set the same value as server-only SHEET_WEBHOOK_SECRET.
+ * 7. Copy the /exec URL into USER_SHEET_WEBHOOK_URL on the server.
+ * 8. Reuse the same /exec URL for ERROR_SHEET_WEBHOOK_URL when this project is
  *    attached to the spreadsheet that contains the Error database tab.
- * 7. Reuse it for FEEDBACK_SHEET_WEBHOOK_URL and USER_COUNT_SHEET_WEBHOOK_URL.
+ * 9. Reuse it for FEEDBACK_SHEET_WEBHOOK_URL and USER_COUNT_SHEET_WEBHOOK_URL.
  *
  * Security: this endpoint intentionally refuses to write passwords.
  */
@@ -25,9 +27,17 @@ var USER_DATA_HEADERS_ = [
   "Dislike Resource"
 ];
 
+var DATABASE_SPREADSHEET_ID_ = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+var USER_DATA_SHEET_GID_ = "697062702";
+var ERROR_SHEET_GID_ = "1952899933";
+var USER_COUNT_SHEET_GID_ = "1958570867";
+var FEEDBACK_SHEET_GID_ = "981733839";
+var MAX_SHEET_TEXT_LENGTH_ = 45000;
+
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents || "{}");
+    authenticateWebhook_(data);
     if (data.action === "send-password-reset") return sendPasswordResetCode_(data);
     if (data.action === "log-resource-error") return appendResourceError_(data);
     if (data.action === "record-feedback") return appendFeedback_(data);
@@ -40,11 +50,33 @@ function doPost(e) {
   }
 }
 
+function authenticateWebhook_(data) {
+  var expected = String(PropertiesService.getScriptProperties().getProperty("WEBHOOK_SECRET") || "");
+  var provided = String(data.webhookSecret || "");
+  if (!expected) throw new Error("WEBHOOK_SECRET is not configured.");
+  if (!provided || !constantTimeStringEqual_(expected, provided)) {
+    throw new Error("Webhook authentication failed.");
+  }
+  delete data.webhookSecret;
+}
+
+function constantTimeStringEqual_(left, right) {
+  left = String(left || "");
+  right = String(right || "");
+  var difference = left.length ^ right.length;
+  var length = Math.max(left.length, right.length);
+  for (var i = 0; i < length; i++) {
+    difference |= (left.charCodeAt(i % Math.max(left.length, 1)) || 0)
+      ^ (right.charCodeAt(i % Math.max(right.length, 1)) || 0);
+  }
+  return difference === 0;
+}
+
 function upsertUser_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, USER_DATA_SHEET_GID_);
     var lastColumn = sheet.getLastColumn();
     if (lastColumn < 1) throw new Error("User Data sheet needs row-1 headers.");
 
@@ -102,7 +134,7 @@ function upsertUser_(data) {
       }
     });
 
-    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+    sheet.getRange(targetRow, 1, 1, row.length).setValues([safeSheetRow_(row)]);
     sheet.getRange(targetRow, 1, 1, row.length).setWrap(true).setVerticalAlignment("top");
     sheet.setRowHeight(targetRow, 72);
     for (var column = 1; column <= row.length; column++) {
@@ -122,7 +154,7 @@ function updateUserCount_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, USER_COUNT_SHEET_GID_);
     var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
     if (!headers.some(String)) throw new Error("User Count sheet needs row-1 headers.");
 
@@ -141,7 +173,7 @@ function updateUserCount_(data) {
       var value = Number(metrics[matchingKey] || 0);
       return isFinite(value) ? value : 0;
     });
-    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]).setNumberFormat("0.##");
+    sheet.getRange(targetRow, 1, 1, row.length).setValues([safeSheetRow_(row)]).setNumberFormat("0.##");
     return ContentService.createTextOutput(JSON.stringify({ ok: true, row: targetRow }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
@@ -153,7 +185,7 @@ function appendFeedback_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, FEEDBACK_SHEET_GID_);
     var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
     if (!headers.some(String)) throw new Error("Feedback sheet needs row-1 headers.");
 
@@ -174,7 +206,7 @@ function appendFeedback_(data) {
     });
 
     var targetRow = Math.max(sheet.getLastRow() + 1, 2);
-    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+    sheet.getRange(targetRow, 1, 1, row.length).setValues([safeSheetRow_(row)]);
     sheet.getRange(targetRow, 1, 1, row.length).setWrap(true).setVerticalAlignment("top");
     sheet.setRowHeight(targetRow, 72);
     for (var column = 1; column <= row.length; column++) {
@@ -236,7 +268,7 @@ function appendResourceError_(data) {
   data["Helpful"] = "No";
   data.helpful = "No";
 
-  var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId);
+  var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, ERROR_SHEET_GID_);
   var lastColumn = Math.max(sheet.getLastColumn(), 1);
   var headers = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
   var headerRow = 1;
@@ -249,7 +281,7 @@ function appendResourceError_(data) {
     headers = Object.keys(data).filter(function(key) {
       return ["action", "sheetGid", "password"].indexOf(String(key)) < 0;
     });
-    sheet.getRange(headerRow, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(headerRow, 1, 1, headers.length).setValues([safeSheetRow_(headers)]);
   }
 
   var dataKeys = Object.keys(data);
@@ -263,7 +295,7 @@ function appendResourceError_(data) {
   });
 
   var targetRow = Math.max(sheet.getLastRow() + 1, headerRow + 1);
-  sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+  sheet.getRange(targetRow, 1, 1, row.length).setValues([safeSheetRow_(row)]);
   sheet.getRange(targetRow, 1, 1, row.length).setWrap(true).setVerticalAlignment("top");
   sheet.setRowHeight(targetRow, 72);
   for (var column = 1; column <= row.length; column++) {
@@ -276,11 +308,17 @@ function appendResourceError_(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function findTargetSheet_(sheetGid, spreadsheetId) {
+function findTargetSheet_(sheetGid, spreadsheetId, expectedGid) {
   var id = String(spreadsheetId || "").trim();
   var gid = String(sheetGid || "").trim();
   if (!id) throw new Error("spreadsheetId is required.");
   if (!gid) throw new Error("sheetGid is required.");
+  if (id !== DATABASE_SPREADSHEET_ID_) {
+    throw new Error("This webhook only writes to the configured database spreadsheet.");
+  }
+  if (String(expectedGid || "").trim() !== gid) {
+    throw new Error("This action cannot write to sheet gid " + gid + ".");
+  }
   var spreadsheet = SpreadsheetApp.openById(id);
   var sheets = spreadsheet.getSheets();
   for (var i = 0; i < sheets.length; i++) {
@@ -291,6 +329,16 @@ function findTargetSheet_(sheetGid, spreadsheetId) {
 
 function normalizeHeader_(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function safeSheetRow_(row) {
+  return row.map(safeSheetCellValue_);
+}
+
+function safeSheetCellValue_(value) {
+  if (typeof value !== "string") return value;
+  var safeText = /^[\t\r\n ]*[=+\-@]/.test(value) ? "'" + value : value;
+  return safeText.slice(0, MAX_SHEET_TEXT_LENGTH_);
 }
 
 function doGet() {

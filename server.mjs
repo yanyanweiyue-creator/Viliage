@@ -489,6 +489,12 @@ function createPasswordResetCode() {
   return String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
 }
 
+function authenticatedSheetPayload(payload) {
+  const webhookSecret = String(process.env.SHEET_WEBHOOK_SECRET || "").trim();
+  if (!webhookSecret) throw new Error("SHEET_WEBHOOK_SECRET is not configured.");
+  return { ...payload, webhookSecret };
+}
+
 async function loadPasswordResets() {
   try {
     const saved = JSON.parse(await readFile(PASSWORD_RESETS_FILE, "utf8"));
@@ -506,7 +512,7 @@ async function sendPasswordResetEmail(email, code) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: process.env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
+    body: JSON.stringify(authenticatedSheetPayload({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: process.env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" })),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -1096,7 +1102,7 @@ async function syncUserRecord(user) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(authenticatedSheetPayload(payload)),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
@@ -1195,7 +1201,7 @@ async function syncUserCountMetrics(metrics = null) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(authenticatedSheetPayload(payload)),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`User count sheet webhook returned ${response.status}.`);
@@ -1257,7 +1263,7 @@ async function logErrorRecord(details) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(errorLogPayload(details)),
+    body: JSON.stringify(authenticatedSheetPayload(errorLogPayload(details))),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`Error sheet webhook returned ${response.status}.`);
@@ -1289,7 +1295,7 @@ async function syncFeedbackRecord(details) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(feedbackRecordPayload(details)),
+    body: JSON.stringify(authenticatedSheetPayload(feedbackRecordPayload(details))),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`Feedback sheet webhook returned ${response.status}.`);
@@ -1329,7 +1335,7 @@ function resourceSnapshot(resource) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL), feedbackSheetConfigured: Boolean(process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), sheetWebhookSecretConfigured: Boolean(process.env.SHEET_WEBHOOK_SECRET), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL && process.env.SHEET_WEBHOOK_SECRET), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL && process.env.SHEET_WEBHOOK_SECRET), feedbackSheetConfigured: Boolean((process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET), passwordEmailConfigured: Boolean((process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "POST" && url.pathname === "/api/voice/narrate") {
@@ -1377,7 +1383,7 @@ async function handleApi(req, res, url) {
     const { email = "" } = await readJsonBody(req);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return sendError(res, 400, "Please enter a valid email address.");
-    const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL);
+    const deliveryAvailable = Boolean((process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET);
     const generic = { ok: true, deliveryAvailable, senderAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);

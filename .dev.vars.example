@@ -1,6 +1,7 @@
 # Copy to .dev.vars for `npm run cloudflare:dev`.
 # Never commit real secret values.
 OPENAI_API_KEY=
+SHEET_WEBHOOK_SECRET=
 USER_SHEET_WEBHOOK_URL=
 USER_SHEET_ID=1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0
 USER_SHEET_GID=697062702

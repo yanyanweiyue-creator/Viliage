@@ -8,4 +8,5 @@ DELETE FROM chat_rooms WHERE system_managed = 0;
 DELETE FROM password_reset_codes;
 DELETE FROM sessions;
 DELETE FROM users;
-DELETE FROM app_meta WHERE key = 'user_count_metrics:all-time';
+DELETE FROM app_meta
+WHERE substr(key, 1, length('user_count_metrics:')) = 'user_count_metrics:';

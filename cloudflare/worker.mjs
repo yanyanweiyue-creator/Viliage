@@ -84,13 +84,19 @@ function createPasswordResetCode() {
   return String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
 }
 
+function authenticatedSheetPayload(env, payload) {
+  const webhookSecret = String(env.SHEET_WEBHOOK_SECRET || "").trim();
+  if (!webhookSecret) throw new Error("SHEET_WEBHOOK_SECRET is not configured.");
+  return { ...payload, webhookSecret };
+}
+
 async function sendPasswordResetEmail(env, email, code) {
   const webhook = env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL;
   if (!webhook) return false;
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
+    body: JSON.stringify(authenticatedSheetPayload(env, { action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" })),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -933,7 +939,7 @@ async function syncUser(env, user) {
     "Save Resource": JSON.stringify(user.likedResources || []),
     "Dislike Resource": JSON.stringify(user.dislikedResources || [])
   };
-  const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
+  const response = await fetch(env.USER_SHEET_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authenticatedSheetPayload(env, payload)), signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
   const text = await response.text();
   let result = {};
@@ -1014,12 +1020,12 @@ async function syncUserCountMetrics(env) {
   const response = await fetch(env.USER_COUNT_SHEET_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: JSON.stringify(authenticatedSheetPayload(env, {
       action: "record-user-count",
       spreadsheetId: env.USER_COUNT_SHEET_ID || DEFAULT_USER_COUNT_SHEET_ID,
       sheetGid: env.USER_COUNT_SHEET_GID || DEFAULT_USER_COUNT_SHEET_GID,
       metrics: userCountSheetMetrics(metrics)
-    }),
+    })),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`User count sheet webhook returned ${response.status}.`);
@@ -1088,7 +1094,7 @@ async function logErrorRecord(env, details) {
   const response = await fetch(env.ERROR_SHEET_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(errorLogPayload(env, details)),
+    body: JSON.stringify(authenticatedSheetPayload(env, errorLogPayload(env, details))),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Error sheet webhook returned ${response.status}.`);
@@ -1120,7 +1126,7 @@ async function syncFeedbackRecord(env, details) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(feedbackRecordPayload(env, details)),
+    body: JSON.stringify(authenticatedSheetPayload(env, feedbackRecordPayload(env, details))),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Feedback sheet webhook returned ${response.status}.`);
@@ -1162,7 +1168,7 @@ async function environment(request) {
 
 async function api(request, env, ctx) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(env.ERROR_SHEET_WEBHOOK_URL), feedbackSheetConfigured: Boolean(env.FEEDBACK_SHEET_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL || env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+  if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, storage: "cloudflare-d1", openaiConfigured: Boolean(env.OPENAI_API_KEY), sheetWebhookSecretConfigured: Boolean(env.SHEET_WEBHOOK_SECRET), userSheetConfigured: Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET), errorSheetConfigured: Boolean(env.ERROR_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET), feedbackSheetConfigured: Boolean((env.FEEDBACK_SHEET_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL || env.ERROR_SHEET_WEBHOOK_URL) && env.SHEET_WEBHOOK_SECRET), passwordEmailConfigured: Boolean((env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL) && env.SHEET_WEBHOOK_SECRET), passwordEmailUsesUserSheetWebhook: !env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   if (request.method === "POST" && url.pathname === "/api/voice/narrate") {
     const audio = await wafflesSpeech(env, await body(request));
     if (!audio) return fail("Waffles voice is not configured.", 503);
@@ -1225,7 +1231,7 @@ async function api(request, env, ctx) {
     const { email = "" } = await body(request);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return fail("Please enter a valid email address.");
-    const response = { ok: true, deliveryAvailable: Boolean(env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
+    const response = { ok: true, deliveryAvailable: Boolean((env.PASSWORD_EMAIL_WEBHOOK_URL || env.USER_SHEET_WEBHOOK_URL) && env.SHEET_WEBHOOK_SECRET), senderAddress: env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const user = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(normalizedEmail).first();
     if (!user) {
       passwordResetHash(normalizedEmail, "000000", env.PASSWORD_RESET_SECRET || PASSWORD_RESET_FALLBACK_SECRET);
@@ -1291,7 +1297,7 @@ async function api(request, env, ctx) {
     await ensureAdmin(env, user);
     const cookie = await createSession(env, user.id);
     await recordUserCountSafely(env, { [COUNT_TOTAL_ACCOUNTS_CREATED]: 1 });
-    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201, { "Set-Cookie": cookie });
+    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } }, 201, { "Set-Cookie": cookie });
   }
 
   if (request.method === "POST" && url.pathname === "/api/auth/login") {
@@ -3050,7 +3056,7 @@ async function api(request, env, ctx) {
       const notificationKind = room.kind === "direct" ? "direct-message" : "group-message";
       ctx.waitUntil(createCommunityNotifications(env, roomId, user.id, notificationKind, room.name, `${profile.display_name}: ${message.body}`, { roomId, messageId: message.id }).catch(() => {}));
       ctx.waitUntil(syncUser(env, user).catch(() => {}));
-      return json({ message: { ...message, author: profile.display_name, avatarDataUrl: user.avatarDataUrl || "", saved: false, mine: true }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } }, 201);
+      return json({ message: { ...message, author: profile.display_name, avatarDataUrl: user.avatarDataUrl || "", saved: false, mine: true }, sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } }, 201);
     }
   }
 
@@ -3105,7 +3111,7 @@ async function api(request, env, ctx) {
     user.updatedAt = new Date().toISOString();
     await env.DB.prepare("UPDATE users SET survey_completed = 1, profile_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.profile), user.updatedAt, user.id).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
-    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
@@ -3187,7 +3193,7 @@ async function api(request, env, ctx) {
       }
     }
     await recordUserCountSafely(env, { [COUNT_TOTAL_SEARCHES_COMPLETED]: 1 });
-    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description, language }) : [], keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL) } });
+    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description, language }) : [], keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/research-feedback") {
