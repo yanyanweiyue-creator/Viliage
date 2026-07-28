@@ -188,7 +188,9 @@ function defaultCommunity() {
     meetingSignals: [],
     whiteboardEvents: [],
     polls: [],
-    pollVotes: []
+    pollVotes: [],
+    meetingMessages: [],
+    meetingReactions: []
   };
 }
 
@@ -230,7 +232,9 @@ async function loadCommunity() {
       meetingSignals: saved.meetingSignals || [],
       whiteboardEvents: saved.whiteboardEvents || [],
       polls: saved.polls || [],
-      pollVotes: saved.pollVotes || []
+      pollVotes: saved.pollVotes || [],
+      meetingMessages: saved.meetingMessages || [],
+      meetingReactions: saved.meetingReactions || []
     };
   } catch { return defaultCommunity(); }
 }
@@ -319,6 +323,7 @@ function safeImageDataUrl(value) {
 }
 
 function safeAttachment(input = {}) {
+  if (!input || typeof input !== "object") return null;
   const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 140);
   const mime = String(input.mime || "").trim().toLowerCase().slice(0, 100);
   const dataUrl = String(input.dataUrl || "");
@@ -327,6 +332,43 @@ function safeAttachment(input = {}) {
   if (!allowed.test(mime)) throw new Error("Attach an image, PDF, text, Word, Excel, or PowerPoint file.");
   if (dataUrl.length > 900000 || !new RegExp(`^data:${mime.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")};base64,[a-z0-9+/=]+$`, "i").test(dataUrl)) throw new Error("Choose a supported file smaller than about 650 KB.");
   return { name, mime, dataUrl };
+}
+
+function safeMeetingFormat(input = {}) {
+  return {
+    bold: Boolean(input.bold),
+    italic: Boolean(input.italic),
+    list: [true, "bullets", "numbered"].includes(input.list) ? input.list : false
+  };
+}
+
+function safeMeetingMetadata(input = {}) {
+  const metadata = {};
+  const cloudUrl = String(input.cloudUrl || "").trim().slice(0, 1000);
+  if (cloudUrl) {
+    try {
+      const parsed = new URL(cloudUrl);
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+      metadata.cloudUrl = parsed.toString();
+      metadata.cloudProvider = String(input.cloudProvider || "Cloud file").trim().slice(0, 60) || "Cloud file";
+    } catch {
+      throw new Error("Use a valid HTTPS cloud-file link.");
+    }
+  }
+  return metadata;
+}
+
+function meetingSettings(input = {}) {
+  return {
+    waitingRoom: input.waitingRoom !== false,
+    recordingAllowed: input.recordingAllowed !== false,
+    captionsEnabled: input.captionsEnabled !== false,
+    chatPolicy: ["everyone", "host-only", "disabled"].includes(input.chatPolicy) ? input.chatPolicy : "everyone",
+    privateChat: input.privateChat !== false,
+    allowMemberPolls: Boolean(input.allowMemberPolls),
+    whiteboardPermission: ["edit", "comment", "view"].includes(input.whiteboardPermission) ? input.whiteboardPermission : "edit",
+    presenterMode: Boolean(input.presenterMode)
+  };
 }
 
 function localNotification(community, userId, kind, title, body, metadata = {}) {
@@ -2255,7 +2297,7 @@ async function handleApi(req, res, url) {
       const startsAt = new Date(input.startsAt || Date.now());
       if (!Number.isFinite(startsAt.getTime())) return sendError(res, 400, "Choose a valid meeting date and time.");
       const at = new Date().toISOString();
-      const meeting = { id: randomBytes(12).toString("hex"), roomId, hostId: user.id, title: String(input.title || "Village meeting").trim().slice(0, 120) || "Village meeting", startsAt: startsAt.toISOString(), durationMinutes: Math.max(10, Math.min(480, Number(input.durationMinutes || 45))), status: "scheduled", settings: { waitingRoom: input.settings?.waitingRoom !== false, recordingAllowed: input.settings?.recordingAllowed !== false, captionsEnabled: input.settings?.captionsEnabled !== false }, createdAt: at, updatedAt: at };
+      const meeting = { id: randomBytes(12).toString("hex"), roomId, hostId: user.id, title: String(input.title || "Village meeting").trim().slice(0, 120) || "Village meeting", startsAt: startsAt.toISOString(), durationMinutes: Math.max(10, Math.min(480, Number(input.durationMinutes || 45))), status: "scheduled", settings: meetingSettings(input.settings), createdAt: at, updatedAt: at };
       community.meetings.push(meeting);
       const message = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, body: `Meeting: ${meeting.title}`, messageType: "meeting", metadata: { meetingId: meeting.id, title: meeting.title, startsAt: meeting.startsAt, durationMinutes: meeting.durationMinutes }, createdAt: at };
       community.messages.push(message);
@@ -2265,7 +2307,7 @@ async function handleApi(req, res, url) {
     }
   }
 
-  const meetingMatch = url.pathname.match(/^\/api\/community\/meetings\/([^/]+)(?:\/(join|signals|state|whiteboard|polls|end))?$/);
+  const meetingMatch = url.pathname.match(/^\/api\/community\/meetings\/([^/]+)(?:\/(join|signals|state|whiteboard|polls|messages|end))?$/);
   if (meetingMatch) {
     const community = await loadCommunity();
     const meetingId = decodeURIComponent(meetingMatch[1]);
@@ -2274,30 +2316,69 @@ async function handleApi(req, res, url) {
     if (!meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "Meeting not found.");
     if (!operation && req.method === "GET") {
       const users = await loadUsers();
-      const participants = community.meetingParticipants.filter((item) => item.meetingId === meetingId).map((participant) => {
+      meeting.settings = meetingSettings(meeting.settings || {});
+      const participants = community.meetingParticipants.filter((item) => item.meetingId === meetingId && !item.leftAt).map((participant) => {
         const account = users.find((candidate) => candidate.id === participant.userId);
         return { userId: participant.userId, displayName: community.profiles[participant.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", role: participant.role, raisedHand: Boolean(participant.raisedHand), breakoutRoom: participant.breakoutRoom || "", mine: participant.userId === user.id };
       });
+      let changed = false;
       const polls = community.polls.filter((poll) => poll.meetingId === meetingId).map((poll) => {
+        if ((poll.status || "active") === "active" && poll.endsAt && new Date(poll.endsAt).getTime() <= Date.now()) {
+          poll.status = "closed";
+          poll.closedAt = poll.closedAt || new Date().toISOString();
+          changed = true;
+        }
         const votes = {};
-        community.pollVotes.filter((vote) => vote.pollId === poll.id).forEach((vote) => { votes[vote.optionIndex] = Number(votes[vote.optionIndex] || 0) + 1; });
-        return { id: poll.id, question: poll.question, options: poll.options, closed: Boolean(poll.closedAt), votes, createdAt: poll.createdAt };
+        const ballots = community.pollVotes.filter((vote) => vote.pollId === poll.id);
+        ballots.forEach((vote) => {
+          const indexes = Array.isArray(vote.optionIndexes) ? vote.optionIndexes : [vote.optionIndex];
+          indexes.forEach((index) => { votes[index] = Number(votes[index] || 0) + 1; });
+        });
+        const anonymous = Boolean(poll.anonymous);
+        const canSeeVoters = !anonymous && (meeting.hostId === user.id || participants.find((participant) => participant.userId === user.id)?.role === "cohost");
+        return {
+          id: poll.id,
+          creatorId: poll.creatorId,
+          question: poll.question,
+          options: poll.options,
+          status: poll.status || (poll.closedAt ? "closed" : "active"),
+          closed: Boolean(poll.closedAt || poll.status === "closed"),
+          multiple: Boolean(poll.multiple),
+          anonymous,
+          showLiveResults: poll.showLiveResults !== false,
+          durationSeconds: Number(poll.durationSeconds || 0),
+          startedAt: poll.startedAt || null,
+          endsAt: poll.endsAt || null,
+          closedAt: poll.closedAt || null,
+          votes,
+          totalVoters: ballots.length,
+          participantCount: participants.length,
+          mySelections: ballots.find((vote) => vote.userId === user.id)?.optionIndexes || (ballots.find((vote) => vote.userId === user.id) ? [ballots.find((vote) => vote.userId === user.id).optionIndex] : []),
+          voters: canSeeVoters ? ballots.map((vote) => ({
+            userId: vote.userId,
+            displayName: community.profiles[vote.userId]?.displayName || users.find((candidate) => candidate.id === vote.userId)?.name || "Village member",
+            optionIndexes: vote.optionIndexes || [vote.optionIndex]
+          })) : [],
+          createdAt: poll.createdAt
+        };
       });
+      if (changed) await saveCommunity(community);
       return sendJson(res, 200, { meeting, participants, polls });
     }
     if (operation === "join" && req.method === "POST") {
       if (["ended", "cancelled"].includes(meeting.status)) return sendError(res, 400, "This meeting has ended.");
       const at = new Date().toISOString();
       const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id);
-      if (participant) participant.lastSeenAt = at;
-      else community.meetingParticipants.push({ meetingId, userId: user.id, role: meeting.hostId === user.id ? "host" : "participant", raisedHand: false, breakoutRoom: "", joinedAt: at, lastSeenAt: at });
+      if (participant) Object.assign(participant, { lastSeenAt: at, leftAt: null });
+      else community.meetingParticipants.push({ meetingId, userId: user.id, role: meeting.hostId === user.id ? "host" : "participant", raisedHand: false, breakoutRoom: "", joinedAt: at, lastSeenAt: at, leftAt: null });
       if (meeting.status === "scheduled") meeting.status = "live";
       meeting.updatedAt = at;
       await saveCommunity(community);
-      return sendJson(res, 200, { ok: true, participantIds: community.meetingParticipants.filter((item) => item.meetingId === meetingId && item.userId !== user.id).map((item) => item.userId) });
+      return sendJson(res, 200, { ok: true, participantIds: community.meetingParticipants.filter((item) => item.meetingId === meetingId && item.userId !== user.id && !item.leftAt).map((item) => item.userId) });
     }
     if (operation === "join" && req.method === "DELETE") {
-      community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId || item.userId !== user.id);
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id);
+      if (participant) Object.assign(participant, { leftAt: new Date().toISOString(), raisedHand: false });
       community.meetingSignals.push({ id: randomBytes(12).toString("hex"), meetingId, senderId: user.id, recipientId: null, kind: "leave", payload: {}, createdAt: new Date().toISOString() });
       await saveCommunity(community);
       return sendJson(res, 200, { ok: true });
@@ -2321,20 +2402,27 @@ async function handleApi(req, res, url) {
     }
     if (operation === "state" && req.method === "PATCH") {
       const input = await readJsonBody(req);
+      const actor = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id && !item.leftAt);
+      const canHost = meeting.hostId === user.id || actor?.role === "cohost";
+      if (input.settings && canHost) {
+        meeting.settings = meetingSettings({ ...(meeting.settings || {}), ...input.settings });
+        meeting.updatedAt = new Date().toISOString();
+      }
       const targetId = meeting.hostId === user.id && input.userId ? String(input.userId) : user.id;
       if (input.remove === true && meeting.hostId === user.id && targetId !== user.id) {
-        community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId || item.userId !== targetId);
+        const target = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === targetId);
+        if (target) Object.assign(target, { leftAt: new Date().toISOString(), raisedHand: false });
         await saveCommunity(community);
         return sendJson(res, 200, { ok: true, removed: targetId });
       }
-      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === targetId);
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === targetId && !item.leftAt);
       if (!participant) return sendError(res, 404, "Participant is not in this meeting.");
       if (meeting.hostId === user.id && ["cohost", "participant"].includes(input.role)) participant.role = input.role;
       if (meeting.hostId === user.id && Object.prototype.hasOwnProperty.call(input, "breakoutRoom")) participant.breakoutRoom = String(input.breakoutRoom || "").slice(0, 80);
       if (Object.prototype.hasOwnProperty.call(input, "raisedHand")) participant.raisedHand = Boolean(input.raisedHand);
       participant.lastSeenAt = new Date().toISOString();
       await saveCommunity(community);
-      return sendJson(res, 200, { ok: true, participant: { userId: targetId, role: participant.role, breakoutRoom: participant.breakoutRoom || "", raisedHand: participant.raisedHand } });
+      return sendJson(res, 200, { ok: true, meeting: { ...meeting, settings: meeting.settings }, participant: { userId: targetId, role: participant.role, breakoutRoom: participant.breakoutRoom || "", raisedHand: participant.raisedHand } });
     }
     if (operation === "whiteboard" && req.method === "GET") {
       const after = Math.max(0, Number(url.searchParams.get("after") || 0));
@@ -2342,45 +2430,183 @@ async function handleApi(req, res, url) {
     }
     if (operation === "whiteboard" && req.method === "POST") {
       const event = (await readJsonBody(req)).event;
-      if (JSON.stringify(event || {}).length > 5000) return sendError(res, 400, "Whiteboard event is too large.");
+      const encoded = JSON.stringify(event || {});
+      if (encoded.length > 900000) return sendError(res, 400, "Whiteboard event is too large.");
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id && !item.leftAt);
+      const permission = meetingSettings(meeting.settings || {}).whiteboardPermission;
+      const canManage = meeting.hostId === user.id || participant?.role === "cohost";
+      const eventType = String(event?.type || "");
+      if (!canManage && permission === "view" && eventType !== "cursor") return sendError(res, 403, "The whiteboard is view-only.");
+      if (!canManage && permission === "comment" && !["cursor", "comment", "reaction", "stamp"].includes(eventType)) return sendError(res, 403, "The whiteboard is limited to comments.");
       const record = { id: Math.max(0, ...community.whiteboardEvents.map((item) => Number(item.id || 0))) + 1, meetingId, userId: user.id, event: event && typeof event === "object" ? event : {}, createdAt: new Date().toISOString() };
       community.whiteboardEvents.push(record);
+      community.whiteboardEvents = community.whiteboardEvents.slice(-20000);
       await saveCommunity(community);
       return sendJson(res, 201, { ok: true, id: record.id });
     }
+    if (operation === "messages" && req.method === "GET") {
+      const users = await loadUsers();
+      const messages = community.meetingMessages.filter((message) => {
+        if (message.meetingId !== meetingId) return false;
+        if (message.audience === "everyone" || message.senderId === user.id) return true;
+        return (message.recipientIds || []).includes(user.id);
+      }).slice(-250).map((message) => {
+        const account = users.find((candidate) => candidate.id === message.senderId);
+        const reply = message.replyToId ? community.meetingMessages.find((candidate) => candidate.id === message.replyToId) : null;
+        const reactions = {};
+        community.meetingReactions.filter((reaction) => reaction.messageId === message.id).forEach((reaction) => {
+          reactions[reaction.emoji] ||= { count: 0, mine: false };
+          reactions[reaction.emoji].count += 1;
+          if (reaction.userId === user.id) reactions[reaction.emoji].mine = true;
+        });
+        return {
+          ...message,
+          author: community.profiles[message.senderId]?.displayName || account?.name || "Village member",
+          avatarDataUrl: account?.avatarDataUrl || "",
+          mine: message.senderId === user.id,
+          reactions,
+          replyTo: reply ? { id: reply.id, author: community.profiles[reply.senderId]?.displayName || users.find((candidate) => candidate.id === reply.senderId)?.name || "Village member", body: reply.deletedAt ? "Message deleted" : reply.body } : null
+        };
+      });
+      return sendJson(res, 200, { messages, meetingId });
+    }
+    if (operation === "messages" && req.method === "POST") {
+      const input = await readJsonBody(req);
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id && !item.leftAt);
+      const canHost = meeting.hostId === user.id || participant?.role === "cohost";
+      const settings = meetingSettings(meeting.settings || {});
+      if (!canHost && settings.chatPolicy === "disabled") return sendError(res, 403, "The host turned meeting chat off.");
+      const audience = ["everyone", "private", "group"].includes(input.audience) ? input.audience : "everyone";
+      if (!canHost && settings.chatPolicy === "host-only" && !(audience === "private" && (input.recipientIds || []).includes(meeting.hostId))) return sendError(res, 403, "Participants can only message the host.");
+      if (!canHost && !settings.privateChat && audience !== "everyone") return sendError(res, 403, "Private meeting chat is off.");
+      const activeIds = new Set(community.meetingParticipants.filter((item) => item.meetingId === meetingId && !item.leftAt).map((item) => item.userId));
+      activeIds.add(meeting.hostId);
+      const recipientIds = [...new Set((Array.isArray(input.recipientIds) ? input.recipientIds : []).map(String).filter((id) => id !== user.id && activeIds.has(id)))].slice(0, 20);
+      if (audience === "private" && recipientIds.length !== 1) return sendError(res, 400, "Choose one person for a private message.");
+      if (audience === "group" && recipientIds.length < 1) return sendError(res, 400, "Choose at least one person for this group chat.");
+      let attachment;
+      try { attachment = safeAttachment(input.attachment); } catch (error) { return sendError(res, 400, error.message); }
+      let metadata;
+      try { metadata = safeMeetingMetadata(input.metadata || {}); } catch (error) { return sendError(res, 400, error.message); }
+      const rawBody = String(input.message || "").trim().slice(0, 4000);
+      const messageBody = rawBody ? (await maskLocalCommunityMessage(rawBody)).trim() : "";
+      if (!messageBody && !attachment && !metadata.cloudUrl) return sendError(res, 400, "Write a message or attach something first.");
+      const reply = input.replyToId ? community.meetingMessages.find((candidate) => candidate.id === String(input.replyToId) && candidate.meetingId === meetingId) : null;
+      const message = {
+        id: randomBytes(12).toString("hex"),
+        meetingId,
+        senderId: user.id,
+        audience,
+        recipientIds,
+        body: messageBody,
+        format: safeMeetingFormat(input.format || {}),
+        attachment,
+        metadata,
+        replyToId: reply?.id || null,
+        deletedAt: null,
+        createdAt: new Date().toISOString()
+      };
+      community.meetingMessages.push(message);
+      community.meetingMessages = community.meetingMessages.slice(-10000);
+      await saveCommunity(community);
+      return sendJson(res, 201, { message: { ...message, author: community.profiles[user.id]?.displayName || user.name, avatarDataUrl: user.avatarDataUrl || "", mine: true, reactions: {}, replyTo: reply ? { id: reply.id, body: reply.body } : null } });
+    }
     if (operation === "polls" && req.method === "POST") {
       const input = await readJsonBody(req);
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === user.id && !item.leftAt);
+      const canCreate = meeting.hostId === user.id || participant?.role === "cohost" || meetingSettings(meeting.settings || {}).allowMemberPolls;
+      if (!canCreate) return sendError(res, 403, "Only the host or co-host can create a poll.");
       const question = String(input.question || "").trim().slice(0, 240);
       const options = [...new Set((Array.isArray(input.options) ? input.options : []).map((option) => String(option || "").trim().slice(0, 120)).filter(Boolean))].slice(0, 8);
       if (!question || options.length < 2) return sendError(res, 400, "Add a poll question and at least two choices.");
-      const poll = { id: randomBytes(12).toString("hex"), meetingId, creatorId: user.id, question, options, closedAt: null, createdAt: new Date().toISOString() };
+      const poll = {
+        id: randomBytes(12).toString("hex"),
+        meetingId,
+        creatorId: user.id,
+        question,
+        options,
+        status: "draft",
+        multiple: Boolean(input.multiple),
+        anonymous: Boolean(input.anonymous),
+        showLiveResults: input.showLiveResults !== false,
+        durationSeconds: Math.max(0, Math.min(600, Number(input.durationSeconds || 0))),
+        startedAt: null,
+        endsAt: null,
+        closedAt: null,
+        createdAt: new Date().toISOString()
+      };
       community.polls.push(poll);
       await saveCommunity(community);
-      return sendJson(res, 201, { poll: { ...poll, votes: {} } });
+      return sendJson(res, 201, { poll: { ...poll, votes: {}, totalVoters: 0, mySelections: [] } });
     }
     if (operation === "end" && req.method === "POST") {
       if (meeting.hostId !== user.id) return sendError(res, 403, "Only the host can end this meeting.");
       meeting.status = "ended";
       meeting.updatedAt = new Date().toISOString();
-      community.meetingParticipants = community.meetingParticipants.filter((item) => item.meetingId !== meetingId);
+      community.meetingParticipants.filter((item) => item.meetingId === meetingId && !item.leftAt).forEach((item) => Object.assign(item, { leftAt: meeting.updatedAt, raisedHand: false }));
       await saveCommunity(community);
       return sendJson(res, 200, { ok: true, status: "ended" });
     }
   }
 
-  const pollVoteMatch = url.pathname.match(/^\/api\/community\/polls\/([^/]+)\/vote$/);
-  if (req.method === "POST" && pollVoteMatch) {
+  const meetingMessageMatch = url.pathname.match(/^\/api\/community\/meeting-messages\/([^/]+)(?:\/(reactions))?$/);
+  if (meetingMessageMatch) {
     const community = await loadCommunity();
-    const poll = community.polls.find((item) => item.id === decodeURIComponent(pollVoteMatch[1]));
+    const message = community.meetingMessages.find((item) => item.id === decodeURIComponent(meetingMessageMatch[1]));
+    const meeting = community.meetings.find((item) => item.id === message?.meetingId);
+    if (!message || !meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "Meeting message not found.");
+    if (!meetingMessageMatch[2] && req.method === "DELETE") {
+      const participant = community.meetingParticipants.find((item) => item.meetingId === meeting.id && item.userId === user.id);
+      if (message.senderId !== user.id && meeting.hostId !== user.id && participant?.role !== "cohost") return sendError(res, 403, "You can only delete your own meeting messages.");
+      Object.assign(message, { body: "", attachment: null, metadata: {}, deletedAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, deletedAt: message.deletedAt });
+    }
+    if (meetingMessageMatch[2] === "reactions" && req.method === "POST") {
+      const emoji = String((await readJsonBody(req)).emoji || "").trim().slice(0, 12);
+      if (!emoji || !/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]+$/u.test(emoji)) return sendError(res, 400, "Choose an emoji reaction.");
+      const existing = community.meetingReactions.find((item) => item.messageId === message.id && item.userId === user.id && item.emoji === emoji);
+      if (existing) community.meetingReactions = community.meetingReactions.filter((item) => item !== existing);
+      else community.meetingReactions.push({ messageId: message.id, userId: user.id, emoji, createdAt: new Date().toISOString() });
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, active: !existing });
+    }
+  }
+
+  const pollActionMatch = url.pathname.match(/^\/api\/community\/polls\/([^/]+)\/(vote|start|end)$/);
+  if (req.method === "POST" && pollActionMatch) {
+    const community = await loadCommunity();
+    const poll = community.polls.find((item) => item.id === decodeURIComponent(pollActionMatch[1]));
     const meeting = community.meetings.find((item) => item.id === poll?.meetingId);
-    if (!poll || poll.closedAt || !meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "This poll is unavailable.");
-    const optionIndex = Number((await readJsonBody(req)).optionIndex);
-    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) return sendError(res, 400, "Choose a poll option.");
+    if (!poll || !meeting || !community.members.some((member) => member.roomId === meeting.roomId && member.userId === user.id)) return sendError(res, 404, "This poll is unavailable.");
+    const participant = community.meetingParticipants.find((item) => item.meetingId === meeting.id && item.userId === user.id && !item.leftAt);
+    const canManage = meeting.hostId === user.id || participant?.role === "cohost";
+    const action = pollActionMatch[2];
+    if (["start", "end"].includes(action)) {
+      if (!canManage) return sendError(res, 403, "Only the host or co-host can manage this poll.");
+      const at = new Date().toISOString();
+      if (action === "start") {
+        poll.status = "active";
+        poll.startedAt = at;
+        poll.closedAt = null;
+        poll.endsAt = poll.durationSeconds ? new Date(Date.now() + poll.durationSeconds * 1000).toISOString() : null;
+      } else {
+        poll.status = "closed";
+        poll.closedAt = at;
+      }
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, status: poll.status, startedAt: poll.startedAt || null, endsAt: poll.endsAt || null, closedAt: poll.closedAt || null });
+    }
+    if ((poll.status || "active") !== "active" || poll.closedAt || (poll.endsAt && new Date(poll.endsAt).getTime() <= Date.now())) return sendError(res, 404, "This poll is unavailable.");
+    const input = await readJsonBody(req);
+    const requested = Array.isArray(input.optionIndexes) ? input.optionIndexes : [input.optionIndex];
+    const optionIndexes = [...new Set(requested.map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < poll.options.length))];
+    if (!optionIndexes.length || (!poll.multiple && optionIndexes.length !== 1)) return sendError(res, 400, poll.multiple ? "Choose one or more poll options." : "Choose one poll option.");
     const existing = community.pollVotes.find((item) => item.pollId === poll.id && item.userId === user.id);
-    if (existing) Object.assign(existing, { optionIndex, createdAt: new Date().toISOString() });
-    else community.pollVotes.push({ pollId: poll.id, userId: user.id, optionIndex, createdAt: new Date().toISOString() });
+    if (existing) Object.assign(existing, { optionIndex: optionIndexes[0], optionIndexes, createdAt: new Date().toISOString() });
+    else community.pollVotes.push({ pollId: poll.id, userId: user.id, optionIndex: optionIndexes[0], optionIndexes, createdAt: new Date().toISOString() });
     await saveCommunity(community);
-    return sendJson(res, 200, { ok: true, optionIndex });
+    return sendJson(res, 200, { ok: true, optionIndex: optionIndexes[0], optionIndexes });
   }
 
   const friendMatch = url.pathname.match(/^\/api\/community\/friends\/([^/]+)$/);
