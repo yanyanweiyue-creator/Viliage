@@ -70,7 +70,7 @@ function sessionKey(token) {
 }
 
 async function saveJsonAtomically(filePath, value) {
-  const temporary = `${filePath}.${process.pid}.tmp`;
+  const temporary = `${filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
   await rename(temporary, filePath);
 }
