@@ -24,8 +24,8 @@ test("approved PDF map raster and its single-island interaction shell are presen
   assert.match(html, /data-action="continue-guest"/);
   assert.match(html, /class="island-hit-area autism"/);
   assert.match(html, /class="island-hit-area adhd"/);
-  assert.match(html, /styles\.css\?v=document-studio-20260727b/);
-  assert.match(html, /app\.js\?v=document-studio-20260727b/);
+  assert.match(html, /styles\.css\?v=quick-search-i18n-park-20260727b/);
+  assert.match(html, /app\.js\?v=quick-search-i18n-park-20260727b/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*width:\s*calc\(var\(--hotspot-width\) \* \.72\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*height:\s*calc\(var\(--hotspot-height\) \* \.62\)/);
   assert.match(css, /body\.scene-2d \.map-hotspot \{[^}]*border:\s*0 !important/);
@@ -103,11 +103,13 @@ test("every building opens through a capybara loading walk into its illustrated 
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/interior-3d.mjs", import.meta.url), "utf8")
   ]);
-  assert.deepEqual(Object.keys(config.interiors).sort(), ["activity", "courthouse", "jungle", "school", "village"]);
+  assert.deepEqual(Object.keys(config.interiors).sort(), ["activity", "courthouse", "jungle", "park", "school", "village"]);
   for (const scene of Object.values(config.interiors)) {
+    if (scene.image.startsWith("data:")) continue;
     await access(new URL(`../public${scene.image}`, import.meta.url));
   }
   assert.equal(config.buildings.every((building) => Boolean(config.interiors[building.interior])), true);
+  assert.equal(config.buildings.every((building) => !building.interior2d || Boolean(config.interiors[building.interior2d])), true);
   assert.match(html, /id="building-loading"/);
   assert.match(html, /id="building-interior"/);
   assert.match(html, /id="building-interior-3d"/);
@@ -217,6 +219,17 @@ test("Village Community includes Moments, Self, shared files, documents, and liv
   assert.match(css, /\.moments-page/);
   assert.match(css, /\.community-self/);
   assert.match(css, /\.village-meeting/);
+  assert.match(css, /\.meeting-video-strip/);
+  assert.match(css, /\.meeting-speaker-stage/);
+  assert.match(css, /\.meeting-layout\.sidebar-closed/);
+  assert.match(meeting, /class="meeting-layout sidebar-closed"/);
+  assert.match(meeting, /class="meeting-sidebar hidden"/);
+  assert.match(meeting, /id="meeting-video-strip"/);
+  assert.match(meeting, /id="meeting-focus-video"/);
+  assert.match(meeting, /data-meeting-action="focus-participant"/);
+  assert.match(meeting, /data-meeting-action="sidebar-participants"/);
+  assert.match(meeting, /data-meeting-action="sidebar-chat"/);
+  assert.match(meeting, /classList\.toggle\("camera-off", cameraOff\)/);
   for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
 });
 
@@ -382,4 +395,58 @@ test("community groups keep descriptions and menus aligned and documents open th
   }
   assert.match(exporter, /0x06054b50/);
   assert.match(exporter, /word\/document\.xml/);
+});
+
+test("header offers quick search while keeping My record in the status row", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /data-action="open-quick-search"[^>]*data-i18n="quickSearch"/);
+  assert.match(html, /id="record-status-action" data-action="open-profile"/);
+  assert.match(app, /function quickSearchPanel\(\)/);
+  assert.match(app, /id="quick-search-form"/);
+  assert.match(app, /aiPanel\(String\(formData\.get\("topic"\)/);
+  assert.match(css, /\.quick-search-filters\s*\{[^}]*grid-template-columns:\s*repeat\(2/);
+});
+
+test("the header avatar opens My Record, where the shared profile photo can be changed", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(html, /class="avatar-button" data-action="open-profile"/);
+  assert.match(app, /data-community-avatar data-avatar-context="profile"/);
+  assert.match(app, /function renderHeaderAvatar\(\)/);
+  assert.match(app, /input\.dataset\.avatarContext === "profile"/);
+  assert.match(css, /\.avatar-button img\s*\{[^}]*object-fit:\s*cover/);
+});
+
+test("Park uses the supplied illustration only in 2D mode", async () => {
+  const [config, app] = await Promise.all([
+    loadConfig(),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8")
+  ]);
+  assert.match(config.interiors.park.image, /^data:image\/jpeg;base64,/);
+  assert.ok(config.interiors.park.image.length > 100_000);
+  for (const park of config.buildings.filter((building) => building.mapLabel === "Park")) {
+    assert.equal(park.interior, "jungle");
+    assert.equal(park.interior2d, "park");
+  }
+  assert.match(app, /state\.settings\.sceneMode === "3d" \? building\.interior : building\.interior2d \|\| building\.interior/);
+});
+
+test("dynamic Community and Support controls use the selected language", async () => {
+  const [app, html] = await Promise.all([
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  ]);
+  for (const key of ["yourVillageProfile", "savedFromChat", "villageDocuments", "privacyNotifications", "communitySelfTab", "communitySearchPlaceholder", "communityDirectIntro", "communityNotificationsTitle", "communityGroupsIntro", "supportIntroBody", "supportSearchPlaceholder", "resourcesReadyCount"]) {
+    assert.match(app, new RegExp(`t\\("${key}"\\)`));
+  }
+  assert.match(html, /data-i18n="backIsland"/);
+  assert.match(app, /zh:\s*\{[\s\S]*quickSearch:\s*"快速检索"/);
+  assert.match(app, /es:\s*\{[\s\S]*quickSearch:\s*"Búsqueda rápida"/);
 });
