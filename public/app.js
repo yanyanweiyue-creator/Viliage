@@ -5,7 +5,7 @@ import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
-import { VillageMeetingRuntime } from "./community-meeting.mjs?v=village-community-20260726";
+import { VillageMeetingRuntime } from "./community-meeting.mjs?v=zoom-meeting-20260727c";
 import { VillageDocumentStudio } from "./community-documents.mjs?v=village-docs-20260727";
 
 const config = window.CAPY_CONFIG;
@@ -178,6 +178,326 @@ const i18n = {
     weatherClear: "Despejado", weatherCloudy: "Nublado", weatherFog: "Niebla", weatherRain: "Lluvia", weatherSnow: "Nieve", weatherStorm: "Tormenta", weatherRefresh: "Actualizar el clima local"
   }
 };
+
+const supplementalI18n = {
+  en: {
+    quickSearch: "Quick search",
+    quickSearchEyebrow: "Search the whole village",
+    quickSearchIntro: "Describe what you need, choose a topic, and Waffles will search the live resource database without making you enter a building first.",
+    quickSearchTopic: "Topic",
+    quickSearchPath: "Profile focus",
+    quickSearchAnyPath: "Use my full record",
+    quickSearchQuery: "What would you like to find?",
+    quickSearchPlaceholder: "For example: a sensory-friendly weekend program near me for a 10-year-old…",
+    quickSearchSubmit: "Search now",
+    quickSearchHint: "You can still open My record from the status row below the island map.",
+    changeProfilePhoto: "Change profile photo",
+    profilePhotoUpdated: "Profile photo updated.",
+    avatarAccountRequired: "Create or sign in to an account before adding a profile photo.",
+    aiExampleEducation: "For example: I’m looking for executive-function support for a middle-school student…",
+    aiExampleLegal: "For example: I need help understanding a 504 plan for an 11-year-old…",
+    aiExampleRecreation: "For example: I’m looking for a calm, inclusive weekend activity nearby…",
+    communitySelfTab: "Self",
+    yourVillageProfile: "Your village profile",
+    communitySelfIntro: "Manage the parts of Community that belong only to you.",
+    changePhoto: "Change photo",
+    savedFromChat: "Saved from chat",
+    savedFromChatIntro: "Files, locations, notes, and messages you chose to keep.",
+    savedFromChatEmpty: "Items you save from chat will appear here.",
+    villageDocuments: "Village documents",
+    villageDocumentsIntro: "Your docs, printable PDFs, and forms.",
+    createDocument: "Create document",
+    noVillageDocuments: "No Village documents saved yet.",
+    yourStickers: "Your stickers",
+    yourStickersIntro: "Upload an image, or save a sticker someone sends.",
+    addSticker: "Add sticker",
+    deleteSticker: "Delete sticker",
+    noCustomStickers: "No custom stickers.",
+    privacyNotifications: "Privacy & notifications",
+    privacyNotificationsIntro: "These choices apply to your account across devices.",
+    communityNotifications: "Community notifications",
+    communityNotificationsHint: "Show unread dots for new chats, Moments, and requests.",
+    appearSearch: "Appear in member search",
+    appearSearchHint: "Friends can still open your profile when this is off.",
+    acceptPrivateMessages: "Accept private messages",
+    acceptPrivateMessagesHint: "Pause new messages without removing friends.",
+    allowLocationSharing: "Allow location sharing",
+    allowLocationSharingHint: "Required before this browser can send your current location.",
+    allowStrangersAdd: "Allow strangers to add me",
+    allowStrangersAddHint: "Turn off to stop receiving requests from people you do not know.",
+    allowStrangersMoments: "Allow strangers to see Moments",
+    allowStrangersMomentsHint: "Blocked people never see your Moments.",
+    friendsMomentRange: "Friends can see Moments from",
+    last7Days: "Last 7 days",
+    last30Days: "Last 30 days",
+    last6Months: "Last 6 months",
+    lastYear: "Last year",
+    allAvailable: "All available",
+    momentAppearance: "Moment appearance",
+    themeWhite: "White",
+    themeBlack: "Black",
+    momentsCoverImage: "Moments cover image",
+    saveCommunitySettings: "Save Community settings",
+    communitySearchPeople: "Search people",
+    communitySearchPlaceholder: "Search name or email to add friends",
+    search: "Search",
+    communityCommons: "The Commons",
+    yours: "Yours",
+    sharedBy: "Shared by",
+    aFriend: "a friend",
+    shareToChat: "Share to a chat",
+    supportIntroBody: "You do not have to figure everything out alone. Choose the kind of support that feels manageable today.",
+    supportEmergencyTitle: "Immediate danger",
+    supportEmergencyDetail: "Call 911 or your local emergency service.",
+    supportEmergencyAction: "Call 911",
+    supportLifelineTitle: "988 Lifeline",
+    supportLifelineDetail: "24/7 call, text, or chat support in the United States.",
+    supportLifelineAction: "Open 988",
+    supportContactUsTitle: "Contact us",
+    supportContactUsAction: "Email us",
+    supportPrepareOne: "Make a short list of questions before calling a provider.",
+    supportPrepareTwo: "Ask for written next steps or accommodations.",
+    supportPrepareThree: "Invite a trusted person to join an appointment.",
+    supportSearchPlaceholder: "For example: I need affordable family support, respite care, or a local parent group…",
+    communityDirectIntro: "Private conversations with accepted friends.",
+    communityDirectEmpty: "Search above to add your first friend.",
+    communitySuggestionsIntro: "Suggestions use only shared survey categories.",
+    communitySuggestionsEmpty: "No suggestions yet.",
+    communityNotificationsTitle: "Notifications",
+    communityNotificationsIntro: "New messages, Moments, invitations, and requests.",
+    communityAllCaughtUp: "You are all caught up.",
+    communityMarkAllRead: "Mark all as read",
+    communityFriendRequests: "Friend requests",
+    communityNoFriendRequests: "No new friend requests.",
+    communityGroupInvitations: "Group invitations",
+    communityNoGroupInvitations: "No new group invitations.",
+    communityBlockedUsers: "Blocked users",
+    communityGroupsIntro: "Create a group and invite friends to join.",
+    communityGroupName: "Group name",
+    communityDescription: "Description",
+    communityInviteFriends: "Invite friends",
+    communityCreateGroup: "Create group",
+    communityNoGroups: "No groups yet.",
+    communityAddFriendFirst: "Add a friend before choosing specific people.",
+    backIsland: "Back to island",
+    resourcesReadyCount: "{count} resources ready",
+    resourcesLive: "Live from Google Sheets · auto-refreshes",
+    resourcesCache: "Google Sheets · recently refreshed",
+    resourcesFallback: "Bundled fallback · check sheet access"
+  },
+  zh: {
+    quickSearch: "快速检索",
+    quickSearchEyebrow: "检索整个村庄",
+    quickSearchIntro: "描述你的需求并选择主题，Waffles 会直接检索实时资源数据库，无需先进入某栋建筑。",
+    quickSearchTopic: "主题",
+    quickSearchPath: "个人记录范围",
+    quickSearchAnyPath: "使用完整个人记录",
+    quickSearchQuery: "你想查找什么？",
+    quickSearchPlaceholder: "例如：适合 10 岁孩子、离我较近的感官友好型周末活动……",
+    quickSearchSubmit: "立即检索",
+    quickSearchHint: "岛屿地图下方的状态栏仍然可以打开“我的记录”。",
+    changeProfilePhoto: "更换头像",
+    profilePhotoUpdated: "头像已更新。",
+    avatarAccountRequired: "请先注册或登录账户，再上传头像。",
+    aiExampleEducation: "例如：我想为一名初中生寻找执行功能方面的支持……",
+    aiExampleLegal: "例如：我需要帮助理解一名 11 岁学生的 504 计划……",
+    aiExampleRecreation: "例如：我想寻找附近安静、包容的周末活动……",
+    communitySelfTab: "我的",
+    yourVillageProfile: "你的村庄资料",
+    communitySelfIntro: "管理社区中只属于你的资料与内容。",
+    changePhoto: "更换头像",
+    savedFromChat: "从聊天中收藏",
+    savedFromChatIntro: "你选择保留的文件、位置、笔记和消息。",
+    savedFromChatEmpty: "你从聊天中收藏的内容会显示在这里。",
+    villageDocuments: "村庄文档",
+    villageDocumentsIntro: "你的文档、可打印 PDF 和表单。",
+    createDocument: "创建文档",
+    noVillageDocuments: "还没有保存村庄文档。",
+    yourStickers: "你的表情包",
+    yourStickersIntro: "上传图片，或保存其他人发送的表情包。",
+    addSticker: "添加表情包",
+    deleteSticker: "删除表情包",
+    noCustomStickers: "还没有自定义表情包。",
+    privacyNotifications: "隐私与通知",
+    privacyNotificationsIntro: "这些设置会应用到你在所有设备上的账户。",
+    communityNotifications: "社区通知",
+    communityNotificationsHint: "新聊天、动态和请求会显示未读红点。",
+    appearSearch: "允许出现在成员搜索中",
+    appearSearchHint: "关闭后，好友仍然可以打开你的资料。",
+    acceptPrivateMessages: "接收私聊消息",
+    acceptPrivateMessagesHint: "暂停新消息时不会删除好友。",
+    allowLocationSharing: "允许分享位置",
+    allowLocationSharingHint: "开启后，本浏览器才可以发送你的当前位置。",
+    allowStrangersAdd: "允许陌生人添加我",
+    allowStrangersAddHint: "关闭后将不再接收陌生人的好友申请。",
+    allowStrangersMoments: "允许陌生人查看动态",
+    allowStrangersMomentsHint: "被屏蔽的用户永远无法查看你的动态。",
+    friendsMomentRange: "好友可查看的动态范围",
+    last7Days: "最近 7 天",
+    last30Days: "最近 30 天",
+    last6Months: "最近 6 个月",
+    lastYear: "最近一年",
+    allAvailable: "全部动态",
+    momentAppearance: "动态外观",
+    themeWhite: "白色",
+    themeBlack: "黑色",
+    momentsCoverImage: "动态封面图片",
+    saveCommunitySettings: "保存社区设置",
+    communitySearchPeople: "搜索成员",
+    communitySearchPlaceholder: "输入姓名或邮箱添加好友",
+    search: "搜索",
+    communityCommons: "村庄广场",
+    yours: "我的",
+    sharedBy: "分享者",
+    aFriend: "一位好友",
+    shareToChat: "分享到聊天",
+    supportIntroBody: "你不必独自解决所有问题。请选择今天最容易开始的一种支持方式。",
+    supportEmergencyTitle: "紧急危险",
+    supportEmergencyDetail: "请拨打 911 或当地紧急服务电话。",
+    supportEmergencyAction: "拨打 911",
+    supportLifelineTitle: "988 危机援助热线",
+    supportLifelineDetail: "美国境内全天候提供电话、短信和在线聊天支持。",
+    supportLifelineAction: "打开 988",
+    supportContactUsTitle: "联系我们",
+    supportContactUsAction: "发送邮件",
+    supportPrepareOne: "联系服务机构前，先列出几个最重要的问题。",
+    supportPrepareTwo: "请对方提供书面的后续步骤或便利安排。",
+    supportPrepareThree: "邀请一位信任的人陪同参加预约。",
+    supportSearchPlaceholder: "例如：我需要费用可负担的家庭支持、喘息服务或本地家长小组……",
+    communityDirectIntro: "与已接受的好友进行私人对话。",
+    communityDirectEmpty: "请使用上方搜索添加第一位好友。",
+    communitySuggestionsIntro: "推荐只使用双方共有的问卷类别。",
+    communitySuggestionsEmpty: "目前还没有推荐。",
+    communityNotificationsTitle: "通知",
+    communityNotificationsIntro: "查看新消息、动态、邀请和请求。",
+    communityAllCaughtUp: "所有通知都已查看。",
+    communityMarkAllRead: "全部标为已读",
+    communityFriendRequests: "好友请求",
+    communityNoFriendRequests: "没有新的好友请求。",
+    communityGroupInvitations: "群组邀请",
+    communityNoGroupInvitations: "没有新的群组邀请。",
+    communityBlockedUsers: "已屏蔽的用户",
+    communityGroupsIntro: "创建群组并邀请好友加入。",
+    communityGroupName: "群组名称",
+    communityDescription: "描述",
+    communityInviteFriends: "邀请好友",
+    communityCreateGroup: "创建群组",
+    communityNoGroups: "目前还没有群组。",
+    communityAddFriendFirst: "请先添加好友，再选择特定成员。",
+    backIsland: "返回岛屿",
+    resourcesReadyCount: "已准备 {count} 条资源",
+    resourcesLive: "来自 Google Sheets · 自动刷新",
+    resourcesCache: "Google Sheets · 最近已刷新",
+    resourcesFallback: "正在使用内置备份 · 请检查表格访问权限"
+  },
+  es: {
+    quickSearch: "Búsqueda rápida",
+    quickSearchEyebrow: "Busca en toda la aldea",
+    quickSearchIntro: "Describe lo que necesitas, elige un tema y Waffles buscará en la base de datos sin que tengas que entrar primero en un edificio.",
+    quickSearchTopic: "Tema",
+    quickSearchPath: "Enfoque del perfil",
+    quickSearchAnyPath: "Usar mi registro completo",
+    quickSearchQuery: "¿Qué te gustaría encontrar?",
+    quickSearchPlaceholder: "Por ejemplo: un programa de fin de semana sensorialmente accesible para una persona de 10 años…",
+    quickSearchSubmit: "Buscar ahora",
+    quickSearchHint: "Aún puedes abrir Mi registro desde la fila de estado bajo el mapa.",
+    changeProfilePhoto: "Cambiar foto de perfil",
+    profilePhotoUpdated: "Foto de perfil actualizada.",
+    avatarAccountRequired: "Crea una cuenta o inicia sesión antes de añadir una foto.",
+    aiExampleEducation: "Por ejemplo: busco apoyo para funciones ejecutivas de un estudiante de secundaria…",
+    aiExampleLegal: "Por ejemplo: necesito entender un plan 504 para una persona de 11 años…",
+    aiExampleRecreation: "Por ejemplo: busco una actividad tranquila e inclusiva cerca de mí…",
+    communitySelfTab: "Yo",
+    yourVillageProfile: "Tu perfil de la aldea",
+    communitySelfIntro: "Administra las partes de la Comunidad que solo te pertenecen a ti.",
+    changePhoto: "Cambiar foto",
+    savedFromChat: "Guardado del chat",
+    savedFromChatIntro: "Archivos, ubicaciones, notas y mensajes que elegiste conservar.",
+    savedFromChatEmpty: "Lo que guardes del chat aparecerá aquí.",
+    villageDocuments: "Documentos de la aldea",
+    villageDocumentsIntro: "Tus documentos, PDF imprimibles y formularios.",
+    createDocument: "Crear documento",
+    noVillageDocuments: "Aún no hay documentos guardados.",
+    yourStickers: "Tus stickers",
+    yourStickersIntro: "Sube una imagen o guarda un sticker que te envíen.",
+    addSticker: "Añadir sticker",
+    deleteSticker: "Eliminar sticker",
+    noCustomStickers: "Aún no hay stickers personalizados.",
+    privacyNotifications: "Privacidad y notificaciones",
+    privacyNotificationsIntro: "Estas opciones se aplican a tu cuenta en todos los dispositivos.",
+    communityNotifications: "Notificaciones de la comunidad",
+    communityNotificationsHint: "Muestra puntos sin leer en chats, Momentos y solicitudes.",
+    appearSearch: "Aparecer en la búsqueda",
+    appearSearchHint: "Tus amistades aún pueden abrir tu perfil al desactivarlo.",
+    acceptPrivateMessages: "Aceptar mensajes privados",
+    acceptPrivateMessagesHint: "Pausa mensajes nuevos sin eliminar amistades.",
+    allowLocationSharing: "Permitir compartir ubicación",
+    allowLocationSharingHint: "Se requiere antes de que el navegador envíe tu ubicación.",
+    allowStrangersAdd: "Permitir solicitudes de desconocidos",
+    allowStrangersAddHint: "Desactívalo para dejar de recibir solicitudes de desconocidos.",
+    allowStrangersMoments: "Permitir que desconocidos vean Momentos",
+    allowStrangersMomentsHint: "Las personas bloqueadas nunca ven tus Momentos.",
+    friendsMomentRange: "Tus amistades pueden ver Momentos de",
+    last7Days: "Últimos 7 días",
+    last30Days: "Últimos 30 días",
+    last6Months: "Últimos 6 meses",
+    lastYear: "Último año",
+    allAvailable: "Todo lo disponible",
+    momentAppearance: "Apariencia de Momentos",
+    themeWhite: "Blanco",
+    themeBlack: "Negro",
+    momentsCoverImage: "Imagen de portada de Momentos",
+    saveCommunitySettings: "Guardar ajustes de la comunidad",
+    communitySearchPeople: "Buscar personas",
+    communitySearchPlaceholder: "Busca por nombre o correo para añadir amistades",
+    search: "Buscar",
+    communityCommons: "La plaza",
+    yours: "Tuyo",
+    sharedBy: "Compartido por",
+    aFriend: "una amistad",
+    shareToChat: "Compartir en un chat",
+    supportIntroBody: "No tienes que resolverlo todo a solas. Elige el tipo de apoyo que te resulte manejable hoy.",
+    supportEmergencyTitle: "Peligro inmediato",
+    supportEmergencyDetail: "Llama al 911 o al servicio de emergencias local.",
+    supportEmergencyAction: "Llamar al 911",
+    supportLifelineTitle: "Línea 988",
+    supportLifelineDetail: "Apoyo por llamada, mensaje o chat las 24 horas en Estados Unidos.",
+    supportLifelineAction: "Abrir 988",
+    supportContactUsTitle: "Contáctanos",
+    supportContactUsAction: "Enviar correo",
+    supportPrepareOne: "Haz una lista breve de preguntas antes de llamar a un proveedor.",
+    supportPrepareTwo: "Pide los próximos pasos o adaptaciones por escrito.",
+    supportPrepareThree: "Invita a una persona de confianza a acompañarte a una cita.",
+    supportSearchPlaceholder: "Por ejemplo: necesito apoyo familiar asequible, cuidado de relevo o un grupo local de familias…",
+    communityDirectIntro: "Conversaciones privadas con amistades aceptadas.",
+    communityDirectEmpty: "Busca arriba para añadir tu primera amistad.",
+    communitySuggestionsIntro: "Las sugerencias usan solo categorías compartidas de la encuesta.",
+    communitySuggestionsEmpty: "Aún no hay sugerencias.",
+    communityNotificationsTitle: "Notificaciones",
+    communityNotificationsIntro: "Mensajes, Momentos, invitaciones y solicitudes nuevas.",
+    communityAllCaughtUp: "No tienes notificaciones pendientes.",
+    communityMarkAllRead: "Marcar todo como leído",
+    communityFriendRequests: "Solicitudes de amistad",
+    communityNoFriendRequests: "No hay nuevas solicitudes.",
+    communityGroupInvitations: "Invitaciones a grupos",
+    communityNoGroupInvitations: "No hay nuevas invitaciones.",
+    communityBlockedUsers: "Personas bloqueadas",
+    communityGroupsIntro: "Crea un grupo e invita a tus amistades.",
+    communityGroupName: "Nombre del grupo",
+    communityDescription: "Descripción",
+    communityInviteFriends: "Invitar amistades",
+    communityCreateGroup: "Crear grupo",
+    communityNoGroups: "Aún no hay grupos.",
+    communityAddFriendFirst: "Añade una amistad antes de elegir personas específicas.",
+    backIsland: "Volver a la isla",
+    resourcesReadyCount: "{count} recursos listos",
+    resourcesLive: "En vivo desde Google Sheets · actualización automática",
+    resourcesCache: "Google Sheets · actualizado recientemente",
+    resourcesFallback: "Copia incluida · revisa el acceso a la hoja"
+  }
+};
+
+Object.entries(supplementalI18n).forEach(([language, values]) => Object.assign(i18n[language], values));
 
 class VillageAudio {
   constructor() {
@@ -1042,6 +1362,26 @@ function renderAccountStatus() {
   $("#record-status-detail").textContent = t(guest ? "guestMatch" : "personalMatch");
   $("#record-status-action").textContent = t(guest ? "account" : "view");
   $("#admin-functions-button")?.classList.toggle("hidden", !state.user?.isAdmin);
+  renderHeaderAvatar();
+}
+
+function renderHeaderAvatar() {
+  const button = $(".avatar-button");
+  if (!button) return;
+  button.setAttribute("aria-label", t("recordTitle"));
+  button.title = t("recordTitle");
+  const imageDataUrl = String(state.user?.avatarDataUrl || "");
+  if (imageDataUrl) {
+    const image = document.createElement("img");
+    image.src = imageDataUrl;
+    image.alt = "";
+    button.replaceChildren(image);
+    return;
+  }
+  const initial = document.createElement("span");
+  initial.id = "avatar-initial";
+  initial.textContent = (state.user?.name || "C").charAt(0).toUpperCase();
+  button.replaceChildren(initial);
 }
 
 function renderBuildings() {
@@ -1158,7 +1498,7 @@ function guideText(key, topic = state.currentTopic) {
 }
 
 function resourceSearchForm(topic = "Support") {
-  const examples = topic === "Support" ? "For example: I need affordable family support, respite care, or a local parent group…" : "Describe what kind of resource would help…";
+  const examples = topic === "Support" ? t("supportSearchPlaceholder") : "Describe what kind of resource would help…";
   return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>${escapeHtml(t("supportSearchTitle"))}</h3><p>${escapeHtml(t("supportSearchIntro"))}</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t(topic === "Support" ? "supportSearchDisclaimer" : "aiDisclaimer"))}</p></div>`;
 }
 
@@ -1167,10 +1507,16 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
   state.supportIsland = island;
   state.currentTopic = "Caregiver Support";
   state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
-  const phoneContent = `<p class="panel-intro">${escapeHtml(config.support.intro)}</p>
+  const contacts = [
+    { title: t("supportEmergencyTitle"), detail: t("supportEmergencyDetail"), href: "tel:911", action: t("supportEmergencyAction") },
+    { title: t("supportLifelineTitle"), detail: t("supportLifelineDetail"), href: "https://988lifeline.org", action: t("supportLifelineAction") },
+    { title: t("supportContactUsTitle"), detail: "Ittakesavillage.capybara@gmail.com", href: "mailto:Ittakesavillage.capybara@gmail.com", action: t("supportContactUsAction") }
+  ];
+  const prepareOptions = [t("supportPrepareOne"), t("supportPrepareTwo"), t("supportPrepareThree")];
+  const phoneContent = `<p class="panel-intro">${escapeHtml(t("supportIntroBody"))}</p>
       <article class="community-launch"><div><small>${escapeHtml(t("communityTitle"))}</small><h3>${escapeHtml(t("communityIntro"))}</h3><p>${escapeHtml(t("communityPrivacy"))}</p></div><button type="button" class="primary-button" data-action="open-community">${escapeHtml(t("communityOpen"))} →</button></article>
-      <div class="card-list">${config.support.contacts.map((contact) => `<article class="info-card"><div><h3>${escapeHtml(contact.title)}</h3><p>${escapeHtml(contact.detail)}</p></div><a href="${escapeHtml(contact.href)}" target="${contact.href.startsWith("http") ? "_blank" : "_self"}" rel="noreferrer">${escapeHtml(contact.action)} →</a></article>`).join("")}</div>
-      <h3>${escapeHtml(t("prepare"))}</h3><ul class="gentle-list">${config.support.options.map((option) => `<li>${escapeHtml(option)}</li>`).join("")}</ul>`;
+      <div class="card-list">${contacts.map((contact) => `<article class="info-card"><div><h3>${escapeHtml(contact.title)}</h3><p>${escapeHtml(contact.detail)}</p></div><a href="${escapeHtml(contact.href)}" target="${contact.href.startsWith("http") ? "_blank" : "_self"}" rel="noreferrer">${escapeHtml(contact.action)} →</a></article>`).join("")}</div>
+      <h3>${escapeHtml(t("prepare"))}</h3><ul class="gentle-list">${prepareOptions.map((option) => `<li>${escapeHtml(option)}</li>`).join("")}</ul>`;
   openPanel({
     title: t("supportTitle"),
     eyebrow: t("supportEyebrow"),
@@ -1179,7 +1525,7 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
 }
 
 function communityFriendChoices(data, field) {
-  return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("") || `<small>Add a friend before choosing specific people.</small>`;
+  return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("") || `<small>${escapeHtml(t("communityAddFriendFirst"))}</small>`;
 }
 
 function communityAvatarHtml(person = {}, { className = "", clickable = true } = {}) {
@@ -1251,15 +1597,15 @@ function communityNavIcon(tab) {
 }
 
 function communityNotificationsHtml(notifications = []) {
-  return notifications.map((notification) => `<button type="button" class="community-notification ${notification.read ? "" : "unread"}" data-action="open-community-notification" data-notification-id="${escapeHtml(notification.id)}" data-notification-kind="${escapeHtml(notification.kind)}" data-notification-meta="${escapeHtml(JSON.stringify(notification.metadata || {}))}"><span class="notification-mark" aria-hidden="true"></span><div><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><time>${escapeHtml(communityTime(notification.createdAt))}</time></div></button>`).join("") || `<p class="community-empty">You are all caught up.</p>`;
+  return notifications.map((notification) => `<button type="button" class="community-notification ${notification.read ? "" : "unread"}" data-action="open-community-notification" data-notification-id="${escapeHtml(notification.id)}" data-notification-kind="${escapeHtml(notification.kind)}" data-notification-meta="${escapeHtml(JSON.stringify(notification.metadata || {}))}"><span class="notification-mark" aria-hidden="true"></span><div><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><time>${escapeHtml(communityTime(notification.createdAt))}</time></div></button>`).join("") || `<p class="community-empty">${escapeHtml(t("communityAllCaughtUp"))}</p>`;
 }
 
 function communityDocumentsHtml(documents = [], { compact = false } = {}) {
-  return documents.map((document) => `<article class="village-document-card ${compact ? "compact" : ""}"><span class="document-kind">${escapeHtml(String(document.kind || "doc").toUpperCase())}</span><button type="button" data-action="open-community-document" data-document-id="${escapeHtml(document.id)}"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(document.mine ? "Yours" : `Shared by ${document.ownerName || "a friend"}`)} · ${escapeHtml(communityTime(document.updatedAt))}</small></button>${document.mine ? `<button type="button" class="document-share-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}" title="Share to a chat">↗</button>` : ""}</article>`).join("") || `<p class="community-empty">No Village documents saved yet.</p>`;
+  return documents.map((document) => `<article class="village-document-card ${compact ? "compact" : ""}"><span class="document-kind">${escapeHtml(String(document.kind || "doc").toUpperCase())}</span><button type="button" data-action="open-community-document" data-document-id="${escapeHtml(document.id)}"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(document.mine ? t("yours") : `${t("sharedBy")} ${document.ownerName || t("aFriend")}`)} · ${escapeHtml(communityTime(document.updatedAt))}</small></button>${document.mine ? `<button type="button" class="document-share-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}" title="${escapeHtml(t("shareToChat"))}">↗</button>` : ""}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("noVillageDocuments"))}</p>`;
 }
 
 function communitySavedHtml(messages = []) {
-  return messages.map((message) => `<article class="saved-community-item"><span>${escapeHtml(String(message.messageType || "text").toUpperCase())}</span><div><strong>${escapeHtml(message.author || "Village member")}</strong><p>${escapeHtml(message.body)}</p>${message.attachment ? `<a href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">Download ${escapeHtml(message.attachment.name)}</a>` : ""}</div><button type="button" data-action="unsave-community-message" data-message-id="${escapeHtml(message.id)}" title="Remove from saved">×</button></article>`).join("") || `<p class="community-empty">Items you save from chat will appear here.</p>`;
+  return messages.map((message) => `<article class="saved-community-item"><span>${escapeHtml(String(message.messageType || "text").toUpperCase())}</span><div><strong>${escapeHtml(message.author || t("communityTitle"))}</strong><p>${escapeHtml(message.body)}</p>${message.attachment ? `<a href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">${escapeHtml(message.attachment.name)}</a>` : ""}</div><button type="button" data-action="unsave-community-message" data-message-id="${escapeHtml(message.id)}" title="${escapeHtml(t("savedFromChat"))}">×</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("savedFromChatEmpty"))}</p>`;
 }
 
 function communityMomentComposerHtml(data) {
@@ -1278,29 +1624,30 @@ function communityMomentComposerHtml(data) {
 
 function communitySelfHtml(data) {
   const preferences = data.preferences || {};
+  const momentRanges = [[7, t("last7Days")], [30, t("last30Days")], [180, t("last6Months")], [365, t("lastYear")], [3650, t("allAvailable")]];
   return `<section class="community-self">
     <header class="community-self-profile">
       ${communityAvatarHtml({ userId: state.user?.id, name: data.displayName, avatarDataUrl: data.avatarDataUrl }, { clickable: false, className: "large" })}
-      <div><small>YOUR VILLAGE PROFILE</small><h3>${escapeHtml(data.displayName)}</h3><p>Manage the parts of Community that belong only to you.</p></div>
-      <label class="self-avatar-upload">Change photo<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-avatar></label>
+      <div><small>${escapeHtml(t("yourVillageProfile"))}</small><h3>${escapeHtml(data.displayName)}</h3><p>${escapeHtml(t("communitySelfIntro"))}</p></div>
+      <label class="self-avatar-upload">${escapeHtml(t("changePhoto"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-avatar></label>
     </header>
     <div class="community-self-grid">
-      <section><div class="community-section-heading"><h3>Saved from chat</h3><p>Files, locations, notes, and messages you chose to keep.</p></div><div class="saved-community-list">${communitySavedHtml(state.communitySavedMessages)}</div></section>
-      <section><div class="community-section-heading"><h3>Village documents</h3><p>Your docs, printable PDFs, and forms.</p></div><button type="button" class="secondary-button" data-action="create-community-document">Create document</button><div class="village-document-list">${communityDocumentsHtml(state.communityDocuments, { compact: true })}</div></section>
-      <section><div class="community-section-heading"><h3>Your stickers</h3><p>Upload an image, or save a sticker someone sends.</p></div><label class="self-sticker-upload">Add sticker<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label><div class="self-sticker-grid">${(state.communityStickers || []).map((sticker) => `<article><img src="${escapeHtml(sticker.imageDataUrl)}" alt="${escapeHtml(sticker.name)}"><button type="button" data-action="delete-custom-sticker" data-sticker-id="${escapeHtml(sticker.id)}" title="Delete sticker">×</button></article>`).join("") || `<p class="community-empty">No custom stickers.</p>`}</div></section>
+      <section><div class="community-section-heading"><h3>${escapeHtml(t("savedFromChat"))}</h3><p>${escapeHtml(t("savedFromChatIntro"))}</p></div><div class="saved-community-list">${communitySavedHtml(state.communitySavedMessages)}</div></section>
+      <section><div class="community-section-heading"><h3>${escapeHtml(t("villageDocuments"))}</h3><p>${escapeHtml(t("villageDocumentsIntro"))}</p></div><button type="button" class="secondary-button" data-action="create-community-document">${escapeHtml(t("createDocument"))}</button><div class="village-document-list">${communityDocumentsHtml(state.communityDocuments, { compact: true })}</div></section>
+      <section><div class="community-section-heading"><h3>${escapeHtml(t("yourStickers"))}</h3><p>${escapeHtml(t("yourStickersIntro"))}</p></div><label class="self-sticker-upload">${escapeHtml(t("addSticker"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label><div class="self-sticker-grid">${(state.communityStickers || []).map((sticker) => `<article><img src="${escapeHtml(sticker.imageDataUrl)}" alt="${escapeHtml(sticker.name)}"><button type="button" data-action="delete-custom-sticker" data-sticker-id="${escapeHtml(sticker.id)}" title="${escapeHtml(t("deleteSticker"))}">×</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("noCustomStickers"))}</p>`}</div></section>
     </div>
     <form id="community-privacy-form" class="community-privacy-form">
-      <div class="community-section-heading"><h3>Privacy & notifications</h3><p>These choices apply to your account across devices.</p></div>
-      <label class="community-switch"><span><strong>Community notifications</strong><small>Show unread dots for new chats, Moments, and requests.</small></span><input type="checkbox" name="notificationsEnabled" ${preferences.notificationsEnabled !== false ? "checked" : ""}></label>
-      <label class="community-switch"><span><strong>Appear in member search</strong><small>Friends can still open your profile when this is off.</small></span><input type="checkbox" name="discoverable" ${preferences.discoverable !== false ? "checked" : ""}></label>
-      <label class="community-switch"><span><strong>Accept private messages</strong><small>Pause new messages without removing friends.</small></span><input type="checkbox" name="directMessagesEnabled" ${preferences.directMessagesEnabled !== false ? "checked" : ""}></label>
-      <label class="community-switch"><span><strong>Allow location sharing</strong><small>Required before this browser can send your current location.</small></span><input type="checkbox" name="locationSharingEnabled" ${preferences.locationSharingEnabled ? "checked" : ""}></label>
-      <label class="community-switch"><span><strong>Allow strangers to add me</strong><small>Turn off to accept requests only after changing this setting again.</small></span><input type="checkbox" name="allowStrangerRequests" ${preferences.allowStrangerRequests !== false ? "checked" : ""}></label>
-      <label class="community-switch"><span><strong>Allow strangers to see Moments</strong><small>Blocked people never see your Moments.</small></span><input type="checkbox" name="allowStrangerMoments" ${preferences.allowStrangerMoments ? "checked" : ""}></label>
-      <label>Friends can see Moments from<select name="momentVisibilityDays">${[[7,"Last 7 days"],[30,"Last 30 days"],[180,"Last 6 months"],[365,"Last year"],[3650,"All available"]].map(([value,label]) => `<option value="${value}" ${Number(preferences.momentVisibilityDays || 30) === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-      <label>Moment appearance<select name="momentTheme"><option value="light" ${preferences.momentTheme !== "dark" ? "selected" : ""}>White</option><option value="dark" ${preferences.momentTheme === "dark" ? "selected" : ""}>Black</option></select></label>
-      <label class="self-cover-upload">Moments cover image<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label>
-      <button type="submit" class="primary-button">Save Community settings</button><p class="form-error" role="status"></p>
+      <div class="community-section-heading"><h3>${escapeHtml(t("privacyNotifications"))}</h3><p>${escapeHtml(t("privacyNotificationsIntro"))}</p></div>
+      <label class="community-switch"><span><strong>${escapeHtml(t("communityNotifications"))}</strong><small>${escapeHtml(t("communityNotificationsHint"))}</small></span><input type="checkbox" name="notificationsEnabled" ${preferences.notificationsEnabled !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>${escapeHtml(t("appearSearch"))}</strong><small>${escapeHtml(t("appearSearchHint"))}</small></span><input type="checkbox" name="discoverable" ${preferences.discoverable !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>${escapeHtml(t("acceptPrivateMessages"))}</strong><small>${escapeHtml(t("acceptPrivateMessagesHint"))}</small></span><input type="checkbox" name="directMessagesEnabled" ${preferences.directMessagesEnabled !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>${escapeHtml(t("allowLocationSharing"))}</strong><small>${escapeHtml(t("allowLocationSharingHint"))}</small></span><input type="checkbox" name="locationSharingEnabled" ${preferences.locationSharingEnabled ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>${escapeHtml(t("allowStrangersAdd"))}</strong><small>${escapeHtml(t("allowStrangersAddHint"))}</small></span><input type="checkbox" name="allowStrangerRequests" ${preferences.allowStrangerRequests !== false ? "checked" : ""}></label>
+      <label class="community-switch"><span><strong>${escapeHtml(t("allowStrangersMoments"))}</strong><small>${escapeHtml(t("allowStrangersMomentsHint"))}</small></span><input type="checkbox" name="allowStrangerMoments" ${preferences.allowStrangerMoments ? "checked" : ""}></label>
+      <label>${escapeHtml(t("friendsMomentRange"))}<select name="momentVisibilityDays">${momentRanges.map(([value,label]) => `<option value="${value}" ${Number(preferences.momentVisibilityDays || 30) === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}</select></label>
+      <label>${escapeHtml(t("momentAppearance"))}<select name="momentTheme"><option value="light" ${preferences.momentTheme !== "dark" ? "selected" : ""}>${escapeHtml(t("themeWhite"))}</option><option value="dark" ${preferences.momentTheme === "dark" ? "selected" : ""}>${escapeHtml(t("themeBlack"))}</option></select></label>
+      <label class="self-cover-upload">${escapeHtml(t("momentsCoverImage"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label>
+      <button type="submit" class="primary-button">${escapeHtml(t("saveCommunitySettings"))}</button><p class="form-error" role="status"></p>
     </form>
     <button type="button" class="text-button danger" data-action="disable-community">${escapeHtml(t("communityDisable"))}</button>
   </section>`;
@@ -1312,8 +1659,8 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   state.communityPosts = posts;
   state.communityTab = activeTab;
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
-  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card"><span class="room-symbol">⌂</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">No groups yet.</p>`;
-  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">No suggestions yet.</p>`;
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card"><span class="room-symbol">⌂</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("communityNoGroups"))}</p>`;
+  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("communitySuggestionsEmpty"))}</p>`;
   const incoming = (data.incoming || []).map((request) => `<article class="community-person-card">${communityAvatarHtml(request)}<strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
   const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room">${communityAvatarHtml(room)}<button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
   const blocks = (data.blocks || []).map((person) => `<article class="community-person-card"><strong>${escapeHtml(person.display_name)}</strong><button type="button" class="text-button" data-action="unblock-community-user" data-user-id="${escapeHtml(person.user_id)}">Unblock</button></article>`).join("");
@@ -1330,22 +1677,22 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
     ${momentProfile.mine ? communityMomentComposerHtml(data) : ""}
     <div class="community-post-list">${communityPostsHtml(posts)}</div>
   </section>`;
-  const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>Create a group and invite friends to join.</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>Group name<input name="name" maxlength="40" required></label><label>Description<textarea name="description" maxlength="240"></textarea></label><strong>Invite friends</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds")}</div><button class="primary-button">Create group</button><p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
-  const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>Private conversations with accepted friends.</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">Search above to add your first friend.</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>Suggestions use only shared survey categories.</p></div><div class="community-grid">${suggestions}</div></section>`;
-  const inbox = `<section><div class="community-section-heading"><h3>Notifications</h3><p>New messages, Moments, invitations, and requests.</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">Mark all as read</button></section><section><h3>Friend requests</h3><div class="community-grid">${incoming || `<p class="community-empty">No new friend requests.</p>`}</div></section><section><h3>Group invitations</h3><div class="community-grid">${groupInvites || `<p class="community-empty">No new group invitations.</p>`}</div></section>${blocks ? `<section><h3>Blocked users</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
+  const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>${escapeHtml(t("communityGroupsIntro"))}</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>${escapeHtml(t("communityGroupName"))}<input name="name" maxlength="40" required></label><label>${escapeHtml(t("communityDescription"))}<textarea name="description" maxlength="240"></textarea></label><strong>${escapeHtml(t("communityInviteFriends"))}</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds")}</div><button class="primary-button">${escapeHtml(t("communityCreateGroup"))}</button><p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
+  const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
+  const inbox = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityNotificationsTitle"))}</h3><p>${escapeHtml(t("communityNotificationsIntro"))}</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">${escapeHtml(t("communityMarkAllRead"))}</button></section><section><h3>${escapeHtml(t("communityFriendRequests"))}</h3><div class="community-grid">${incoming || `<p class="community-empty">${escapeHtml(t("communityNoFriendRequests"))}</p>`}</div></section><section><h3>${escapeHtml(t("communityGroupInvitations"))}</h3><div class="community-grid">${groupInvites || `<p class="community-empty">${escapeHtml(t("communityNoGroupInvitations"))}</p>`}</div></section>${blocks ? `<section><h3>${escapeHtml(t("communityBlockedUsers"))}</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
   const self = communitySelfHtml(data);
   const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : activeTab === "self" ? self : direct;
-  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", "Self"]];
+  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", t("communitySelfTab")]];
   const counts = data.notificationCounts || {};
   const badgeFor = (tab) => Number(tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0);
   const showSearch = ["direct", "groups", "inbox"].includes(activeTab);
   return `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
     ${activeTab === "moments" ? "" : `<header class="community-village-header">
       <div class="community-village-art"><img src="/assets/interior-village.jpg" alt=""><span></span></div>
-      <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>THE COMMONS</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
-      <button type="button" class="community-bell ${data.notificationCount ? "has-unread" : ""}" data-action="community-tab" data-community-tab="inbox" title="Notifications">${communityNavIcon("inbox")}<span class="sr-only">Notifications</span>${data.notificationCount ? `<b>${Number(data.notificationCount)}</b>` : ""}</button>
+      <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>${escapeHtml(t("communityCommons"))}</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
+      <button type="button" class="community-bell ${data.notificationCount ? "has-unread" : ""}" data-action="community-tab" data-community-tab="inbox" title="${escapeHtml(t("communityNotificationsTitle"))}">${communityNavIcon("inbox")}<span class="sr-only">${escapeHtml(t("communityNotificationsTitle"))}</span>${data.notificationCount ? `<b>${Number(data.notificationCount)}</b>` : ""}</button>
     </header>`}
-    ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">Search people</label><input id="community-query" name="query" minlength="2" placeholder="Search name or email to add friends" required><button class="secondary-button">Search</button></form><div id="community-search-results"></div></div>` : ""}
+    ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">${escapeHtml(t("communitySearchPeople"))}</label><input id="community-query" name="query" minlength="2" placeholder="${escapeHtml(t("communitySearchPlaceholder"))}" required><button class="secondary-button">${escapeHtml(t("search"))}</button></form><div id="community-search-results"></div></div>` : ""}
     <main class="community-tab-content">${tabContent}</main>
     <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
     <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span>${badge ? `<b>${badge}</b>` : ""}</button>`; }).join("")}</nav>
@@ -1375,7 +1722,10 @@ async function communityPanel() {
     state.communityDocuments = documents.documents || [];
     state.communityStickers = stickers.stickers || [];
     state.communitySavedMessages = saved.messages || [];
-    if (state.user) state.user.avatarDataUrl = data.avatarDataUrl || state.user.avatarDataUrl || "";
+    if (state.user) {
+      state.user.avatarDataUrl = data.avatarDataUrl || state.user.avatarDataUrl || "";
+      renderHeaderAvatar();
+    }
     $("#panel-content").innerHTML = communityOverviewHtml(data, state.communityPosts);
   }
   catch (error) { $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`; }
@@ -1590,7 +1940,13 @@ async function handleCommunityAvatar(input) {
     if (!imageDataUrl) return;
     const data = await api("/api/community/avatar", { method: "PUT", body: JSON.stringify({ imageDataUrl }) });
     state.user = { ...state.user, ...(data.user || {}), avatarDataUrl: data.avatarDataUrl || imageDataUrl };
-    toast("Profile photo updated.");
+    renderAccountStatus();
+    toast(t("profilePhotoUpdated"));
+    input.value = "";
+    if (input.dataset.avatarContext === "profile") {
+      profilePanel();
+      return;
+    }
     await communityPanel();
     state.communityTab = "self";
     $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "self");
@@ -2233,11 +2589,42 @@ function submitGuide(event) {
   askGuide(message);
 }
 
+function quickSearchPanel() {
+  const topics = ["Education", "Legal", "Recreation", "Support"];
+  const selectedTopic = topics.includes(state.currentTopic) ? state.currentTopic : "Education";
+  const selectedPath = ["autism", "adhd"].includes(state.selectedIsland) ? state.selectedIsland : "";
+  openPanel({
+    title: t("quickSearch"),
+    eyebrow: t("quickSearchEyebrow"),
+    html: `<section class="quick-search-shell">
+      <p class="panel-intro">${escapeHtml(t("quickSearchIntro"))}</p>
+      <form id="quick-search-form" class="quick-search-form">
+        <div class="quick-search-filters">
+          <label>${escapeHtml(t("quickSearchTopic"))}<select name="topic">${topics.map((topic) => `<option value="${topic}" ${topic === selectedTopic ? "selected" : ""}>${escapeHtml(t(topic.toLowerCase()))}</option>`).join("")}</select></label>
+          <label>${escapeHtml(t("quickSearchPath"))}<select name="island"><option value="" ${selectedPath ? "" : "selected"}>${escapeHtml(t("quickSearchAnyPath"))}</option><option value="autism" ${selectedPath === "autism" ? "selected" : ""}>${escapeHtml(t("autismIsland"))}</option><option value="adhd" ${selectedPath === "adhd" ? "selected" : ""}>${escapeHtml(t("adhdIsland"))}</option></select></label>
+        </div>
+        <label class="quick-search-query">${escapeHtml(t("quickSearchQuery"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(t("quickSearchPlaceholder"))}"></textarea></label>
+        <button class="primary-button" type="submit">${escapeHtml(t("quickSearchSubmit"))} <span aria-hidden="true">→</span></button>
+        <p class="form-error" role="alert"></p>
+      </form>
+      <p class="privacy-note">${escapeHtml(t("quickSearchHint"))}</p>
+    </section>`
+  });
+}
+
+function submitQuickSearch(event) {
+  event.preventDefault();
+  const formData = new FormData(event.target);
+  const description = String(formData.get("description") || "").trim();
+  if (description.length < 8) return;
+  aiPanel(String(formData.get("topic") || "Education"), String(formData.get("island") || ""), description, { autoSubmit: true });
+}
+
 function aiPanel(topic = "Education", island = state.selectedIsland, initialDescription = "", options = {}) {
   state.currentTopic = topic;
   state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
   const character = GUIDE_CHARACTERS[topic] || GUIDE_CHARACTERS.Education;
-  const examples = topic === "Legal" ? "For example: I need help understanding a 504 plan for an 11-year-old…" : topic === "Recreation" ? "For example: I’m looking for a calm, inclusive weekend activity nearby…" : "For example: I’m looking for executive-function support for a middle-school student…";
+  const examples = topic === "Legal" ? t("aiExampleLegal") : topic === "Recreation" ? t("aiExampleRecreation") : t("aiExampleEducation");
   const descriptionValue = String(initialDescription || "").trim();
   openPanel({
     title: `${t(String(topic || "Education").toLowerCase())} · ${character.name}`,
@@ -2671,6 +3058,11 @@ function profilePanel() {
     title: t("recordTitle"),
     eyebrow: state.user?.name || "Village visitor",
     html: `<p class="panel-intro">${escapeHtml(t("recordIntro"))}</p>
+      <div class="record-profile-heading">
+        ${communityAvatarHtml({ userId: state.user?.id, name: state.user?.name, avatarDataUrl: state.user?.avatarDataUrl }, { clickable: false, className: "large" })}
+        <div><strong>${escapeHtml(state.user?.name || t("recordTitle"))}</strong><small>${escapeHtml(t("changeProfilePhoto"))}</small></div>
+        <label class="secondary-button record-avatar-upload">${escapeHtml(t("changePhoto"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-avatar data-avatar-context="profile"></label>
+      </div>
       <div class="sync-badge ${state.sheetSync.configured ? "connected" : "missing"}">${escapeHtml(state.sheetSync.configured ? t("sheetConnected") : t("sheetMissing"))}</div>
       <div class="record-summary">${escapeHtml(profile?.summary || "Complete the Community Compass to create your record.")}</div>
       <div class="record-primary-actions">
@@ -2913,8 +3305,13 @@ function openBuildingDestination(building) {
   if (building.type === "ai") aiPanel(building.topic, building.island);
 }
 
+function buildingInteriorScene(building) {
+  const interiorKey = state.settings.sceneMode === "3d" ? building.interior : building.interior2d || building.interior;
+  return config.interiors?.[interiorKey] || {};
+}
+
 function showBuildingInterior(building) {
-  const scene = config.interiors?.[building.interior] || {};
+  const scene = buildingInteriorScene(building);
   const interior = $("#building-interior");
   const image = $("#building-interior-image");
   image.src = scene.image || config.map.image;
@@ -2939,7 +3336,7 @@ function showBuildingInterior(building) {
 }
 
 function enterBuilding(building) {
-  const scene = config.interiors?.[building.interior] || {};
+  const scene = buildingInteriorScene(building);
   const guide = GUIDE_CHARACTERS[buildingGuideTopic(building)] || GUIDE_CHARACTERS.Waffles;
   const loading = $("#building-loading");
   clearTimeout(state.buildingTransitionTimer);
@@ -3029,6 +3426,7 @@ function applySettings() {
   state.audio?.setSceneMode?.(sceneMode);
   state.audio?.applySettings();
   if (state.user) renderAccountStatus();
+  renderResourceStatus();
   localStorage.setItem("capy-settings", JSON.stringify(state.settings));
 }
 
@@ -3377,15 +3775,24 @@ async function loadIntegrationStatus() {
   }
 }
 
+function renderResourceStatus() {
+  if (!Array.isArray(state.resources)) return;
+  const count = $("#resource-count");
+  const source = $("#resource-source");
+  if (count) count.textContent = t("resourcesReadyCount").replace("{count}", String(state.resources.length));
+  if (source) source.textContent = t(state.resourceSource === "google-sheet-live" ? "resourcesLive" : state.resourceSource === "google-sheet-cache" ? "resourcesCache" : "resourcesFallback");
+}
+
 async function loadResources(force = false) {
   const count = $("#resource-count");
   const source = $("#resource-source");
-  count.textContent = "Refreshing resources…";
+  count.textContent = t("resourcesLoading");
+  source.textContent = t("resourcesChecking");
   try {
     const data = await api(`/api/resources${force ? "?refresh=1" : ""}`);
     state.resources = data.resources;
-    count.textContent = `${data.resources.length} resources ready`;
-    source.textContent = data.source === "google-sheet-live" ? "Live from Google Sheets · auto-refreshes" : data.source === "google-sheet-cache" ? "Google Sheets · recently refreshed" : "Bundled fallback · check sheet access";
+    state.resourceSource = data.source;
+    renderResourceStatus();
     if (force) toast("Resource database refreshed.");
   } catch (error) {
     count.textContent = "Resource database unavailable";
@@ -3629,7 +4036,7 @@ async function loadEnvironment(force = false) {
 }
 
 function hydrateApp() {
-  $("#avatar-initial").textContent = (state.user?.name || "C").charAt(0).toUpperCase();
+  renderHeaderAvatar();
   $("#map-image").src = config.map.image;
   $("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
   renderBuildings();
@@ -3738,6 +4145,7 @@ document.addEventListener("click", (event) => {
   if (action === "exit-building") exitBuilding();
   if (action === "reset-map" || action === "home") returnHome();
   if (action === "open-profile") profilePanel();
+  if (action === "open-quick-search") quickSearchPanel();
   if (action === "restart-introduction") { closePanel(); openWafflesIntro({ force: true }); }
   if (action === "edit-survey") startSurveyEdit();
   if (action === "cancel-survey-edit") cancelSurveyEdit();
@@ -3832,6 +4240,7 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "password-request-form") submitPasswordRequest(event);
   if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
   if (event.target.id === "survey-form") submitSurvey(event);
+  if (event.target.id === "quick-search-form") submitQuickSearch(event);
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "guide-form") submitGuide(event);
   if (event.target.id === "feedback-form") submitFeedback(event);
