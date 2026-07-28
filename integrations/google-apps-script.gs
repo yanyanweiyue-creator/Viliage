@@ -1,15 +1,15 @@
 /**
  * Capy Village -> Google Sheets webhook.
  *
- * 1. Open the user-record spreadsheet.
+ * 1. Open either configured spreadsheet under the deployment account.
  * 2. Extensions -> Apps Script, paste this file, and save.
  * 3. Deploy -> New deployment -> Web app.
  * 4. Execute as: Me. Who has access: Anyone (or your organization, if the app is internal).
  * 5. Add a long random WEBHOOK_SECRET in Project Settings -> Script properties.
  * 6. Set the same value as server-only SHEET_WEBHOOK_SECRET.
  * 7. Copy the /exec URL into USER_SHEET_WEBHOOK_URL on the server.
- * 8. Reuse the same /exec URL for ERROR_SHEET_WEBHOOK_URL when this project is
- *    attached to the spreadsheet that contains the Error database tab.
+ * 8. Reuse the same /exec URL for ERROR_SHEET_WEBHOOK_URL. The deployment
+ *    account must be able to open both configured spreadsheets by ID.
  * 9. Reuse it for FEEDBACK_SHEET_WEBHOOK_URL and USER_COUNT_SHEET_WEBHOOK_URL.
  *
  * Security: this endpoint intentionally refuses to write passwords.
@@ -27,11 +27,12 @@ var USER_DATA_HEADERS_ = [
   "Dislike Resource"
 ];
 
-var DATABASE_SPREADSHEET_ID_ = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
-var USER_DATA_SHEET_GID_ = "697062702";
+var PRIVATE_DATA_SPREADSHEET_ID_ = "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U";
+var OPERATIONS_SPREADSHEET_ID_ = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+var USER_DATA_SHEET_GID_ = "1080069851";
 var ERROR_SHEET_GID_ = "1952899933";
 var USER_COUNT_SHEET_GID_ = "1958570867";
-var FEEDBACK_SHEET_GID_ = "981733839";
+var FEEDBACK_SHEET_GID_ = "0";
 var MAX_SHEET_TEXT_LENGTH_ = 45000;
 
 function doPost(e) {
@@ -76,7 +77,12 @@ function upsertUser_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, USER_DATA_SHEET_GID_);
+    var sheet = findTargetSheet_(
+      data.sheetGid,
+      data.spreadsheetId,
+      PRIVATE_DATA_SPREADSHEET_ID_,
+      USER_DATA_SHEET_GID_
+    );
     var lastColumn = sheet.getLastColumn();
     if (lastColumn < 1) throw new Error("User Data sheet needs row-1 headers.");
 
@@ -154,7 +160,12 @@ function updateUserCount_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, USER_COUNT_SHEET_GID_);
+    var sheet = findTargetSheet_(
+      data.sheetGid,
+      data.spreadsheetId,
+      OPERATIONS_SPREADSHEET_ID_,
+      USER_COUNT_SHEET_GID_
+    );
     var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
     if (!headers.some(String)) throw new Error("User Count sheet needs row-1 headers.");
 
@@ -185,7 +196,12 @@ function appendFeedback_(data) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, FEEDBACK_SHEET_GID_);
+    var sheet = findTargetSheet_(
+      data.sheetGid,
+      data.spreadsheetId,
+      PRIVATE_DATA_SPREADSHEET_ID_,
+      FEEDBACK_SHEET_GID_
+    );
     var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
     if (!headers.some(String)) throw new Error("Feedback sheet needs row-1 headers.");
 
@@ -268,7 +284,12 @@ function appendResourceError_(data) {
   data["Helpful"] = "No";
   data.helpful = "No";
 
-  var sheet = findTargetSheet_(data.sheetGid, data.spreadsheetId, ERROR_SHEET_GID_);
+  var sheet = findTargetSheet_(
+    data.sheetGid,
+    data.spreadsheetId,
+    OPERATIONS_SPREADSHEET_ID_,
+    ERROR_SHEET_GID_
+  );
   var lastColumn = Math.max(sheet.getLastColumn(), 1);
   var headers = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0];
   var headerRow = 1;
@@ -308,13 +329,13 @@ function appendResourceError_(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function findTargetSheet_(sheetGid, spreadsheetId, expectedGid) {
+function findTargetSheet_(sheetGid, spreadsheetId, expectedSpreadsheetId, expectedGid) {
   var id = String(spreadsheetId || "").trim();
   var gid = String(sheetGid || "").trim();
   if (!id) throw new Error("spreadsheetId is required.");
   if (!gid) throw new Error("sheetGid is required.");
-  if (id !== DATABASE_SPREADSHEET_ID_) {
-    throw new Error("This webhook only writes to the configured database spreadsheet.");
+  if (String(expectedSpreadsheetId || "").trim() !== id) {
+    throw new Error("This action cannot write to spreadsheet " + id + ".");
   }
   if (String(expectedGid || "").trim() !== gid) {
     throw new Error("This action cannot write to sheet gid " + gid + ".");

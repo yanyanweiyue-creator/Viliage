@@ -66,6 +66,10 @@ test("Google Sheet resource fetch pins the header row for live sync", async () =
     readFile(new URL("../server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../cloudflare/worker.mjs", import.meta.url), "utf8")
   ]);
+  assert.match(serverCode, /const RESOURCE_SHEET_ID = process\.env\.RESOURCE_SHEET_ID \|\| "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0"/);
+  assert.match(serverCode, /const RESOURCE_SHEET_GID = process\.env\.RESOURCE_SHEET_GID \|\| "1709372674"/);
+  assert.match(workerCode, /const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0"/);
+  assert.match(workerCode, /const DEFAULT_RESOURCE_SHEET_GID = "1709372674"/);
   assert.match(serverCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(RESOURCE_SHEET_GID\)\}&headers=1/);
   assert.match(workerCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(gid\)\}&headers=1/);
 });
@@ -214,8 +218,8 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(JSON.parse(register.text).user.onboardingCompleted, false);
     assert.equal(received[0].action, "upsert-user");
     assert.equal(received[0].webhookSecret, "test-sheet-webhook-secret");
-    assert.equal(received[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
-    assert.equal(received[0].sheetGid, "697062702");
+    assert.equal(received[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(received[0].sheetGid, "1080069851");
     assert.match(received[0]["Unique User ID"], /^[a-f0-9]{24}$/);
     assert.equal(received[0]["Username"], "Sheet Test");
     assert.equal(received[0]["Password"], "Not stored — secure hash only");
@@ -392,6 +396,7 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     await delay(250);
     const latest = received.filter((entry) => entry.action === "record-user-count").at(-1);
     assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(latest.sheetGid, "1958570867");
     assert.equal(latest.metrics["Total Guest Sessions"], 3);
     assert.equal(latest.metrics["Total Accounts Created"], 2);
@@ -400,7 +405,8 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     assert.deepEqual(Object.values(latest.metrics).map((value) => typeof value), ["number", "number", "number", "number"]);
     assert.equal("date" in latest, false);
     const feedbackWrite = received.find((entry) => entry.action === "record-feedback");
-    assert.equal(feedbackWrite.sheetGid, "981733839");
+    assert.equal(feedbackWrite.spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackWrite.sheetGid, "0");
     assert.equal(feedbackWrite["Star(1-5)"], 4);
     assert.equal(feedbackWrite.Feedback, "Clear and relevant.");
   } finally {
@@ -495,7 +501,8 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(errorRows[1]["Full Input"], "Medicaid assistance");
     assert.match(errorRows[1].Reason, /Rating: 2\/5/);
     assert.equal(feedbackRows.length, 1);
-    assert.equal(feedbackRows[0].sheetGid, "981733839");
+    assert.equal(feedbackRows[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackRows[0].sheetGid, "0");
     assert.equal(feedbackRows[0]["Unique User ID (if applicable)"], JSON.parse(register.text).user.id);
     assert.equal(feedbackRows[0]["Email (if applicable)"], JSON.parse(register.text).user.email);
     assert.equal(feedbackRows[0]["Username (if applicable)"], "Error Logger");

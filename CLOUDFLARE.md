@@ -43,11 +43,13 @@ Use Node.js 20 or newer.
    npx wrangler@4 secret put SHEET_WEBHOOK_SECRET
    npx wrangler@4 secret put USER_SHEET_WEBHOOK_URL
    npx wrangler@4 secret put ERROR_SHEET_WEBHOOK_URL
+   npx wrangler@4 secret put FEEDBACK_SHEET_WEBHOOK_URL
+   npx wrangler@4 secret put USER_COUNT_SHEET_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_EMAIL_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_RESET_SECRET
    ```
 
-   Set the same long random value as the Apps Script project property `WEBHOOK_SECRET` and the Worker secret `SHEET_WEBHOOK_SECRET`. Every webhook action is rejected without it. `USER_SHEET_ID` and `USER_SHEET_GID` are non-secret Worker variables already set in `wrangler.jsonc` to spreadsheet `1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0`, tab gid `697062702`. User updates include both values and `action=upsert-user`. The Apps Script also pins every action to this database and its expected gid, rejects a missing or unknown target instead of falling back to another tab, preserves the existing row-1 headers, and upserts by `Unique User ID` or `Email`. Before deployment, confirm that the User Data tab already contains the nine documented headers; the script never adds columns.
+   Set the same long random value as the Apps Script project property `WEBHOOK_SECRET` and the Worker secret `SHEET_WEBHOOK_SECRET`. Every webhook action is rejected without it. `USER_SHEET_ID` and `USER_SHEET_GID` are non-secret Worker variables already set in `wrangler.jsonc` to private spreadsheet `1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U`, tab gid `1080069851`; Feedback uses the same spreadsheet and gid `0`. User updates include both values and `action=upsert-user`. The Apps Script pins every action to its expected database and gid, rejects a missing or unknown target instead of falling back to another tab, preserves the existing row-1 headers, and upserts by `Unique User ID` or `Email`. Before deployment, confirm that the User Data tab already contains the nine documented headers; the script never adds columns.
 
    `PASSWORD_EMAIL_WEBHOOK_URL` may use the same Google Apps Script `/exec` URL after the updated `integrations/google-apps-script.gs` has been saved and deployed as a new version. If this secret is omitted, the Worker automatically falls back to `USER_SHEET_WEBHOOK_URL` for reset email delivery. Apps Script sends the six-digit code through the Google account's Gmail service. Use a long random value for `PASSWORD_RESET_SECRET`; codes are stored only as salted hashes in D1 and expire after 10 minutes.
 
@@ -93,6 +95,7 @@ In the GitHub repository, add Actions secrets:
 
 - `CLOUDFLARE_API_TOKEN` — a Cloudflare API token allowed to edit Workers and D1.
 - `CLOUDFLARE_ACCOUNT_ID` — shown in the Cloudflare dashboard.
+- `SHEET_WEBHOOK_SECRET` — the same long random value stored as the Apps Script `WEBHOOK_SECRET` project property.
 
 After those are configured, every push to `main` runs `.github/workflows/deploy-cloudflare.yml`. Migration failure stops deployment, which prevents new code from running against an incompatible database.
 

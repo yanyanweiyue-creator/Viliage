@@ -263,6 +263,7 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     await Promise.all(scheduled);
     const latest = sheetWrites.at(-1);
     assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(latest.sheetGid, "1958570867");
     assert.deepEqual(latest.metrics, {
       "Total Guest Sessions": 3,
@@ -273,7 +274,8 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     assert.equal(Object.values(latest.metrics).every((value) => typeof value === "number"), true);
     assert.equal("date" in latest, false);
     assert.equal(feedbackWrites.length, 1);
-    assert.equal(feedbackWrites[0].sheetGid, "981733839");
+    assert.equal(feedbackWrites[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackWrites[0].sheetGid, "0");
     assert.equal(feedbackWrites[0]["Star(1-5)"], 4);
     assert.equal(feedbackWrites[0].Feedback, "Clear and relevant.");
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'user_count_metrics:all-time'").get().count, 1);
@@ -426,8 +428,8 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(result.sync.row, 7);
     assert.equal(sheetPayload.action, "upsert-user");
     assert.equal(sheetPayload.webhookSecret, "test-sheet-webhook-secret");
-    assert.equal(sheetPayload.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
-    assert.equal(sheetPayload.sheetGid, "697062702");
+    assert.equal(sheetPayload.spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(sheetPayload.sheetGid, "1080069851");
     assert.match(sheetPayload["Unique User ID"], /^[a-f0-9]{24}$/);
     assert.equal(sheetPayload.Email, "feedback@example.com");
     assert.equal(sheetPayload.Username, "Feedback User");
@@ -475,7 +477,8 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(feedbackPayloads.length, 1);
     assert.equal(feedbackPayloads[0].action, "record-feedback");
     assert.equal(feedbackPayloads[0].webhookSecret, "test-sheet-webhook-secret");
-    assert.equal(feedbackPayloads[0].sheetGid, "981733839");
+    assert.equal(feedbackPayloads[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackPayloads[0].sheetGid, "0");
     assert.equal(feedbackPayloads[0]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
     assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
     assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
