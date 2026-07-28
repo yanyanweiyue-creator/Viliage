@@ -24,10 +24,12 @@ const FALLBACK_FILE = join(DATA_DIR, "resources-fallback.json");
 const SCORING_CONFIG_FILE = process.env.SCORING_CONFIG_FILE || join(ROOT, "config", "scoring-config.json");
 const RESOURCE_SHEET_ID = process.env.RESOURCE_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const RESOURCE_SHEET_GID = process.env.RESOURCE_SHEET_GID || "1709372674";
+const USER_SHEET_ID = process.env.USER_SHEET_ID || "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U";
+const USER_SHEET_GID = process.env.USER_SHEET_GID || "1080069851";
 const USER_COUNT_SHEET_ID = process.env.USER_COUNT_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
 const USER_COUNT_SHEET_GID = process.env.USER_COUNT_SHEET_GID || "1958570867";
-const FEEDBACK_SHEET_ID = process.env.FEEDBACK_SHEET_ID || "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0";
-const FEEDBACK_SHEET_GID = process.env.FEEDBACK_SHEET_GID || "981733839";
+const FEEDBACK_SHEET_ID = process.env.FEEDBACK_SHEET_ID || "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U";
+const FEEDBACK_SHEET_GID = process.env.FEEDBACK_SHEET_GID || "0";
 const COUNT_TOTAL_GUEST_SESSIONS = "Total Guest Sessions";
 const COUNT_TOTAL_ACCOUNTS_CREATED = "Total Accounts Created";
 const COUNT_TOTAL_SEARCHES_COMPLETED = "Total Searches Completed";
@@ -35,6 +37,7 @@ const COUNT_RECOMMENDATION_USEFULNESS = "Average Recommendation System Usefulnes
 const COUNT_USEFULNESS_SCORE_TOTAL = "__recommendation_usefulness_score_total";
 const COUNT_USEFULNESS_RESPONSE_COUNT = "__recommendation_usefulness_response_count";
 const USER_COUNT_SYNC_INTERVAL_MS = Math.max(100, Number(process.env.USER_COUNT_SYNC_INTERVAL_MS || 60 * 60_000));
+const RESOURCE_CACHE_TTL_MS = Math.max(0, Number(process.env.RESOURCE_CACHE_TTL_MS ?? 60_000));
 const sessions = new Map();
 const MAX_BODY = 1_000_000;
 let resourceCache = { time: 0, rows: [] };
@@ -486,6 +489,12 @@ function createPasswordResetCode() {
   return String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
 }
 
+function authenticatedSheetPayload(payload) {
+  const webhookSecret = String(process.env.SHEET_WEBHOOK_SECRET || "").trim();
+  if (!webhookSecret) throw new Error("SHEET_WEBHOOK_SECRET is not configured.");
+  return { ...payload, webhookSecret };
+}
+
 async function loadPasswordResets() {
   try {
     const saved = JSON.parse(await readFile(PASSWORD_RESETS_FILE, "utf8"));
@@ -503,7 +512,7 @@ async function sendPasswordResetEmail(email, code) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: process.env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" }),
+    body: JSON.stringify(authenticatedSheetPayload({ action: "send-password-reset", email, code, expiresInMinutes: 10, fromAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", fromName: process.env.PASSWORD_EMAIL_FROM_NAME || "It Takes a Village" })),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error(`Password email webhook returned ${response.status}.`);
@@ -685,7 +694,7 @@ export function normalizeSheetRows(table) {
 }
 
 async function getResources(force = false) {
-  if (!force && resourceCache.rows.length && Date.now() - resourceCache.time < 60_000) {
+  if (!force && resourceCache.rows.length && Date.now() - resourceCache.time < RESOURCE_CACHE_TTL_MS) {
     return { rows: resourceCache.rows, source: "google-sheet-cache" };
   }
   try {
@@ -1073,37 +1082,27 @@ async function guideChat({ message, language = "en", context = {} }) {
   return { ...normalizeGuideResponse(parsed, fallback), ai: true };
 }
 
-async function localChatHistory(userId) {
-  const community = await loadCommunity();
-  return community.messages.filter((message) => message.userId === userId).slice(-100).map((message) => ({
-    room: community.rooms.find((room) => room.id === message.roomId)?.name || "Village chat",
-    message: message.body,
-    at: message.createdAt
-  }));
-}
-
 async function syncUserRecord(user) {
   const webhook = process.env.USER_SHEET_WEBHOOK_URL;
   if (!webhook) return { synced: false, reason: "USER_SHEET_WEBHOOK_URL is not configured." };
-  const chatHistory = await localChatHistory(user.id);
   const payload = {
-    "User name": user.name,
-    "Password": "Not stored — secure hash only",
-    "response of survey": JSON.stringify(user.profile?.responses || {}),
-    "AI personal record": user.profile?.summary || "",
-    "history": JSON.stringify(user.history || []),
-    "feedback": user.feedback || "",
-    "Chat History": JSON.stringify(chatHistory),
-    "Save resource": JSON.stringify(user.likedResources || []),
-    "Like resource": JSON.stringify(user.likedResources || []),
-    "Dislike resource": JSON.stringify(user.dislikedResources || []),
+    action: "upsert-user",
+    spreadsheetId: USER_SHEET_ID,
+    sheetGid: USER_SHEET_GID,
+    "Unique User ID": user.id,
     "Email": user.email,
-    userId: user.id
+    "Username": user.name,
+    "Password": "Not stored — secure hash only",
+    "Summary of Survey Response": user.profile?.summary || "",
+    "Survey Response (Unedited)": JSON.stringify(user.profile?.responses || {}),
+    "Summary of Search History": JSON.stringify(user.history || []),
+    "Save Resource": JSON.stringify(user.likedResources || []),
+    "Dislike Resource": JSON.stringify(user.dislikedResources || [])
   };
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(authenticatedSheetPayload(payload)),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`User sheet webhook returned ${response.status}.`);
@@ -1202,7 +1201,7 @@ async function syncUserCountMetrics(metrics = null) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(authenticatedSheetPayload(payload)),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`User count sheet webhook returned ${response.status}.`);
@@ -1244,7 +1243,6 @@ function errorLogPayload({ event, reason, user, topic = "", diagnosis = "", desc
     Email: user?.email || "",
     userId: user?.id || "",
     Topic: topic || resource?.topic || "",
-    Diagnosis: diagnosis,
     "Search description": description,
     "Requested resources": requestedCount,
     "Provided resources": providedCount,
@@ -1265,7 +1263,7 @@ async function logErrorRecord(details) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(errorLogPayload(details)),
+    body: JSON.stringify(authenticatedSheetPayload(errorLogPayload(details))),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`Error sheet webhook returned ${response.status}.`);
@@ -1297,7 +1295,7 @@ async function syncFeedbackRecord(details) {
   const response = await fetch(webhook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(feedbackRecordPayload(details)),
+    body: JSON.stringify(authenticatedSheetPayload(feedbackRecordPayload(details))),
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) throw new Error(`Feedback sheet webhook returned ${response.status}.`);
@@ -1337,7 +1335,7 @@ function resourceSnapshot(resource) {
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL), feedbackSheetConfigured: Boolean(process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL), passwordEmailConfigured: Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
+    return sendJson(res, 200, { ok: true, storage: "local-json", persistentSessions: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY), sheetWebhookSecretConfigured: Boolean(process.env.SHEET_WEBHOOK_SECRET), userSheetConfigured: Boolean(process.env.USER_SHEET_WEBHOOK_URL && process.env.SHEET_WEBHOOK_SECRET), errorSheetConfigured: Boolean(process.env.ERROR_SHEET_WEBHOOK_URL && process.env.SHEET_WEBHOOK_SECRET), feedbackSheetConfigured: Boolean((process.env.FEEDBACK_SHEET_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL || process.env.ERROR_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET), passwordEmailConfigured: Boolean((process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET), passwordEmailUsesUserSheetWebhook: !process.env.PASSWORD_EMAIL_WEBHOOK_URL && Boolean(process.env.USER_SHEET_WEBHOOK_URL), passwordEmailSender: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "" });
   }
 
   if (req.method === "POST" && url.pathname === "/api/voice/narrate") {
@@ -1385,7 +1383,7 @@ async function handleApi(req, res, url) {
     const { email = "" } = await readJsonBody(req);
     const normalizedEmail = String(email).trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return sendError(res, 400, "Please enter a valid email address.");
-    const deliveryAvailable = Boolean(process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL);
+    const deliveryAvailable = Boolean((process.env.PASSWORD_EMAIL_WEBHOOK_URL || process.env.USER_SHEET_WEBHOOK_URL) && process.env.SHEET_WEBHOOK_SECRET);
     const generic = { ok: true, deliveryAvailable, senderAddress: process.env.PASSWORD_EMAIL_FROM_ADDRESS || "", message: "If an account exists for that email, a six-digit code will arrive shortly." };
     const users = await loadUsers();
     const user = users.find((item) => item.email.toLowerCase() === normalizedEmail);

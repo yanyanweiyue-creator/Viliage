@@ -24,7 +24,12 @@ class FakeD1 {
 }
 
 function cloudflareEnv(database, extra = {}) {
-  return { DB: new FakeD1(database), ASSETS: { fetch: async () => new Response("asset") }, ...extra };
+  return {
+    DB: new FakeD1(database),
+    ASSETS: { fetch: async () => new Response("asset") },
+    SHEET_WEBHOOK_SECRET: "test-sheet-webhook-secret",
+    ...extra
+  };
 }
 
 const ctx = { waitUntil(promise) { promise.catch(() => {}); } };
@@ -258,6 +263,7 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     await Promise.all(scheduled);
     const latest = sheetWrites.at(-1);
     assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(latest.sheetGid, "1958570867");
     assert.deepEqual(latest.metrics, {
       "Total Guest Sessions": 3,
@@ -268,7 +274,8 @@ test("hourly User Count sync follows the four live row-1 topics and writes numbe
     assert.equal(Object.values(latest.metrics).every((value) => typeof value === "number"), true);
     assert.equal("date" in latest, false);
     assert.equal(feedbackWrites.length, 1);
-    assert.equal(feedbackWrites[0].sheetGid, "981733839");
+    assert.equal(feedbackWrites[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackWrites[0].sheetGid, "0");
     assert.equal(feedbackWrites[0]["Star(1-5)"], 4);
     assert.equal(feedbackWrites[0].Feedback, "Clear and relevant.");
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'user_count_metrics:all-time'").get().count, 1);
@@ -419,8 +426,15 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     const result = await response.json();
     assert.equal(result.sync.synced, true);
     assert.equal(result.sync.row, 7);
-    assert.equal(sheetPayload.feedback, "The island guide was helpful.");
+    assert.equal(sheetPayload.action, "upsert-user");
+    assert.equal(sheetPayload.webhookSecret, "test-sheet-webhook-secret");
+    assert.equal(sheetPayload.spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(sheetPayload.sheetGid, "1080069851");
+    assert.match(sheetPayload["Unique User ID"], /^[a-f0-9]{24}$/);
     assert.equal(sheetPayload.Email, "feedback@example.com");
+    assert.equal(sheetPayload.Username, "Feedback User");
+    assert.equal(sheetPayload.Password, "Not stored — secure hash only");
+    assert.equal("feedback" in sheetPayload, false);
 
     const likeResponse = await worker.fetch(new Request("https://village.example/api/resources/like", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, liked: true })
@@ -428,9 +442,9 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(likeResponse.status, 200);
     const likeResult = await likeResponse.json();
     assert.equal(likeResult.likedResources[0].name, "Saved Resource");
-    assert.match(sheetPayload["Save resource"], /Saved Resource/);
-    assert.match(sheetPayload["Like resource"], /Saved Resource/);
-    assert.equal(sheetPayload["Dislike resource"], "[]");
+    assert.match(sheetPayload["Save Resource"], /Saved Resource/);
+    assert.equal("Like resource" in sheetPayload, false);
+    assert.equal(sheetPayload["Dislike Resource"], "[]");
 
     const dislikeResponse = await worker.fetch(new Request("https://village.example/api/resources/dislike", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, disliked: true })
@@ -439,9 +453,10 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     const dislikeResult = await dislikeResponse.json();
     assert.equal(dislikeResult.likedResources.length, 0);
     assert.equal(dislikeResult.dislikedResources[0].name, "Saved Resource");
-    assert.equal(sheetPayload["Save resource"], "[]");
-    assert.match(sheetPayload["Dislike resource"], /Saved Resource/);
+    assert.equal(sheetPayload["Save Resource"], "[]");
+    assert.match(sheetPayload["Dislike Resource"], /Saved Resource/);
     assert.equal(errorPayloads[0].Event, "resource_disliked");
+    assert.equal(errorPayloads[0].webhookSecret, "test-sheet-webhook-secret");
     assert.equal(errorPayloads[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorPayloads[0].sheetGid, "1952899933");
     assert.equal(errorPayloads[0]["Helpful?"], "No");
@@ -461,7 +476,10 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.match(errorPayloads[1].Reason, /Rating: 2\/5/);
     assert.equal(feedbackPayloads.length, 1);
     assert.equal(feedbackPayloads[0].action, "record-feedback");
-    assert.equal(feedbackPayloads[0].sheetGid, "981733839");
+    assert.equal(feedbackPayloads[0].webhookSecret, "test-sheet-webhook-secret");
+    assert.equal(feedbackPayloads[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackPayloads[0].sheetGid, "0");
+    assert.equal(feedbackPayloads[0]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
     assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
     assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
     assert.equal(feedbackPayloads[0].Feedback, "The result was too broad.");
@@ -488,6 +506,7 @@ test("Cloudflare password reset emails a six-digit code and replaces the passwor
     assert.equal(String(_url), "https://sheet.example/sync");
     const payload = JSON.parse(options.body);
     mailedCode = payload.code;
+    assert.equal(payload.webhookSecret, "test-sheet-webhook-secret");
     assert.equal(payload.fromAddress, "hello@village.example");
     return Response.json({ ok: true, delivered: true });
   };

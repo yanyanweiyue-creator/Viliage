@@ -17,8 +17,10 @@ process.env.COMMUNITY_FILE = communityFile;
 process.env.PASSWORD_RESETS_FILE = passwordResetsFile;
 process.env.USER_COUNT_FILE = userCountFile;
 process.env.USER_COUNT_SYNC_INTERVAL_MS = "100";
+process.env.RESOURCE_CACHE_TTL_MS = "0";
 process.env.PRIMARY_KEYWORD_BLOCKLIST_FILE = primaryKeywordBlocklistFile;
 process.env.PASSWORD_RESET_SECRET = "local-test-reset-secret";
+process.env.SHEET_WEBHOOK_SECRET = "test-sheet-webhook-secret";
 const { createAppServer } = await import("../server.mjs");
 after(async () => {
   await Promise.all([unlink(usersFile).catch(() => {}), unlink(sessionsFile).catch(() => {}), unlink(communityFile).catch(() => {}), unlink(passwordResetsFile).catch(() => {}), unlink(userCountFile).catch(() => {}), unlink(primaryKeywordBlocklistFile).catch(() => {})]);
@@ -64,6 +66,10 @@ test("Google Sheet resource fetch pins the header row for live sync", async () =
     readFile(new URL("../server.mjs", import.meta.url), "utf8"),
     readFile(new URL("../cloudflare/worker.mjs", import.meta.url), "utf8")
   ]);
+  assert.match(serverCode, /const RESOURCE_SHEET_ID = process\.env\.RESOURCE_SHEET_ID \|\| "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0"/);
+  assert.match(serverCode, /const RESOURCE_SHEET_GID = process\.env\.RESOURCE_SHEET_GID \|\| "1709372674"/);
+  assert.match(workerCode, /const DEFAULT_RESOURCE_SHEET_ID = "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0"/);
+  assert.match(workerCode, /const DEFAULT_RESOURCE_SHEET_GID = "1709372674"/);
   assert.match(serverCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(RESOURCE_SHEET_GID\)\}&headers=1/);
   assert.match(workerCode, /gviz\/tq\?tqx=out:json&gid=\$\{encodeURIComponent\(gid\)\}&headers=1/);
 });
@@ -210,17 +216,19 @@ test("registration and survey automatically send the expected Google Sheet field
     });
     assert.equal(register.status, 201);
     assert.equal(JSON.parse(register.text).user.onboardingCompleted, false);
-    assert.equal(received[0]["User name"], "Sheet Test");
+    assert.equal(received[0].action, "upsert-user");
+    assert.equal(received[0].webhookSecret, "test-sheet-webhook-secret");
+    assert.equal(received[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(received[0].sheetGid, "1080069851");
+    assert.match(received[0]["Unique User ID"], /^[a-f0-9]{24}$/);
+    assert.equal(received[0]["Username"], "Sheet Test");
     assert.equal(received[0]["Password"], "Not stored — secure hash only");
     assert.equal(received[0]["Email"], email);
-    assert.equal(received[0]["response of survey"], "{}");
-    assert.equal(received[0]["AI personal record"], "");
-    assert.equal(received[0]["history"], "[]");
-    assert.equal(received[0]["feedback"], "");
-    assert.equal(received[0]["Chat History"], "[]");
-    assert.equal(received[0]["Save resource"], "[]");
-    assert.equal(received[0]["Like resource"], "[]");
-    assert.equal(received[0]["Dislike resource"], "[]");
+    assert.equal(received[0]["Summary of Survey Response"], "");
+    assert.equal(received[0]["Survey Response (Unedited)"], "{}");
+    assert.equal(received[0]["Summary of Search History"], "[]");
+    assert.equal(received[0]["Save Resource"], "[]");
+    assert.equal(received[0]["Dislike Resource"], "[]");
 
     const onboarding = await httpRequest(`http://127.0.0.1:${port}/api/onboarding/complete`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: register.headers["set-cookie"][0].split(";")[0] }, body: "{}" });
     assert.equal(onboarding.status, 200);
@@ -237,10 +245,24 @@ test("registration and survey automatically send the expected Google Sheet field
       body: profileBody
     });
     assert.equal(profile.status, 200);
-    assert.match(received[1]["response of survey"], /Autism/);
-    assert.match(received[1]["AI personal record"], /Exploring Autism/);
+    assert.match(received[1]["Survey Response (Unedited)"], /Autism/);
+    assert.match(received[1]["Summary of Survey Response"], /Exploring Autism/);
     assert.equal(received[1]["Email"], email);
-    assert.deepEqual(Object.keys(received[1]).filter((key) => key !== "userId").sort(), ["AI personal record", "Chat History", "Dislike resource", "Email", "Like resource", "Password", "Save resource", "User name", "feedback", "history", "response of survey"].sort());
+    assert.deepEqual(Object.keys(received[1]).sort(), [
+      "action",
+      "webhookSecret",
+      "spreadsheetId",
+      "sheetGid",
+      "Unique User ID",
+      "Email",
+      "Username",
+      "Password",
+      "Summary of Survey Response",
+      "Survey Response (Unedited)",
+      "Summary of Search History",
+      "Save Resource",
+      "Dislike Resource"
+    ].sort());
 
     const feedbackBody = JSON.stringify({ feedback: "Please keep the calmer map controls." });
     const feedback = await httpRequest(`http://127.0.0.1:${port}/api/feedback`, {
@@ -250,7 +272,8 @@ test("registration and survey automatically send the expected Google Sheet field
     });
     assert.equal(feedback.status, 200);
     assert.equal(JSON.parse(feedback.text).sync.synced, true);
-    assert.equal(received[2].feedback, "Please keep the calmer map controls.");
+    assert.equal(received[2].action, "upsert-user");
+    assert.equal("feedback" in received[2], false);
 
     const likeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource", description: "A calm support listing.", topic: "Education", score: 42 }, liked: true });
     const like = await httpRequest(`http://127.0.0.1:${port}/api/resources/like`, {
@@ -261,9 +284,9 @@ test("registration and survey automatically send the expected Google Sheet field
     assert.equal(like.status, 200);
     const likeResult = JSON.parse(like.text);
     assert.equal(likeResult.likedResources[0].name, "Inclusive Resource");
-    assert.match(received[3]["Save resource"], /Inclusive Resource/);
-    assert.match(received[3]["Like resource"], /Inclusive Resource/);
-    assert.equal(received[3]["Dislike resource"], "[]");
+    assert.match(received[3]["Save Resource"], /Inclusive Resource/);
+    assert.equal("Like resource" in received[3], false);
+    assert.equal(received[3]["Dislike Resource"], "[]");
 
     const unlikeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource" }, liked: false });
     const unlike = await httpRequest(`http://127.0.0.1:${port}/api/resources/like`, {
@@ -273,7 +296,7 @@ test("registration and survey automatically send the expected Google Sheet field
     });
     assert.equal(unlike.status, 200);
     assert.equal(JSON.parse(unlike.text).likedResources.length, 0);
-    assert.equal(received[4]["Save resource"], "[]");
+    assert.equal(received[4]["Save Resource"], "[]");
 
     const dislikeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource", description: "A calm support listing.", topic: "Education", score: 42 }, disliked: true });
     const dislike = await httpRequest(`http://127.0.0.1:${port}/api/resources/dislike`, {
@@ -285,8 +308,8 @@ test("registration and survey automatically send the expected Google Sheet field
     const dislikeResult = JSON.parse(dislike.text);
     assert.equal(dislikeResult.likedResources.length, 0);
     assert.equal(dislikeResult.dislikedResources[0].name, "Inclusive Resource");
-    assert.equal(received[5]["Save resource"], "[]");
-    assert.match(received[5]["Dislike resource"], /Inclusive Resource/);
+    assert.equal(received[5]["Save Resource"], "[]");
+    assert.match(received[5]["Dislike Resource"], /Inclusive Resource/);
 
     const cookie = register.headers["set-cookie"][0].split(";")[0];
     for (const [path, requestBody] of [
@@ -302,8 +325,8 @@ test("registration and survey automatically send the expected Google Sheet field
       assert.ok([200, 201].includes(communityResponse.status));
     }
     const latestSheetWrite = received.at(-1);
-    assert.match(latestSheetWrite["Chat History"], /A sheet-synced hello/);
-    assert.match(latestSheetWrite["Chat History"], /Village Commons/);
+    assert.equal(latestSheetWrite.action, "upsert-user");
+    assert.equal("Chat History" in latestSheetWrite, false);
   } finally {
     delete process.env.USER_SHEET_WEBHOOK_URL;
     server.closeAllConnections();
@@ -373,6 +396,7 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     await delay(250);
     const latest = received.filter((entry) => entry.action === "record-user-count").at(-1);
     assert.equal(latest.action, "record-user-count");
+    assert.equal(latest.spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(latest.sheetGid, "1958570867");
     assert.equal(latest.metrics["Total Guest Sessions"], 3);
     assert.equal(latest.metrics["Total Accounts Created"], 2);
@@ -381,7 +405,8 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     assert.deepEqual(Object.values(latest.metrics).map((value) => typeof value), ["number", "number", "number", "number"]);
     assert.equal("date" in latest, false);
     const feedbackWrite = received.find((entry) => entry.action === "record-feedback");
-    assert.equal(feedbackWrite.sheetGid, "981733839");
+    assert.equal(feedbackWrite.spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackWrite.sheetGid, "0");
     assert.equal(feedbackWrite["Star(1-5)"], 4);
     assert.equal(feedbackWrite.Feedback, "Clear and relevant.");
   } finally {
@@ -476,7 +501,11 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(errorRows[1]["Full Input"], "Medicaid assistance");
     assert.match(errorRows[1].Reason, /Rating: 2\/5/);
     assert.equal(feedbackRows.length, 1);
-    assert.equal(feedbackRows[0].sheetGid, "981733839");
+    assert.equal(feedbackRows[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackRows[0].sheetGid, "0");
+    assert.equal(feedbackRows[0]["Unique User ID (if applicable)"], JSON.parse(register.text).user.id);
+    assert.equal(feedbackRows[0]["Email (if applicable)"], JSON.parse(register.text).user.email);
+    assert.equal(feedbackRows[0]["Username (if applicable)"], "Error Logger");
     assert.equal(feedbackRows[0]["Star(1-5)"], 2);
     assert.equal(feedbackRows[0].Feedback, "These results were too broad.");
     assert.equal(feedbackRows[0]["Helpful / Nonhelpful"], "Nonhelpful");
