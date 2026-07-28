@@ -40,7 +40,7 @@ async function applyAccountSchema(database) {
 
 async function applyCommunitySchema(database) {
   await applyAccountSchema(database);
-  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql"]) {
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql", "0013_meeting_collaboration.sql"]) {
     database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
 }
@@ -74,6 +74,7 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0010_admin_activities.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0011_community_workspace.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0012_document_studio.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0013_meeting_collaboration.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
@@ -84,7 +85,9 @@ test("community migration creates durable chat tables and starter groups", async
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_notifications'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_document_versions'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_document_collaborators'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "12");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'meeting_chat_messages'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'meeting_chat_reactions'").get().count, 1);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "13");
   database.close();
 });
 
@@ -927,16 +930,36 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   assert.equal((await request(sam, `/api/community/meetings/${meetingId}/whiteboard`, { method: "POST", payload: { event: { type: "line", points: [[1, 2], [3, 4]] } } })).response.status, 201);
   const poll = await request(owner, `/api/community/meetings/${meetingId}/polls`, {
     method: "POST",
-    payload: { question: "Which activity?", options: ["Art", "Music"] }
+    payload: { question: "Which activity?", options: ["Art", "Music"], multiple: true, anonymous: false, showLiveResults: true, durationSeconds: 60 }
   });
   assert.equal(poll.response.status, 201);
-  assert.equal((await request(sam, `/api/community/polls/${poll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } })).response.status, 200);
+  assert.equal(poll.data.poll.status, "draft");
+  assert.equal((await request(owner, `/api/community/polls/${poll.data.poll.id}/start`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(sam, `/api/community/polls/${poll.data.poll.id}/vote`, { method: "POST", payload: { optionIndexes: [0, 1] } })).response.status, 200);
+  const meetingMessage = await request(owner, `/api/community/meetings/${meetingId}/messages`, {
+    method: "POST",
+    payload: { message: "Welcome to the meeting.", audience: "everyone", attachment: null, format: { bold: true } }
+  });
+  assert.equal(meetingMessage.response.status, 201);
+  const privateMessage = await request(sam, `/api/community/meetings/${meetingId}/messages`, {
+    method: "POST",
+    payload: { message: "Private note", audience: "private", recipientIds: [owner.user.id], replyToId: meetingMessage.data.message.id }
+  });
+  assert.equal(privateMessage.response.status, 201);
+  assert.equal((await request(owner, `/api/community/meeting-messages/${privateMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } })).response.status, 200);
+  const meetingMessages = await request(owner, `/api/community/meetings/${meetingId}/messages`);
+  assert.equal(meetingMessages.data.messages.length, 2);
+  assert.equal(meetingMessages.data.messages[1].replyTo.body, "Welcome to the meeting.");
   assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "offer", payload: { sdp: "test" } } })).response.status, 201);
   const signals = await request(sam, `/api/community/meetings/${meetingId}/signals?after=`);
   assert.equal(signals.data.signals[0].payload.sdp, "test");
   const meetingState = await request(owner, `/api/community/meetings/${meetingId}`);
   assert.equal(meetingState.data.participants.find((participant) => participant.userId === sam.user.id).raisedHand, true);
+  assert.equal(meetingState.data.polls[0].status, "active");
   assert.equal(meetingState.data.polls[0].votes[0], 1);
+  assert.equal(meetingState.data.polls[0].votes[1], 1);
+  assert.equal(meetingState.data.polls[0].voters[0].displayName, "Sam");
+  assert.equal((await request(owner, `/api/community/polls/${poll.data.poll.id}/end`, { method: "POST", payload: {} })).response.status, 200);
   await flushPending();
   database.close();
 });
