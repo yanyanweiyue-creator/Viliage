@@ -233,6 +233,25 @@ test("Village Community includes Moments, Self, shared files, documents, and liv
   for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
 });
 
+test("live meetings expose raised hands, a collaborative whiteboard, floating polls, and meeting-only chat", async () => {
+  const meeting = await readFile(new URL("../public/community-meeting.mjs", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  for (const marker of [
+    "meeting-hand-badge",
+    "meeting-avatar-hand",
+    "meeting-board-toolbar",
+    "meeting-board-minimap",
+    "boardCursor",
+    "meeting-live-poll",
+    "poll-start",
+    "meeting-chat-targets",
+    "/api/community/meetings/${encodeURIComponent(this.meeting.id)}/messages"
+  ]) assert.match(meeting, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const marker of [".meeting-hand-badge", ".meeting-board-workspace", ".meeting-live-poll", ".meeting-chat-targets"]) {
+    assert.match(styles, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
 test("User Count Apps Script maps numeric values from the live first-row headers", async () => {
   const script = await readFile(new URL("../integrations/google-apps-script.gs", import.meta.url), "utf8");
   assert.match(script, /var metricKeys = Object\.keys\(metrics\)/);
