@@ -19,6 +19,29 @@ const icon = (name) => {
     participants: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
     chat: "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
     phone: "M5 4h4l2 5-3 2c1.5 3 3 4.5 6 6l2-3 5 2v4c0 1-1 2-2 2C10 21 3 14 2 6c0-1 1-2 3-2Z",
+    settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V21h-3v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15.7a1.7 1.7 0 0 0-1.56-1.04H5v-3h.08A1.7 1.7 0 0 0 6.64 10a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.3 6.34a1.7 1.7 0 0 0 1.04-1.56V4h3v.08A1.7 1.7 0 0 0 15.9 5.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06A1.7 1.7 0 0 0 19.56 9.3 1.7 1.7 0 0 0 21.12 10H22v3h-.08A1.7 1.7 0 0 0 20.36 14Z",
+    pen: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z",
+    highlighter: "m9 11-6 6v3h9l3-3M22 12l-7 7-9-9 7-7Z",
+    eraser: "m7 21-4-4 9-12a2.8 2.8 0 0 1 4 0l3 3a2.8 2.8 0 0 1 0 4l-9 9ZM9 19l-5-5",
+    line: "M5 19 19 5",
+    arrow: "M5 19 19 5M11 5h8v8",
+    text: "M4 7V4h16v3M9 20h6M12 4v16",
+    note: "M4 3h16v14l-4 4H4ZM16 21v-4h4",
+    shape: "M4 4h7v7H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+    image: "M3 5h18v14H3zM7 14l3-3 3 3 2-2 4 4M8 9h.01",
+    undo: "M9 7 4 12l5 5M4 12h9a7 7 0 0 1 7 7",
+    redo: "m15 7 5 5-5 5M20 12h-9a7 7 0 0 0-7 7",
+    plus: "M12 5v14M5 12h14",
+    trash: "M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6",
+    copy: "M8 8h12v12H8zM4 16V4h12",
+    lock: "M5 10h14v11H5zM8 10V7a4 4 0 0 1 8 0v3",
+    save: "M5 4h12l2 2v14H5zM8 4v6h8V4M8 20v-6h8v6",
+    reply: "m9 17-5-5 5-5M4 12h9a7 7 0 0 1 7 7",
+    download: "M12 3v12M7 10l5 5 5-5M5 21h14",
+    smile: "M4 12a8 8 0 1 0 16 0 8 8 0 0 0-16 0ZM9 9h.01M15 9h.01M8 14c1 2 7 2 8 0",
+    clock: "M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9ZM12 7v5l3 2",
+    search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM16 16l5 5",
+    link: "M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1",
     close: "M5 5l14 14M19 5 5 19"
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name] || icons.close}"/></svg>`;
@@ -33,6 +56,31 @@ function readFileDataUrl(file, maxBytes = 650000) {
     reader.onerror = () => reject(new Error("That file could not be read."));
     reader.readAsDataURL(file);
   });
+}
+
+const meetingId = () => globalThis.crypto?.randomUUID?.() || `meeting-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value)));
+
+function meetingMessageBody(value = "", format = {}) {
+  const lines = String(value).split(/\r?\n/);
+  const inline = (line) => escapeHtml(line)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/_([^_]+)_/g, "<em>$1</em>");
+  if (format.list) {
+    const tag = format.list === "numbered" ? "ol" : "ul";
+    return `<${tag}>${lines.filter(Boolean).map((line) => `<li>${inline(line.replace(/^\s*(?:[-*]|\d+\.)\s*/, ""))}</li>`).join("")}</${tag}>`;
+  }
+  const content = lines.map(inline).join("<br>");
+  return `${format.bold ? "<strong>" : ""}${format.italic ? "<em>" : ""}${content}${format.italic ? "</em>" : ""}${format.bold ? "</strong>" : ""}`;
+}
+
+function downloadMeetingFile(name, value, type = "text/plain") {
+  const url = URL.createObjectURL(new Blob([value], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 export class VillageMeetingRuntime {
@@ -51,6 +99,25 @@ export class VillageMeetingRuntime {
     this.whiteboardTimer = null;
     this.signalCursor = "";
     this.whiteboardCursor = 0;
+    this.whiteboardEvents = [];
+    this.boardObjects = new Map();
+    this.boardVersions = [];
+    this.boardImages = new Map();
+    this.remoteBoardCursors = new Map();
+    this.boardHistory = [];
+    this.boardFuture = [];
+    this.boardDraft = null;
+    this.boardDrag = null;
+    this.boardSelectedId = "";
+    this.boardTool = "pen";
+    this.boardColor = "#275547";
+    this.boardWidth = 4;
+    this.boardPage = 1;
+    this.boardLayer = 1;
+    this.boardPages = [1];
+    this.boardLayers = [1];
+    this.boardZoom = 0.7;
+    this.boardCursorSentAt = 0;
     this.recorder = null;
     this.recordingChunks = [];
     this.captionRecognition = null;
@@ -59,6 +126,14 @@ export class VillageMeetingRuntime {
     this.streams = new Map();
     this.participantMeta = new Map();
     this.activeSpeakerId = "";
+    this.polls = [];
+    this.pollCountdownTimer = null;
+    this.dismissedPollIds = new Set();
+    this.chatMessages = [];
+    this.chatAudience = { audience: "everyone", recipientIds: [], label: "Everyone" };
+    this.chatReplyTo = null;
+    this.chatFormat = { bold: false, italic: false, list: false };
+    this.chatFile = null;
     this.closed = true;
   }
 
@@ -68,6 +143,8 @@ export class VillageMeetingRuntime {
     this.room = room;
     const data = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}`);
     this.meeting = data.meeting;
+    this.polls = data.polls || [];
+    this.raisedHand = Boolean((data.participants || []).find((participant) => participant.mine)?.raisedHand);
     this.mount(data);
     const joined = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}/join`, { method: "POST", body: "{}" });
     await this.startMedia();
@@ -92,10 +169,12 @@ export class VillageMeetingRuntime {
         displayName: this.getUser()?.name || "You",
         avatarDataUrl: this.getUser()?.avatarDataUrl || "",
         role: data.meeting.hostId === this.getUser()?.id ? "host" : "participant",
+        raisedHand: this.raisedHand,
         mine: true
       });
     }
     this.activeSpeakerId = localId;
+    const canModerate = this.canModerate(data.participants || []);
     const overlay = document.createElement("section");
     overlay.id = "village-meeting";
     overlay.className = "village-meeting";
@@ -104,6 +183,7 @@ export class VillageMeetingRuntime {
       <header class="meeting-header">
         <div><small>LIVE VILLAGE MEETING</small><h2>${escapeHtml(data.meeting.title)}</h2><span id="meeting-status">${escapeHtml(data.meeting.status)}</span></div>
         <div class="meeting-header-actions">
+          ${canModerate ? `<button type="button" data-meeting-action="settings" class="meeting-icon" title="Meeting settings">${icon("settings")}<span class="sr-only">Meeting settings</span></button>` : ""}
           ${data.meeting.hostId === this.getUser()?.id ? `<button type="button" data-meeting-action="end" class="meeting-end">End for everyone</button>` : ""}
           <button type="button" data-meeting-action="close" class="meeting-icon" title="Leave meeting">${icon("close")}<span class="sr-only">Leave meeting</span></button>
         </div>
@@ -118,24 +198,15 @@ export class VillageMeetingRuntime {
               <article id="meeting-focus-tile" class="meeting-video-tile local active-speaker" data-user-id="${escapeHtml(localId)}">
                 <video id="meeting-focus-video" autoplay muted playsinline></video>
                 <div class="meeting-video-placeholder">${this.participantPlaceholder(this.participantMeta.get(localId))}</div>
+                <span id="meeting-focus-hand" class="meeting-hand-badge${this.raisedHand ? "" : " hidden"}" title="Hand raised">${icon("hand")}</span>
                 <footer><strong id="meeting-focus-name">You</strong><span id="meeting-focus-state">Connecting…</span></footer>
               </article>
             </div>
           </div>
           <div id="meeting-captions" class="meeting-captions" aria-live="polite"></div>
-          <section id="meeting-whiteboard-panel" class="meeting-tool-panel hidden">
-            <header><strong>Shared whiteboard</strong><button type="button" data-meeting-action="clear-local-board">Clear my view</button></header>
-            <canvas id="meeting-whiteboard" width="1000" height="560"></canvas>
-          </section>
-          <section id="meeting-poll-panel" class="meeting-tool-panel hidden">
-            <header><strong>Live polls</strong></header>
-            <form id="meeting-poll-form" class="meeting-poll-form">
-              <input name="question" maxlength="240" placeholder="Ask the room a question" required>
-              <textarea name="options" rows="3" placeholder="One answer per line" required></textarea>
-              <button type="submit">Create poll</button><p class="form-error"></p>
-            </form>
-            <div id="meeting-poll-list">${this.pollsHtml(data.polls || [])}</div>
-          </section>
+          <section id="meeting-live-poll" class="meeting-live-poll hidden" role="dialog" aria-modal="true" aria-label="Live poll"></section>
+          ${this.whiteboardMarkup(canModerate)}
+          ${this.pollPanelMarkup(data.polls || [], canModerate)}
         </main>
         <aside class="meeting-sidebar hidden" data-sidebar-view="participants">
           <nav class="meeting-sidebar-tabs" aria-label="Meeting side panels">
@@ -144,7 +215,7 @@ export class VillageMeetingRuntime {
             <button type="button" data-meeting-action="sidebar-close" class="meeting-sidebar-close" title="Close side panel">${icon("close")}<span class="sr-only">Close side panel</span></button>
           </nav>
           <section data-meeting-sidebar-panel="participants"><header><strong>Members</strong></header><div id="meeting-participants">${this.participantsHtml(data.participants || [])}</div></section>
-          <section class="meeting-chat hidden" data-meeting-sidebar-panel="chat"><header><strong>Meeting chat</strong><label class="meeting-file-button" title="Attach file">+<input id="meeting-chat-file" type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"></label></header><div id="meeting-chat-list"></div><form id="meeting-chat-form"><input name="message" maxlength="1000" placeholder="Message everyone"><button>Send</button><p class="form-error"></p></form></section>
+          ${this.chatMarkup(data.participants || [], canModerate)}
         </aside>
       </div>
       <nav class="meeting-controls" aria-label="Meeting controls">
@@ -155,17 +226,173 @@ export class VillageMeetingRuntime {
         <button type="button" data-meeting-action="sidebar-participants" title="Show participants">${icon("participants")}<span>Members</span></button>
         <button type="button" data-meeting-action="sidebar-chat" title="Open meeting chat">${icon("chat")}<span>Chat</span></button>
         <button type="button" data-meeting-action="background" title="Toggle village backdrop">${icon("background")}<span>Backdrop</span></button>
-        <button type="button" data-meeting-action="hand" title="Raise hand">${icon("hand")}<span>Raise</span></button>
+        <button type="button" data-meeting-action="hand" class="${this.raisedHand ? "active" : ""}" title="Raise hand">${icon("hand")}<span>${this.raisedHand ? "Lower" : "Raise"}</span></button>
         <button type="button" data-meeting-action="captions" title="Toggle live captions">${icon("captions")}<span>Captions</span></button>
         <button type="button" data-meeting-action="board" title="Open whiteboard">${icon("board")}<span>Board</span></button>
-        <button type="button" data-meeting-action="poll" title="Open polls">${icon("poll")}<span>Polls</span></button>
+        <button type="button" data-meeting-action="poll" title="Open polls">${icon("poll")}<span>Polls</span><i id="meeting-poll-alert" class="meeting-control-alert hidden"></i></button>
         <button type="button" data-meeting-action="close" class="hangup" title="Leave meeting">${icon("phone")}<span>Leave</span></button>
-      </nav>`;
+      </nav>
+      ${this.settingsMarkup(canModerate)}`;
     document.body.append(overlay);
     overlay.addEventListener("click", (event) => this.handleClick(event));
     overlay.addEventListener("submit", (event) => this.handleSubmit(event));
+    overlay.addEventListener("change", (event) => this.handleChange(event));
+    overlay.addEventListener("input", (event) => this.handleInput(event));
     this.setupWhiteboard();
+    this.applyBoardZoom();
+    this.syncLivePoll(data.polls || []);
     this.refreshChat();
+  }
+
+  canModerate(participants = [...this.participantMeta.values()]) {
+    return this.meeting?.hostId === this.getUser()?.id || participants.some((participant) => participant.mine && participant.role === "cohost");
+  }
+
+  whiteboardMarkup(canModerate) {
+    const permission = this.meeting?.settings?.whiteboardPermission || "edit";
+    return `
+      <section id="meeting-whiteboard-panel" class="meeting-tool-panel meeting-board-panel hidden" aria-label="Shared whiteboard">
+        <header class="meeting-board-header">
+          <div><strong>Shared whiteboard</strong><small id="meeting-board-sync">Saved to this meeting</small></div>
+          <div>
+            <button type="button" data-meeting-action="board-version" title="Save a version">${icon("save")}<span class="sr-only">Save version</span></button>
+            <button type="button" data-meeting-action="tool-close" title="Close whiteboard">${icon("close")}<span class="sr-only">Close whiteboard</span></button>
+          </div>
+        </header>
+        <div class="meeting-board-shell">
+          <div class="meeting-board-toolbar" role="toolbar" aria-label="Whiteboard tools">
+            ${[
+              ["select", "shape", "Select"],
+              ["pen", "pen", "Pen"],
+              ["highlighter", "highlighter", "Highlighter"],
+              ["eraser", "eraser", "Eraser"],
+              ["line", "line", "Line"],
+              ["arrow", "arrow", "Arrow"],
+              ["rectangle", "shape", "Rectangle"],
+              ["ellipse", "shape", "Ellipse"],
+              ["text", "text", "Text"],
+              ["sticky", "note", "Sticky note"]
+            ].map(([tool, iconName, label]) => `<button type="button" data-meeting-action="board-tool" data-board-tool="${tool}" class="${tool === this.boardTool ? "active" : ""}" title="${label}">${icon(iconName)}<span class="sr-only">${label}</span></button>`).join("")}
+            <label class="board-color-control" title="Drawing color"><input id="meeting-board-color" type="color" value="${escapeHtml(this.boardColor)}"><span class="sr-only">Drawing color</span></label>
+            <label class="board-width-control" title="Line width"><input id="meeting-board-width" type="range" min="1" max="28" value="${this.boardWidth}"><span id="meeting-board-width-value">${this.boardWidth}</span></label>
+            <span class="board-toolbar-separator"></span>
+            <select id="meeting-board-insert" title="Insert content">
+              <option value="">Insert</option>
+              <option value="card">Card</option>
+              <option value="table">Table</option>
+              <option value="chart">Chart</option>
+              <option value="comment">Comment</option>
+              <option value="stamp">Stamp</option>
+            </select>
+            <label class="meeting-board-upload" title="Upload image or PDF">${icon("image")}<span class="sr-only">Upload image or PDF</span><input id="meeting-board-file" type="file" accept="image/*,application/pdf"></label>
+            <button type="button" data-meeting-action="board-undo" title="Undo">${icon("undo")}<span class="sr-only">Undo</span></button>
+            <button type="button" data-meeting-action="board-redo" title="Redo">${icon("redo")}<span class="sr-only">Redo</span></button>
+            <span class="board-toolbar-separator"></span>
+            <label>Page <select id="meeting-board-page"><option value="1">1</option></select></label>
+            <button type="button" data-meeting-action="board-add-page" title="Add page">${icon("plus")}<span class="sr-only">Add page</span></button>
+            <label>Layer <select id="meeting-board-layer"><option value="1">1</option></select></label>
+            <button type="button" data-meeting-action="board-add-layer" title="Add layer">${icon("plus")}<span class="sr-only">Add layer</span></button>
+            ${canModerate ? `<label class="board-permission">Access <select id="meeting-board-permission"><option value="edit"${permission === "edit" ? " selected" : ""}>Edit</option><option value="comment"${permission === "comment" ? " selected" : ""}>Comment</option><option value="view"${permission === "view" ? " selected" : ""}>View</option></select></label>` : ""}
+          </div>
+          <div class="meeting-board-workspace">
+            <div id="meeting-board-viewport" class="meeting-board-viewport">
+              <canvas id="meeting-whiteboard" width="2400" height="1400"></canvas>
+            </div>
+            <div class="meeting-board-minimap"><canvas id="meeting-board-minimap" width="220" height="128"></canvas></div>
+          </div>
+          <footer class="meeting-board-footer">
+            <div class="meeting-board-selection">
+              <button type="button" data-meeting-action="board-copy" title="Duplicate selected item">${icon("copy")}<span>Copy</span></button>
+              <button type="button" data-meeting-action="board-lock" title="Lock selected item">${icon("lock")}<span>Lock</span></button>
+              <button type="button" data-meeting-action="board-delete" title="Delete selected item">${icon("trash")}<span>Delete</span></button>
+              <button type="button" data-meeting-action="board-clear" title="Clear this page">Clear page</button>
+            </div>
+            <label class="meeting-board-versions">History <select id="meeting-board-versions"><option value="">Versions</option></select></label>
+            ${canModerate ? `<label class="meeting-presenter-toggle"><input id="meeting-presenter-mode" type="checkbox"${this.meeting?.settings?.presenterMode ? " checked" : ""}> Follow presenter</label>` : ""}
+            <label class="meeting-board-zoom">${icon("search")}<span>Zoom</span><input id="meeting-board-zoom" type="range" min="35" max="160" value="${Math.round(this.boardZoom * 100)}"><output id="meeting-board-zoom-value">${Math.round(this.boardZoom * 100)}%</output></label>
+          </footer>
+        </div>
+      </section>`;
+  }
+
+  pollPanelMarkup(polls, canModerate) {
+    const canCreate = canModerate || Boolean(this.meeting?.settings?.allowMemberPolls);
+    return `
+      <section id="meeting-poll-panel" class="meeting-tool-panel meeting-poll-panel hidden" role="dialog" aria-modal="true" aria-label="Meeting polls">
+        <header><div><strong>Polls</strong><small>Draft, launch, and review this meeting's polls</small></div><button type="button" data-meeting-action="tool-close" title="Close polls">${icon("close")}<span class="sr-only">Close polls</span></button></header>
+        <div class="meeting-poll-workspace">
+          ${canCreate ? `<form id="meeting-poll-form" class="meeting-poll-form">
+            <label>Question<input name="question" maxlength="240" placeholder="Ask the room a question" required></label>
+            <label>Choices<textarea name="options" rows="4" placeholder="One answer per line" required></textarea></label>
+            <div class="meeting-poll-options">
+              <label><input name="multiple" type="checkbox"> Allow multiple choices</label>
+              <label><input name="anonymous" type="checkbox"> Anonymous responses</label>
+              <label><input name="showLiveResults" type="checkbox" checked> Show live results</label>
+              <label>Timer <select name="durationSeconds"><option value="0">No timer</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label>
+            </div>
+            <button type="submit">Create draft</button><p class="form-error"></p>
+          </form>` : `<p class="meeting-poll-permission">The host controls poll creation for this meeting.</p>`}
+          <div id="meeting-poll-list">${this.pollsHtml(polls)}</div>
+        </div>
+      </section>`;
+  }
+
+  chatMarkup(participants, canModerate) {
+    return `
+      <section class="meeting-chat hidden" data-meeting-sidebar-panel="chat">
+        <header>
+          <div><strong>Meeting chat</strong><small id="meeting-chat-scope">Only saved in this meeting</small></div>
+          <div><button type="button" data-meeting-action="chat-export" title="Save visible chat">${icon("download")}<span class="sr-only">Save chat</span></button>${canModerate ? `<button type="button" data-meeting-action="settings" title="Chat settings">${icon("settings")}<span class="sr-only">Chat settings</span></button>` : ""}</div>
+        </header>
+        <nav class="meeting-chat-targets" aria-label="Chat recipients">
+          <button type="button" data-meeting-action="chat-everyone" class="active"><span class="meeting-target-icon">${icon("participants")}</span><strong>Everyone</strong></button>
+          <button type="button" data-meeting-action="chat-new"><span class="meeting-target-icon">${icon("plus")}</span><strong>New chat</strong></button>
+        </nav>
+        <div id="meeting-chat-recipient-picker" class="meeting-chat-recipient-picker hidden">
+          <strong>Choose one person or a temporary group</strong>
+          <div>${this.chatRecipientPickerHtml(participants)}</div>
+          <button type="button" data-meeting-action="chat-start">Start chat</button>
+        </div>
+        <div id="meeting-chat-reply" class="meeting-chat-reply hidden"><span></span><button type="button" data-meeting-action="chat-cancel-reply">${icon("close")}<span class="sr-only">Cancel reply</span></button></div>
+        <div id="meeting-chat-list" aria-live="polite"></div>
+        <form id="meeting-chat-form">
+          <div class="meeting-chat-compose-toolbar">
+            <button type="button" data-meeting-action="chat-format" data-format="bold" title="Bold"><strong>B</strong></button>
+            <button type="button" data-meeting-action="chat-format" data-format="italic" title="Italic"><em>I</em></button>
+            <button type="button" data-meeting-action="chat-format" data-format="list" title="Bulleted list">•</button>
+            <button type="button" data-meeting-action="chat-emoji" title="Emoji">${icon("smile")}<span class="sr-only">Emoji</span></button>
+            <label class="meeting-file-button" title="Attach file">${icon("plus")}<span class="sr-only">Attach file</span><input id="meeting-chat-file" type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"></label>
+            <button type="button" data-meeting-action="chat-cloud" title="Share cloud file">${icon("link")}<span class="sr-only">Share cloud file</span></button>
+            <span id="meeting-chat-file-name"></span>
+          </div>
+          <div id="meeting-chat-emoji-picker" class="meeting-chat-emoji-picker hidden">${["😀", "😊", "👍", "❤️", "👏", "🎉", "🙏", "💡"].map((emoji) => `<button type="button" data-meeting-action="chat-insert-emoji" data-emoji="${emoji}">${emoji}</button>`).join("")}</div>
+          <textarea name="message" maxlength="4000" rows="2" placeholder="Message everyone"></textarea>
+          <button type="submit">Send</button>
+          <p class="form-error"></p>
+        </form>
+      </section>`;
+  }
+
+  chatRecipientPickerHtml(participants = [...this.participantMeta.values()]) {
+    return participants.filter((participant) => !participant.mine && String(participant.userId) !== String(this.getUser()?.id || "")).map((participant) => `
+      <label><input type="checkbox" name="meeting-chat-recipient" value="${escapeHtml(participant.userId)}"><span class="meeting-avatar">${participant.avatarDataUrl ? `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">` : escapeHtml(String(participant.displayName || "V").charAt(0))}</span><span>${escapeHtml(participant.displayName || "Village member")}<small>${escapeHtml(participant.role || "participant")}</small></span></label>
+    `).join("") || `<p class="meeting-empty">No other participants are here yet.</p>`;
+  }
+
+  settingsMarkup(canModerate) {
+    if (!canModerate) return "";
+    const settings = this.meeting?.settings || {};
+    return `
+      <section id="meeting-settings-dialog" class="meeting-settings-dialog hidden" role="dialog" aria-modal="true" aria-label="Meeting settings">
+        <header><div><strong>Host controls</strong><small>These choices apply to everyone in this meeting.</small></div><button type="button" data-meeting-action="settings-close">${icon("close")}<span class="sr-only">Close settings</span></button></header>
+        <form id="meeting-settings-form">
+          <label>Participant chat<select name="chatPolicy"><option value="everyone"${settings.chatPolicy !== "host-only" && settings.chatPolicy !== "disabled" ? " selected" : ""}>Everyone</option><option value="host-only"${settings.chatPolicy === "host-only" ? " selected" : ""}>Host only</option><option value="disabled"${settings.chatPolicy === "disabled" ? " selected" : ""}>Off</option></select></label>
+          <label class="meeting-setting-toggle"><span><strong>Private and group chat</strong><small>Let participants choose specific recipients.</small></span><input name="privateChat" type="checkbox"${settings.privateChat !== false ? " checked" : ""}></label>
+          <label class="meeting-setting-toggle"><span><strong>Participant polls</strong><small>Allow ordinary members to create poll drafts.</small></span><input name="allowMemberPolls" type="checkbox"${settings.allowMemberPolls ? " checked" : ""}></label>
+          <label>Whiteboard access<select name="whiteboardPermission"><option value="edit"${settings.whiteboardPermission !== "comment" && settings.whiteboardPermission !== "view" ? " selected" : ""}>Edit</option><option value="comment"${settings.whiteboardPermission === "comment" ? " selected" : ""}>Comment only</option><option value="view"${settings.whiteboardPermission === "view" ? " selected" : ""}>View only</option></select></label>
+          <button type="submit">Apply to meeting</button><p class="form-error"></p>
+        </form>
+      </section>`;
   }
 
   participantPlaceholder(participant = {}) {
@@ -176,7 +403,7 @@ export class VillageMeetingRuntime {
   participantThumbnailHtml(participant = {}) {
     const userId = String(participant.userId || "");
     const mine = participant.mine || userId === String(this.getUser()?.id || "");
-    return `<button type="button" class="meeting-video-thumb${userId === this.activeSpeakerId ? " active-speaker" : ""}${mine ? " local" : ""}" data-meeting-action="focus-participant" data-user-id="${escapeHtml(userId)}" aria-label="Focus ${escapeHtml(participant.displayName || "Village member")}"><video autoplay ${mine ? "muted " : ""}playsinline></video><span class="meeting-video-placeholder">${this.participantPlaceholder(participant)}</span><footer><strong>${escapeHtml(mine ? "You" : participant.displayName || "Village member")}</strong><small>${escapeHtml(participant.role || "participant")}</small></footer></button>`;
+    return `<button type="button" class="meeting-video-thumb${userId === this.activeSpeakerId ? " active-speaker" : ""}${mine ? " local" : ""}${participant.raisedHand ? " hand-raised" : ""}" data-meeting-action="focus-participant" data-user-id="${escapeHtml(userId)}" aria-label="Focus ${escapeHtml(participant.displayName || "Village member")}"><video autoplay ${mine ? "muted " : ""}playsinline></video><span class="meeting-video-placeholder">${this.participantPlaceholder(participant)}</span><span class="meeting-hand-badge${participant.raisedHand ? "" : " hidden"}" title="Hand raised">${icon("hand")}</span><footer><strong>${escapeHtml(mine ? "You" : participant.displayName || "Village member")}</strong><small>${escapeHtml(participant.role || "participant")}</small></footer></button>`;
   }
 
   syncParticipantStrip(participants = []) {
@@ -190,6 +417,7 @@ export class VillageMeetingRuntime {
         displayName: this.getUser()?.name || "You",
         avatarDataUrl: this.getUser()?.avatarDataUrl || "",
         role: this.meeting?.hostId === this.getUser()?.id ? "host" : "participant",
+        raisedHand: this.raisedHand,
         mine: true
       });
     }
@@ -209,11 +437,14 @@ export class VillageMeetingRuntime {
       thumbnail.querySelector(".meeting-video-placeholder").innerHTML = this.participantPlaceholder(participant);
       thumbnail.querySelector("strong").textContent = userId === localId || participant.mine ? "You" : participant.displayName || "Village member";
       thumbnail.querySelector("small").textContent = participant.role || "participant";
+      thumbnail.classList.toggle("hand-raised", Boolean(participant.raisedHand));
+      thumbnail.querySelector(".meeting-hand-badge")?.classList.toggle("hidden", !participant.raisedHand);
       this.attachStream(userId, this.streams.get(userId));
     }
     strip.querySelectorAll("[data-user-id]").forEach((thumbnail) => {
       if (!activeIds.has(String(thumbnail.dataset.userId || ""))) thumbnail.remove();
     });
+    document.querySelector("#meeting-focus-hand")?.classList.toggle("hidden", !this.participantMeta.get(this.activeSpeakerId)?.raisedHand);
     if (!activeIds.has(this.activeSpeakerId)) this.focusParticipant(localId);
   }
 
@@ -252,6 +483,7 @@ export class VillageMeetingRuntime {
     tile.querySelector(".meeting-video-placeholder").innerHTML = this.participantPlaceholder(participant);
     tile.querySelector("#meeting-focus-name").textContent = id === localId || participant.mine ? "You" : participant.displayName || "Village member";
     tile.querySelector("#meeting-focus-state").textContent = this.streams.get(id)?.getTracks?.().length ? "Connected" : "Joined without camera";
+    tile.querySelector("#meeting-focus-hand")?.classList.toggle("hidden", !participant.raisedHand);
     const focusVideo = tile.querySelector("#meeting-focus-video");
     focusVideo.muted = id === localId || Boolean(participant.mine);
     this.attachStream(id, this.streams.get(id));
@@ -262,11 +494,30 @@ export class VillageMeetingRuntime {
 
   participantsHtml(participants = []) {
     const host = this.meeting?.hostId === this.getUser()?.id;
-    return participants.map((participant) => `<article class="meeting-participant" data-participant-id="${escapeHtml(participant.userId)}"><span class="meeting-avatar">${participant.avatarDataUrl ? `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">` : escapeHtml(String(participant.displayName || "V").charAt(0))}</span><div><strong>${escapeHtml(participant.displayName)}${participant.mine ? " (You)" : ""}</strong><small>${escapeHtml(participant.breakoutRoom || participant.role)}${participant.raisedHand ? " · Hand raised" : ""}</small></div>${host && !participant.mine ? `<details><summary>Manage</summary><button type="button" data-meeting-action="cohost" data-user-id="${escapeHtml(participant.userId)}">Make cohost</button><button type="button" data-meeting-action="breakout" data-user-id="${escapeHtml(participant.userId)}">Assign room</button><button type="button" data-meeting-action="remove" data-user-id="${escapeHtml(participant.userId)}">Remove</button></details>` : ""}</article>`).join("") || `<p class="meeting-empty">Waiting for others to join.</p>`;
+    return participants.map((participant) => `<article class="meeting-participant${participant.raisedHand ? " hand-raised" : ""}" data-participant-id="${escapeHtml(participant.userId)}"><span class="meeting-avatar">${participant.avatarDataUrl ? `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">` : escapeHtml(String(participant.displayName || "V").charAt(0))}${participant.raisedHand ? `<i class="meeting-avatar-hand" title="Hand raised">${icon("hand")}</i>` : ""}</span><div><strong>${escapeHtml(participant.displayName)}${participant.mine ? " (You)" : ""}</strong><small>${escapeHtml(participant.breakoutRoom || participant.role)}${participant.raisedHand ? " · Hand raised" : ""}</small></div>${host && !participant.mine ? `<details><summary>Manage</summary><button type="button" data-meeting-action="cohost" data-user-id="${escapeHtml(participant.userId)}">Make cohost</button><button type="button" data-meeting-action="breakout" data-user-id="${escapeHtml(participant.userId)}">Assign room</button><button type="button" data-meeting-action="remove" data-user-id="${escapeHtml(participant.userId)}">Remove</button></details>` : ""}</article>`).join("") || `<p class="meeting-empty">Waiting for others to join.</p>`;
   }
 
   pollsHtml(polls = []) {
-    return polls.map((poll) => `<article class="meeting-poll"><strong>${escapeHtml(poll.question)}</strong>${(poll.options || []).map((option, index) => `<button type="button" data-meeting-action="vote" data-poll-id="${escapeHtml(poll.id)}" data-option-index="${index}"><span>${escapeHtml(option)}</span><b>${Number(poll.votes?.[index] || 0)}</b></button>`).join("")}</article>`).join("") || `<p class="meeting-empty">No polls yet.</p>`;
+    const canModerate = this.canModerate();
+    return polls.map((poll) => {
+      const status = poll.status || (poll.closed ? "closed" : "active");
+      const showResults = canModerate || status === "closed" || poll.showLiveResults !== false;
+      const voters = Number(poll.totalVoters || 0);
+      return `<article class="meeting-poll" data-poll-id="${escapeHtml(poll.id)}">
+        <header><div><span class="meeting-poll-status ${escapeHtml(status)}">${escapeHtml(status)}</span><strong>${escapeHtml(poll.question)}</strong></div><small>${poll.multiple ? "Multiple choice" : "Single choice"} · ${poll.anonymous ? "Anonymous" : "Named"}${poll.durationSeconds ? ` · ${Number(poll.durationSeconds)} sec` : ""}</small></header>
+        <div class="meeting-poll-results">${(poll.options || []).map((option, index) => {
+          const count = Number(poll.votes?.[index] || 0);
+          const percent = voters ? Math.round(count / voters * 100) : 0;
+          return `<div><span>${escapeHtml(option)}</span>${showResults ? `<i style="--poll-value:${percent}%"></i><b>${count} · ${percent}%</b>` : `<b>Hidden</b>`}</div>`;
+        }).join("")}</div>
+        <footer><span>${voters} voted · ${Math.max(0, Number(poll.participantCount || 0) - voters)} not voted</span><div>
+          ${status === "draft" && canModerate ? `<button type="button" data-meeting-action="poll-start" data-poll-id="${escapeHtml(poll.id)}">Start poll</button>` : ""}
+          ${status === "active" ? `<button type="button" data-meeting-action="poll-open" data-poll-id="${escapeHtml(poll.id)}">Open</button>` : ""}
+          ${status === "active" && canModerate ? `<button type="button" data-meeting-action="poll-end" data-poll-id="${escapeHtml(poll.id)}">End</button>` : ""}
+          ${status === "closed" ? `<button type="button" data-meeting-action="poll-export" data-poll-id="${escapeHtml(poll.id)}">${icon("download")}<span>CSV</span></button>` : ""}
+        </div></footer>
+      </article>`;
+    }).join("") || `<p class="meeting-empty">No polls yet.</p>`;
   }
 
   async startMedia() {
@@ -326,6 +577,20 @@ export class VillageMeetingRuntime {
         }
         if (signal.kind === "state") {
           if (signal.payload?.caption) this.showCaption(signal.payload.caption, signal.senderId);
+          if (signal.payload?.boardCursor) {
+            this.remoteBoardCursors.set(String(signal.senderId), { ...signal.payload.boardCursor, updatedAt: Date.now() });
+            this.renderWhiteboard();
+          }
+          if (signal.payload?.boardViewport && this.meeting?.settings?.presenterMode && signal.senderId === this.meeting.hostId && !this.canModerate()) {
+            const viewport = document.querySelector("#meeting-board-viewport");
+            const view = signal.payload.boardViewport;
+            if (view.page && this.boardPages.includes(Number(view.page))) this.boardPage = Number(view.page);
+            if (view.zoom) this.boardZoom = clamp(Number(view.zoom), 0.35, 1.6);
+            this.applyBoardZoom();
+            if (viewport) viewport.scrollTo({ left: Number(view.left || 0), top: Number(view.top || 0), behavior: "smooth" });
+            this.syncBoardControls();
+            this.renderWhiteboard();
+          }
           continue;
         }
         const peer = await this.peerFor(signal.senderId);
@@ -367,6 +632,9 @@ export class VillageMeetingRuntime {
     try {
       const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}`);
       this.meeting = data.meeting;
+      this.polls = data.polls || [];
+      const mine = (data.participants || []).find((participant) => participant.mine || String(participant.userId) === String(this.getUser()?.id || ""));
+      if (mine) this.raisedHand = Boolean(mine.raisedHand);
       this.syncParticipantStrip(data.participants || []);
       const participants = document.querySelector("#meeting-participants");
       if (participants) participants.innerHTML = this.participantsHtml(data.participants || []);
@@ -374,42 +642,127 @@ export class VillageMeetingRuntime {
       if (count) count.textContent = String((data.participants || []).length);
       const polls = document.querySelector("#meeting-poll-list");
       if (polls) polls.innerHTML = this.pollsHtml(data.polls || []);
+      const picker = document.querySelector("#meeting-chat-recipient-picker > div");
+      if (picker) picker.innerHTML = this.chatRecipientPickerHtml(data.participants || []);
+      const handButton = document.querySelector('[data-meeting-action="hand"]');
+      handButton?.classList.toggle("active", this.raisedHand);
+      if (handButton?.querySelector("span")) handButton.querySelector("span").textContent = this.raisedHand ? "Lower" : "Raise";
+      this.syncLivePoll(data.polls || []);
       if (data.meeting.status === "ended") await this.close();
       await this.refreshChat();
     } catch {}
   }
 
   async refreshChat() {
-    if (!this.room || this.closed) return;
+    if (!this.meeting || this.closed) return;
     try {
-      const data = await this.api(`/api/community/rooms/${encodeURIComponent(this.room.id)}/messages`);
+      const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/messages`);
       const list = document.querySelector("#meeting-chat-list");
       if (!list) return;
-      list.innerHTML = (data.messages || []).slice(-30).map((message) => `<article class="${message.mine ? "mine" : ""}"><strong>${escapeHtml(message.author)}</strong><p>${escapeHtml(message.body)}</p>${message.attachment ? `<a href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">${escapeHtml(message.attachment.name)}</a>` : ""}</article>`).join("") || `<p class="meeting-empty">No meeting messages yet.</p>`;
-      list.scrollTop = list.scrollHeight;
+      const stayAtBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+      this.chatMessages = data.messages || [];
+      list.innerHTML = this.chatMessages.map((message) => this.chatMessageHtml(message)).join("") || `<p class="meeting-empty">No messages in this meeting yet.</p>`;
+      if (stayAtBottom || !list.dataset.loaded) list.scrollTop = list.scrollHeight;
+      list.dataset.loaded = "true";
     } catch {}
+  }
+
+  chatMessageHtml(message = {}) {
+    const recipientNames = (message.recipientIds || []).map((id) => this.participantMeta.get(String(id))?.displayName || "Participant");
+    const audience = message.audience === "private" ? `Private · ${recipientNames.join(", ")}` : message.audience === "group" ? `Group · ${recipientNames.join(", ")}` : "Everyone";
+    const body = message.deletedAt ? `<p class="meeting-message-deleted">Message deleted</p>` : message.body ? `<div class="meeting-message-body">${meetingMessageBody(message.body, message.format)}</div>` : "";
+    const attachment = !message.deletedAt && message.attachment ? (String(message.attachment.mime || "").startsWith("image/")
+      ? `<a class="meeting-chat-image" href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}"><img src="${escapeHtml(message.attachment.dataUrl)}" alt="${escapeHtml(message.attachment.name)}"><span>${escapeHtml(message.attachment.name)}</span></a>`
+      : `<a class="meeting-chat-file" href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">${icon("download")}<span><strong>${escapeHtml(message.attachment.name)}</strong><small>${escapeHtml(message.attachment.mime || "File")}</small></span></a>`) : "";
+    const cloud = !message.deletedAt && message.metadata?.cloudUrl ? `<a class="meeting-chat-file" href="${escapeHtml(message.metadata.cloudUrl)}" target="_blank" rel="noopener">${icon("link")}<span><strong>${escapeHtml(message.metadata.cloudProvider || "Cloud file")}</strong><small>${escapeHtml(message.metadata.cloudUrl)}</small></span></a>` : "";
+    const reply = message.replyTo ? `<blockquote><strong>${escapeHtml(message.replyTo.author || "Participant")}</strong><span>${escapeHtml(message.replyTo.body || "Message deleted")}</span></blockquote>` : "";
+    const reactions = Object.entries(message.reactions || {}).map(([emoji, state]) => `<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="${escapeHtml(emoji)}" class="${state.mine ? "active" : ""}">${escapeHtml(emoji)} ${Number(state.count || 0)}</button>`).join("");
+    return `<article class="meeting-chat-message${message.mine ? " mine" : ""}${message.deletedAt ? " deleted" : ""}" data-message-id="${escapeHtml(message.id)}">
+      <span class="meeting-chat-avatar">${message.avatarDataUrl ? `<img src="${escapeHtml(message.avatarDataUrl)}" alt="">` : escapeHtml(String(message.author || "V").charAt(0))}</span>
+      <div class="meeting-chat-bubble">
+        <header><strong>${escapeHtml(message.author || "Village member")}</strong><span>${escapeHtml(audience)}</span><time>${escapeHtml(new Date(message.createdAt || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time></header>
+        ${reply}${body}${attachment}${cloud}
+        ${message.deletedAt ? "" : `<footer><div class="meeting-message-reactions">${reactions}<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="👍" title="React">＋</button></div><div><button type="button" data-meeting-action="chat-reply" data-message-id="${escapeHtml(message.id)}">${icon("reply")}<span>Reply</span></button>${message.mine ? `<button type="button" data-meeting-action="chat-delete" data-message-id="${escapeHtml(message.id)}">${icon("trash")}<span>Delete</span></button>` : ""}</div></footer>`}
+      </div>
+    </article>`;
   }
 
   async handleSubmit(event) {
     event.preventDefault();
     if (event.target.id === "meeting-chat-form") {
       const form = event.target;
-      const file = document.querySelector("#meeting-chat-file")?.files?.[0];
       try {
-        const attachment = await readFileDataUrl(file);
+        const attachment = await readFileDataUrl(this.chatFile || document.querySelector("#meeting-chat-file")?.files?.[0]);
         const message = new FormData(form).get("message");
-        await this.api(`/api/community/rooms/${encodeURIComponent(this.room.id)}/messages`, { method: "POST", body: JSON.stringify({ message, attachment }) });
-        form.reset();
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            message,
+            attachment,
+            audience: this.chatAudience.audience,
+            recipientIds: this.chatAudience.recipientIds,
+            replyToId: this.chatReplyTo?.id || "",
+            format: this.chatFormat,
+            metadata: this.pendingCloudMetadata || {}
+          })
+        });
+        form.querySelector("textarea[name='message']").value = "";
+        this.chatFile = null;
+        this.pendingCloudMetadata = null;
+        this.chatReplyTo = null;
         if (document.querySelector("#meeting-chat-file")) document.querySelector("#meeting-chat-file").value = "";
+        if (document.querySelector("#meeting-chat-file-name")) document.querySelector("#meeting-chat-file-name").textContent = "";
+        this.syncChatComposer();
         await this.refreshChat();
       } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+      return;
     }
     if (event.target.id === "meeting-poll-form") {
       const form = event.target;
       const data = new FormData(form);
       try {
-        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/polls`, { method: "POST", body: JSON.stringify({ question: data.get("question"), options: String(data.get("options") || "").split(/\r?\n/) }) });
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/polls`, {
+          method: "POST",
+          body: JSON.stringify({
+            question: data.get("question"),
+            options: String(data.get("options") || "").split(/\r?\n/),
+            multiple: data.has("multiple"),
+            anonymous: data.has("anonymous"),
+            showLiveResults: data.has("showLiveResults"),
+            durationSeconds: Number(data.get("durationSeconds") || 0)
+          })
+        });
         form.reset();
+        form.querySelector("[name='showLiveResults']").checked = true;
+        await this.refreshWorkspace();
+      } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+      return;
+    }
+    if (event.target.id === "meeting-live-poll-form") {
+      const form = event.target;
+      const poll = this.polls.find((item) => item.id === form.dataset.pollId);
+      if (!poll) return;
+      const data = new FormData(form);
+      const optionIndexes = data.getAll("option").map(Number);
+      try {
+        await this.api(`/api/community/polls/${encodeURIComponent(poll.id)}/vote`, { method: "POST", body: JSON.stringify({ optionIndexes }) });
+        await this.refreshWorkspace();
+      } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+      return;
+    }
+    if (event.target.id === "meeting-settings-form") {
+      const form = event.target;
+      const data = new FormData(form);
+      try {
+        const settings = {
+          chatPolicy: data.get("chatPolicy"),
+          privateChat: data.has("privateChat"),
+          allowMemberPolls: data.has("allowMemberPolls"),
+          whiteboardPermission: data.get("whiteboardPermission")
+        };
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/state`, { method: "PATCH", body: JSON.stringify({ settings }) });
+        this.meeting.settings = { ...(this.meeting.settings || {}), ...settings };
+        document.querySelector("#meeting-settings-dialog")?.classList.add("hidden");
         await this.refreshWorkspace();
       } catch (error) { form.querySelector(".form-error").textContent = error.message; }
     }
@@ -439,12 +792,66 @@ export class VillageMeetingRuntime {
       if (action === "sidebar-participants") return this.toggleSidebar("participants");
       if (action === "sidebar-chat") return this.toggleSidebar("chat");
       if (action === "sidebar-close") return this.toggleSidebar("");
+      if (action === "settings") return document.querySelector("#meeting-settings-dialog")?.classList.remove("hidden");
+      if (action === "settings-close") return document.querySelector("#meeting-settings-dialog")?.classList.add("hidden");
       if (action === "board") return this.toggleTool("meeting-whiteboard-panel", button);
       if (action === "poll") return this.toggleTool("meeting-poll-panel", button);
-      if (action === "clear-local-board") return this.clearWhiteboard();
-      if (action === "vote") {
-        await this.api(`/api/community/polls/${encodeURIComponent(button.dataset.pollId)}/vote`, { method: "POST", body: JSON.stringify({ optionIndex: Number(button.dataset.optionIndex) }) });
+      if (action === "tool-close") {
+        document.querySelectorAll(".meeting-tool-panel").forEach((panel) => panel.classList.add("hidden"));
+        document.querySelectorAll('[data-meeting-action="board"],[data-meeting-action="poll"]').forEach((item) => item.classList.remove("active"));
+        return;
+      }
+      if (action === "board-tool") return this.selectBoardTool(button.dataset.boardTool, button);
+      if (action === "board-undo") return this.undoBoard();
+      if (action === "board-redo") return this.redoBoard();
+      if (action === "board-copy") return this.copyBoardSelection();
+      if (action === "board-lock") return this.lockBoardSelection();
+      if (action === "board-delete") return this.deleteBoardSelection();
+      if (action === "board-clear") return this.clearWhiteboard(true);
+      if (action === "board-add-page") return this.addBoardPage();
+      if (action === "board-add-layer") return this.addBoardLayer();
+      if (action === "board-version") return this.saveBoardVersion();
+      if (action === "poll-start") {
+        await this.api(`/api/community/polls/${encodeURIComponent(button.dataset.pollId)}/start`, { method: "POST", body: "{}" });
+        document.querySelector("#meeting-poll-panel")?.classList.add("hidden");
+        document.querySelector('[data-meeting-action="poll"]')?.classList.remove("active");
         return this.refreshWorkspace();
+      }
+      if (action === "poll-end") {
+        await this.api(`/api/community/polls/${encodeURIComponent(button.dataset.pollId)}/end`, { method: "POST", body: "{}" });
+        return this.refreshWorkspace();
+      }
+      if (action === "poll-open") return this.showLivePoll(this.polls.find((poll) => poll.id === button.dataset.pollId), true);
+      if (action === "poll-export") return this.exportPoll(button.dataset.pollId);
+      if (action === "poll-dismiss") {
+        this.dismissedPollIds.add(button.dataset.pollId);
+        document.querySelector("#meeting-live-poll")?.classList.add("hidden");
+        return;
+      }
+      if (action === "chat-everyone") return this.setChatAudience({ audience: "everyone", recipientIds: [], label: "Everyone" });
+      if (action === "chat-new") return document.querySelector("#meeting-chat-recipient-picker")?.classList.toggle("hidden");
+      if (action === "chat-start") return this.startSelectedChat();
+      if (action === "chat-reply") {
+        this.chatReplyTo = this.chatMessages.find((message) => message.id === button.dataset.messageId) || null;
+        return this.syncChatComposer(true);
+      }
+      if (action === "chat-cancel-reply") {
+        this.chatReplyTo = null;
+        return this.syncChatComposer();
+      }
+      if (action === "chat-format") return this.toggleChatFormat(button.dataset.format, button);
+      if (action === "chat-emoji") return document.querySelector("#meeting-chat-emoji-picker")?.classList.toggle("hidden");
+      if (action === "chat-insert-emoji") return this.insertChatEmoji(button.dataset.emoji);
+      if (action === "chat-cloud") return this.addCloudChatFile();
+      if (action === "chat-export") return this.exportChat();
+      if (action === "chat-react") {
+        await this.api(`/api/community/meeting-messages/${encodeURIComponent(button.dataset.messageId)}/reactions`, { method: "POST", body: JSON.stringify({ emoji: button.dataset.emoji }) });
+        return this.refreshChat();
+      }
+      if (action === "chat-delete") {
+        if (!confirm("Delete this message from the meeting chat?")) return;
+        await this.api(`/api/community/meeting-messages/${encodeURIComponent(button.dataset.messageId)}`, { method: "DELETE" });
+        return this.refreshChat();
       }
       if (action === "remove") {
         await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/state`, { method: "PATCH", body: JSON.stringify({ userId: button.dataset.userId, remove: true }) });
@@ -462,6 +869,212 @@ export class VillageMeetingRuntime {
         return this.refreshWorkspace();
       }
     } catch (error) { this.toast(error.message); }
+  }
+
+  async handleChange(event) {
+    const target = event.target;
+    try {
+      if (target.id === "meeting-chat-file") {
+        this.chatFile = target.files?.[0] || null;
+        const label = document.querySelector("#meeting-chat-file-name");
+        if (label) label.textContent = this.chatFile?.name || "";
+        return;
+      }
+      if (target.id === "meeting-board-file") {
+        const file = target.files?.[0];
+        if (file) await this.insertBoardFile(file);
+        target.value = "";
+        return;
+      }
+      if (target.id === "meeting-board-page") {
+        this.boardPage = Number(target.value || 1);
+        this.boardSelectedId = "";
+        this.renderWhiteboard();
+        return;
+      }
+      if (target.id === "meeting-board-layer") {
+        this.boardLayer = Number(target.value || 1);
+        this.boardSelectedId = "";
+        this.renderWhiteboard();
+        return;
+      }
+      if (target.id === "meeting-board-insert" && target.value) {
+        await this.insertBoardObject(target.value);
+        target.value = "";
+        return;
+      }
+      if (target.id === "meeting-board-versions" && target.value) {
+        await this.restoreBoardVersion(target.value);
+        target.value = "";
+        return;
+      }
+      if (target.id === "meeting-board-permission") {
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/state`, { method: "PATCH", body: JSON.stringify({ settings: { whiteboardPermission: target.value } }) });
+        this.meeting.settings.whiteboardPermission = target.value;
+        this.toast(`Whiteboard access changed to ${target.value}.`);
+        return;
+      }
+      if (target.id === "meeting-presenter-mode") {
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/state`, { method: "PATCH", body: JSON.stringify({ settings: { presenterMode: target.checked } }) });
+        this.meeting.settings.presenterMode = target.checked;
+      }
+    } catch (error) { this.toast(error.message); }
+  }
+
+  handleInput(event) {
+    const target = event.target;
+    if (target.id === "meeting-board-color") this.boardColor = target.value;
+    if (target.id === "meeting-board-width") {
+      this.boardWidth = Number(target.value || 4);
+      const output = document.querySelector("#meeting-board-width-value");
+      if (output) output.textContent = String(this.boardWidth);
+    }
+    if (target.id === "meeting-board-zoom") {
+      this.boardZoom = Number(target.value || 70) / 100;
+      this.applyBoardZoom();
+    }
+  }
+
+  setChatAudience(next) {
+    this.chatAudience = next;
+    document.querySelector("#meeting-chat-recipient-picker")?.classList.add("hidden");
+    document.querySelectorAll('input[name="meeting-chat-recipient"]').forEach((input) => { input.checked = false; });
+    document.querySelector('[data-meeting-action="chat-everyone"]')?.classList.toggle("active", next.audience === "everyone");
+    document.querySelector('[data-meeting-action="chat-new"]')?.classList.toggle("active", next.audience !== "everyone");
+    const scope = document.querySelector("#meeting-chat-scope");
+    if (scope) scope.textContent = next.audience === "everyone" ? "Only saved in this meeting" : `${next.label} · private to selected people`;
+    const textarea = document.querySelector("#meeting-chat-form textarea");
+    if (textarea) {
+      textarea.placeholder = `Message ${next.label}`;
+      textarea.focus();
+    }
+  }
+
+  startSelectedChat() {
+    const ids = [...document.querySelectorAll('input[name="meeting-chat-recipient"]:checked')].map((input) => input.value);
+    if (!ids.length) return this.toast("Choose at least one participant.");
+    const names = ids.map((id) => this.participantMeta.get(String(id))?.displayName || "Participant");
+    this.setChatAudience({ audience: ids.length === 1 ? "private" : "group", recipientIds: ids, label: names.join(", ") });
+  }
+
+  syncChatComposer(focus = false) {
+    const banner = document.querySelector("#meeting-chat-reply");
+    if (banner) {
+      banner.classList.toggle("hidden", !this.chatReplyTo);
+      const text = banner.querySelector("span");
+      if (text) text.textContent = this.chatReplyTo ? `Replying to ${this.chatReplyTo.author}: ${this.chatReplyTo.body || "attachment"}` : "";
+    }
+    if (focus) document.querySelector("#meeting-chat-form textarea")?.focus();
+  }
+
+  toggleChatFormat(name, button) {
+    if (name === "list") this.chatFormat.list = this.chatFormat.list ? false : "bullets";
+    else this.chatFormat[name] = !this.chatFormat[name];
+    button.classList.toggle("active", Boolean(this.chatFormat[name]));
+  }
+
+  insertChatEmoji(emoji) {
+    const textarea = document.querySelector("#meeting-chat-form textarea");
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.value = `${textarea.value.slice(0, start)}${emoji}${textarea.value.slice(end)}`;
+    textarea.focus();
+    textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+    document.querySelector("#meeting-chat-emoji-picker")?.classList.add("hidden");
+  }
+
+  addCloudChatFile() {
+    const cloudUrl = prompt("Paste a Google Drive, OneDrive, Box, or other HTTPS file link:", "");
+    if (!cloudUrl) return;
+    const cloudProvider = prompt("File source or label:", "Cloud file") || "Cloud file";
+    this.pendingCloudMetadata = { cloudUrl, cloudProvider };
+    const label = document.querySelector("#meeting-chat-file-name");
+    if (label) label.textContent = cloudProvider;
+    document.querySelector("#meeting-chat-form textarea")?.focus();
+  }
+
+  exportChat() {
+    const lines = [
+      this.meeting.title,
+      `Meeting chat saved ${new Date().toLocaleString()}`,
+      `Visible conversation: ${this.chatAudience.label}`,
+      "",
+      ...this.chatMessages.map((message) => `[${new Date(message.createdAt).toLocaleString()}] ${message.author} (${message.audience || "everyone"}): ${message.deletedAt ? "[deleted]" : message.body || message.attachment?.name || message.metadata?.cloudUrl || "[attachment]"}`)
+    ];
+    downloadMeetingFile(`${this.meeting.title.replace(/[^a-z0-9]+/gi, "-") || "meeting"}-chat.txt`, lines.join("\n"));
+  }
+
+  syncLivePoll(polls = []) {
+    const active = polls.find((poll) => (poll.status || (poll.closed ? "closed" : "active")) === "active");
+    const alert = document.querySelector("#meeting-poll-alert");
+    alert?.classList.toggle("hidden", !active);
+    if (!active) {
+      clearInterval(this.pollCountdownTimer);
+      document.querySelector("#meeting-live-poll")?.classList.add("hidden");
+      return;
+    }
+    if (!this.dismissedPollIds.has(active.id)) this.showLivePoll(active);
+    else if (!active.mySelections?.length) alert?.classList.remove("hidden");
+  }
+
+  showLivePoll(poll, force = false) {
+    if (!poll) return;
+    if (force) this.dismissedPollIds.delete(poll.id);
+    const panel = document.querySelector("#meeting-live-poll");
+    if (!panel) return;
+    const selections = new Set((poll.mySelections || []).map(Number));
+    const canModerate = this.canModerate();
+    const voters = Number(poll.totalVoters || 0);
+    const showResults = canModerate || poll.status === "closed" || (poll.showLiveResults !== false && selections.size > 0);
+    const inputType = poll.multiple ? "checkbox" : "radio";
+    panel.innerHTML = `
+      <header><div><span>LIVE POLL</span><strong>${escapeHtml(poll.question)}</strong></div><button type="button" data-meeting-action="poll-dismiss" data-poll-id="${escapeHtml(poll.id)}">${icon("close")}<span class="sr-only">Close poll</span></button></header>
+      <form id="meeting-live-poll-form" data-poll-id="${escapeHtml(poll.id)}">
+        <div class="meeting-live-poll-options">${(poll.options || []).map((option, index) => {
+          const count = Number(poll.votes?.[index] || 0);
+          const percent = voters ? Math.round(count / voters * 100) : 0;
+          return `<label class="${selections.has(index) ? "selected" : ""}"><input type="${inputType}" name="option" value="${index}"${selections.has(index) ? " checked" : ""}><span>${escapeHtml(option)}</span>${showResults ? `<i style="--poll-value:${percent}%"></i><b>${count} · ${percent}%</b>` : ""}</label>`;
+        }).join("")}</div>
+        <footer><div><span>${voters} voted · ${Math.max(0, Number(poll.participantCount || 0) - voters)} not voted</span>${poll.endsAt ? `<time id="meeting-poll-countdown" data-ends-at="${escapeHtml(poll.endsAt)}"></time>` : ""}</div><button type="submit">${selections.size ? "Update vote" : "Submit vote"}</button></footer>
+        <p class="form-error"></p>
+      </form>`;
+    panel.classList.remove("hidden");
+    this.startPollCountdown(poll);
+  }
+
+  startPollCountdown(poll) {
+    clearInterval(this.pollCountdownTimer);
+    if (!poll?.endsAt) return;
+    const tick = () => {
+      const output = document.querySelector("#meeting-poll-countdown");
+      if (!output) return;
+      const seconds = Math.max(0, Math.ceil((new Date(poll.endsAt).getTime() - Date.now()) / 1000));
+      output.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      if (!seconds) {
+        clearInterval(this.pollCountdownTimer);
+        this.refreshWorkspace();
+      }
+    };
+    tick();
+    this.pollCountdownTimer = setInterval(tick, 1000);
+  }
+
+  exportPoll(pollId) {
+    const poll = this.polls.find((item) => item.id === pollId);
+    if (!poll) return;
+    const voters = Number(poll.totalVoters || 0);
+    const quote = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = [["Question", "Option", "Votes", "Percent"]];
+    (poll.options || []).forEach((option, index) => {
+      const count = Number(poll.votes?.[index] || 0);
+      rows.push([poll.question, option, count, voters ? Math.round(count / voters * 100) : 0]);
+    });
+    if (poll.voters?.length) {
+      rows.push([], ["Named voters", "Selections"]);
+      poll.voters.forEach((voter) => rows.push([voter.displayName, (voter.optionIndexes || []).map((index) => poll.options[index]).join("; ")]));
+    }
+    downloadMeetingFile(`${this.meeting.title.replace(/[^a-z0-9]+/gi, "-") || "meeting"}-poll.csv`, rows.map((row) => row.map(quote).join(",")).join("\n"), "text/csv");
   }
 
   toggleTrack(kind, button) {
@@ -586,9 +1199,13 @@ export class VillageMeetingRuntime {
     if (!panel) return;
     const opening = panel.classList.contains("hidden");
     document.querySelectorAll(".meeting-tool-panel").forEach((item) => item.classList.add("hidden"));
+    document.querySelectorAll('[data-meeting-action="board"],[data-meeting-action="poll"]').forEach((item) => item.classList.remove("active"));
     panel.classList.toggle("hidden", !opening);
     button.classList.toggle("active", opening);
-    if (id === "meeting-whiteboard-panel" && opening) this.pollWhiteboard();
+    if (id === "meeting-whiteboard-panel" && opening) {
+      this.pollWhiteboard();
+      this.renderWhiteboard();
+    }
   }
 
   toggleSidebar(view) {
@@ -613,43 +1230,623 @@ export class VillageMeetingRuntime {
   setupWhiteboard() {
     const canvas = document.querySelector("#meeting-whiteboard");
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    context.lineCap = "round";
-    context.lineWidth = 4;
-    context.strokeStyle = "#275547";
-    let drawing = false;
-    let previous = null;
-    const point = (event) => {
-      const rect = canvas.getBoundingClientRect();
-      return { x: Math.round((event.clientX - rect.left) / rect.width * canvas.width), y: Math.round((event.clientY - rect.top) / rect.height * canvas.height) };
+    let pointerId = null;
+    const finish = async () => {
+      if (!this.boardDraft) return;
+      const draft = this.boardDraft;
+      this.boardDraft = null;
+      if (draft.tool === "eraser") {
+        const ids = new Set();
+        draft.points.forEach((point) => {
+          const hit = this.hitBoardObject(point, Math.max(18, this.boardWidth * 2));
+          if (hit && !hit.locked) ids.add(hit.id);
+        });
+        for (const id of ids) await this.postBoardEvent({ type: "delete", objectId: id });
+      } else {
+        await this.postBoardEvent({ type: "object", object: draft });
+      }
+      this.renderWhiteboard();
     };
-    canvas.addEventListener("pointerdown", (event) => { drawing = true; previous = point(event); canvas.setPointerCapture(event.pointerId); });
-    canvas.addEventListener("pointermove", async (event) => {
-      if (!drawing) return;
-      const next = point(event);
-      this.drawWhiteboardLine({ from: previous, to: next, color: "#275547", width: 4 });
-      const record = { type: "line", from: previous, to: next, color: "#275547", width: 4 };
-      previous = next;
-      try { await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/whiteboard`, { method: "POST", body: JSON.stringify({ event: record }) }); } catch {}
+    canvas.addEventListener("pointerdown", async (event) => {
+      if (event.button !== 0) return;
+      const point = this.boardPoint(event);
+      if (this.boardTool === "select") {
+        const selected = this.hitBoardObject(point);
+        this.boardSelectedId = selected?.id || "";
+        if (selected && !selected.locked && this.boardCanEdit("select")) {
+          this.boardDrag = {
+            pointerId: event.pointerId,
+            start: point,
+            original: structuredClone(selected)
+          };
+          canvas.setPointerCapture(event.pointerId);
+        }
+        this.renderWhiteboard();
+        return;
+      }
+      if (!this.boardCanEdit(this.boardTool)) return this.toast("The host limited whiteboard editing.");
+      if (["text", "sticky"].includes(this.boardTool)) {
+        await this.insertBoardObject(this.boardTool, point);
+        return;
+      }
+      pointerId = event.pointerId;
+      canvas.setPointerCapture(pointerId);
+      if (["pen", "highlighter", "eraser"].includes(this.boardTool)) {
+        this.boardDraft = {
+          id: meetingId(),
+          type: "stroke",
+          tool: this.boardTool,
+          page: this.boardPage,
+          layer: this.boardLayer,
+          color: this.boardColor,
+          width: this.boardTool === "highlighter" ? Math.max(12, this.boardWidth * 3) : this.boardTool === "eraser" ? Math.max(20, this.boardWidth * 4) : this.boardWidth,
+          points: [point],
+          createdBy: this.getUser()?.id,
+          locked: false
+        };
+      } else {
+        this.boardDraft = {
+          id: meetingId(),
+          type: this.boardTool,
+          page: this.boardPage,
+          layer: this.boardLayer,
+          color: this.boardColor,
+          width: this.boardWidth,
+          from: point,
+          to: point,
+          createdBy: this.getUser()?.id,
+          locked: false
+        };
+      }
     });
-    canvas.addEventListener("pointerup", () => { drawing = false; previous = null; });
+    canvas.addEventListener("pointermove", (event) => {
+      const point = this.boardPoint(event);
+      this.broadcastBoardCursor(point);
+      if (this.boardDrag?.pointerId === event.pointerId) {
+        const object = structuredClone(this.boardDrag.original);
+        const dx = point.x - this.boardDrag.start.x;
+        const dy = point.y - this.boardDrag.start.y;
+        if (object.from) {
+          object.from.x += dx;
+          object.from.y += dy;
+          object.to.x += dx;
+          object.to.y += dy;
+        } else if (object.points) {
+          object.points = object.points.map((item) => ({ x: item.x + dx, y: item.y + dy }));
+        } else {
+          object.x += dx;
+          object.y += dy;
+        }
+        this.boardObjects.set(object.id, object);
+        this.renderWhiteboard();
+        return;
+      }
+      if (!this.boardDraft || pointerId !== event.pointerId) return;
+      if (this.boardDraft.type === "stroke") {
+        const previous = this.boardDraft.points.at(-1);
+        if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 3) this.boardDraft.points.push(point);
+      } else {
+        this.boardDraft.to = point;
+      }
+      this.renderWhiteboard();
+    });
+    canvas.addEventListener("pointerup", async (event) => {
+      if (this.boardDrag?.pointerId === event.pointerId) {
+        const moved = this.boardObjects.get(this.boardDrag.original.id);
+        this.boardDrag = null;
+        if (moved) await this.postBoardEvent({ type: "update", object: moved });
+        return;
+      }
+      if (pointerId !== event.pointerId) return;
+      pointerId = null;
+      await finish();
+    });
+    canvas.addEventListener("pointercancel", async () => {
+      if (this.boardDrag) {
+        this.boardObjects.set(this.boardDrag.original.id, this.boardDrag.original);
+        this.boardDrag = null;
+        this.renderWhiteboard();
+      }
+      pointerId = null;
+      await finish();
+    });
+    canvas.addEventListener("dblclick", async (event) => {
+      const object = this.hitBoardObject(this.boardPoint(event));
+      if (!object || object.locked || !["text", "sticky", "comment", "card"].includes(object.type)) return;
+      const text = prompt("Edit this whiteboard item:", object.text || "");
+      if (text === null) return;
+      await this.postBoardEvent({ type: "update", object: { ...object, text: String(text).slice(0, 1000) } });
+    });
+    const viewport = document.querySelector("#meeting-board-viewport");
+    viewport?.addEventListener("scroll", () => {
+      this.renderBoardMinimap();
+      if (this.meeting?.settings?.presenterMode && this.canModerate()) {
+        clearTimeout(this.boardViewportTimer);
+        this.boardViewportTimer = setTimeout(() => this.sendSignal("state", { boardViewport: { left: viewport.scrollLeft, top: viewport.scrollTop, zoom: this.boardZoom, page: this.boardPage } }).catch(() => {}), 120);
+      }
+    });
   }
 
-  drawWhiteboardLine(event) {
+  boardCanEdit(tool = "") {
+    if (this.canModerate()) return true;
+    const permission = this.meeting?.settings?.whiteboardPermission || "edit";
+    if (permission === "edit") return true;
+    if (permission === "comment") return ["comment", "stamp", "select"].includes(tool);
+    return tool === "select";
+  }
+
+  boardPoint(event) {
+    const canvas = document.querySelector("#meeting-whiteboard");
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: clamp(Math.round((event.clientX - rect.left) / rect.width * canvas.width), 0, canvas.width),
+      y: clamp(Math.round((event.clientY - rect.top) / rect.height * canvas.height), 0, canvas.height)
+    };
+  }
+
+  selectBoardTool(tool, button) {
+    this.boardTool = tool || "select";
+    document.querySelectorAll("[data-board-tool]").forEach((item) => item.classList.toggle("active", item === button));
+    const canvas = document.querySelector("#meeting-whiteboard");
+    if (canvas) canvas.dataset.tool = this.boardTool;
+  }
+
+  boardObjectBounds(object = {}) {
+    if (object.type === "stroke") {
+      const xs = (object.points || []).map((point) => point.x);
+      const ys = (object.points || []).map((point) => point.y);
+      if (!xs.length) return { x: 0, y: 0, width: 0, height: 0 };
+      return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(1, Math.max(...xs) - Math.min(...xs)), height: Math.max(1, Math.max(...ys) - Math.min(...ys)) };
+    }
+    if (object.from && object.to) {
+      return { x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.max(1, Math.abs(object.to.x - object.from.x)), height: Math.max(1, Math.abs(object.to.y - object.from.y)) };
+    }
+    return { x: Number(object.x || 0), y: Number(object.y || 0), width: Number(object.w || 240), height: Number(object.h || 120) };
+  }
+
+  hitBoardObject(point, padding = 12) {
+    const objects = [...this.boardObjects.values()].filter((object) => Number(object.page || 1) === this.boardPage).sort((a, b) => Number(b.layer || 1) - Number(a.layer || 1));
+    return objects.find((object) => {
+      const bounds = this.boardObjectBounds(object);
+      return point.x >= bounds.x - padding && point.x <= bounds.x + bounds.width + padding && point.y >= bounds.y - padding && point.y <= bounds.y + bounds.height + padding;
+    }) || null;
+  }
+
+  boardCenterPoint() {
+    const viewport = document.querySelector("#meeting-board-viewport");
+    if (!viewport) return { x: 700, y: 450 };
+    return {
+      x: clamp((viewport.scrollLeft + viewport.clientWidth / 2) / this.boardZoom, 80, 2320),
+      y: clamp((viewport.scrollTop + viewport.clientHeight / 2) / this.boardZoom, 80, 1320)
+    };
+  }
+
+  async insertBoardObject(type, at = this.boardCenterPoint()) {
+    if (!this.boardCanEdit(type)) return this.toast("The host limited whiteboard editing.");
+    let object = { id: meetingId(), type, page: this.boardPage, layer: this.boardLayer, color: this.boardColor, width: this.boardWidth, x: at.x, y: at.y, createdBy: this.getUser()?.id, locked: false };
+    if (type === "text") {
+      const text = prompt("Text:", "");
+      if (text === null || !text.trim()) return;
+      object = { ...object, text: text.slice(0, 1000), size: 36, w: 420, h: 80 };
+    } else if (type === "sticky") {
+      const text = prompt("Sticky note:", "");
+      if (text === null || !text.trim()) return;
+      object = { ...object, text: text.slice(0, 1000), color: "#ffe58f", w: 300, h: 220 };
+    } else if (type === "comment") {
+      const text = prompt("Comment:", "");
+      if (text === null || !text.trim()) return;
+      object = { ...object, text: text.slice(0, 1000), author: this.getUser()?.name || "Participant", w: 320, h: 105 };
+    } else if (type === "stamp") {
+      const text = prompt("Emoji or stamp:", "👍");
+      if (!text) return;
+      object = { ...object, text: text.slice(0, 12), size: 64, w: 80, h: 80 };
+    } else if (type === "card") {
+      const text = prompt("Card title or idea:", "");
+      if (!text) return;
+      object = { ...object, text: text.slice(0, 1000), w: 360, h: 180 };
+    } else if (type === "table") {
+      object = { ...object, rows: 4, columns: 4, w: 520, h: 280 };
+    } else if (type === "chart") {
+      object = { ...object, values: [42, 72, 54, 86], labels: ["A", "B", "C", "D"], w: 480, h: 300 };
+    }
+    await this.postBoardEvent({ type: "object", object });
+    this.boardSelectedId = object.id;
+  }
+
+  async insertBoardFile(file) {
+    if (!this.boardCanEdit("image")) return this.toast("The host limited whiteboard editing.");
+    const attachment = await readFileDataUrl(file);
+    const at = this.boardCenterPoint();
+    const object = {
+      id: meetingId(),
+      type: String(file.type || "").startsWith("image/") ? "image" : "pdf",
+      page: this.boardPage,
+      layer: this.boardLayer,
+      x: at.x - 260,
+      y: at.y - 180,
+      w: 520,
+      h: 360,
+      name: attachment.name,
+      mime: attachment.mime,
+      dataUrl: attachment.dataUrl,
+      createdBy: this.getUser()?.id,
+      locked: false
+    };
+    await this.postBoardEvent({ type: "object", object });
+    this.boardSelectedId = object.id;
+  }
+
+  boardSnapshot() {
+    return {
+      objects: [...this.boardObjects.values()].map((object) => structuredClone(object)),
+      pages: [...this.boardPages],
+      layers: [...this.boardLayers],
+      page: this.boardPage,
+      layer: this.boardLayer
+    };
+  }
+
+  async postBoardEvent(event, { recordHistory = true } = {}) {
+    if (recordHistory && !["cursor", "snapshot"].includes(event.type)) {
+      this.boardHistory.push(this.boardSnapshot());
+      this.boardHistory = this.boardHistory.slice(-50);
+      this.boardFuture = [];
+    }
+    this.applyWhiteboardEvent(event);
+    const status = document.querySelector("#meeting-board-sync");
+    if (status) status.textContent = "Saving…";
+    try {
+      const result = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/whiteboard`, { method: "POST", body: JSON.stringify({ event }) });
+      this.whiteboardCursor = Math.max(this.whiteboardCursor, Number(result.id || 0));
+      if (status) status.textContent = "Saved to this meeting";
+    } catch (error) {
+      if (status) status.textContent = "Not saved";
+      throw error;
+    }
+  }
+
+  applyWhiteboardEvent(event = {}, record = {}) {
+    if (event.type === "object" || event.type === "update") {
+      if (event.object?.id) this.boardObjects.set(event.object.id, event.object);
+    } else if (event.type === "delete") {
+      this.boardObjects.delete(event.objectId);
+      if (this.boardSelectedId === event.objectId) this.boardSelectedId = "";
+    } else if (event.type === "clear") {
+      if (event.all) this.boardObjects.clear();
+      else for (const [id, object] of this.boardObjects) if (Number(object.page || 1) === Number(event.page || 1)) this.boardObjects.delete(id);
+    } else if (event.type === "restore") {
+      this.boardObjects.clear();
+      (event.snapshot?.objects || []).forEach((object) => this.boardObjects.set(object.id, object));
+      this.boardPages = event.snapshot?.pages?.length ? event.snapshot.pages : [1];
+      this.boardLayers = event.snapshot?.layers?.length ? event.snapshot.layers : [1];
+      this.boardPage = Number(event.snapshot?.page || this.boardPages[0] || 1);
+      this.boardLayer = Number(event.snapshot?.layer || this.boardLayers[0] || 1);
+    } else if (event.type === "snapshot") {
+      const version = { ...event, versionId: event.versionId || String(record.id || meetingId()) };
+      if (!this.boardVersions.some((item) => item.versionId === version.versionId)) this.boardVersions.push(version);
+    } else if (event.type === "cursor" && record.userId !== this.getUser()?.id) {
+      this.remoteBoardCursors.set(String(record.userId || event.userId || ""), { ...event, updatedAt: Date.now() });
+    }
+    for (const object of this.boardObjects.values()) {
+      if (!this.boardPages.includes(Number(object.page || 1))) this.boardPages.push(Number(object.page || 1));
+      if (!this.boardLayers.includes(Number(object.layer || 1))) this.boardLayers.push(Number(object.layer || 1));
+    }
+    this.boardPages.sort((a, b) => a - b);
+    this.boardLayers.sort((a, b) => a - b);
+    this.syncBoardControls();
+    this.renderWhiteboard();
+  }
+
+  drawBoardObject(context, object) {
+    context.save();
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = object.color || "#275547";
+    context.fillStyle = object.color || "#275547";
+    context.lineWidth = Number(object.width || 4);
+    if (object.type === "stroke") {
+      const points = object.points || [];
+      if (points.length) {
+        context.globalAlpha = object.tool === "highlighter" ? 0.3 : 1;
+        context.lineWidth = Number(object.width || 4);
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.stroke();
+      }
+    } else if (["line", "arrow"].includes(object.type)) {
+      const from = object.from || { x: 0, y: 0 };
+      const to = object.to || from;
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+      if (object.type === "arrow") {
+        const angle = Math.atan2(to.y - from.y, to.x - from.x);
+        context.beginPath();
+        context.moveTo(to.x, to.y);
+        context.lineTo(to.x - 24 * Math.cos(angle - Math.PI / 6), to.y - 24 * Math.sin(angle - Math.PI / 6));
+        context.moveTo(to.x, to.y);
+        context.lineTo(to.x - 24 * Math.cos(angle + Math.PI / 6), to.y - 24 * Math.sin(angle + Math.PI / 6));
+        context.stroke();
+      }
+    } else if (["rectangle", "ellipse"].includes(object.type)) {
+      const bounds = this.boardObjectBounds(object);
+      context.beginPath();
+      if (object.type === "ellipse") context.ellipse(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, bounds.width / 2, bounds.height / 2, 0, 0, Math.PI * 2);
+      else context.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+      context.stroke();
+    } else if (object.type === "text") {
+      context.font = `700 ${Number(object.size || 36)}px ui-sans-serif, system-ui`;
+      context.fillText(object.text || "", object.x, object.y + Number(object.size || 36));
+    } else if (object.type === "sticky") {
+      context.fillStyle = object.color || "#ffe58f";
+      context.shadowColor = "rgba(20,30,25,.18)";
+      context.shadowBlur = 16;
+      context.fillRect(object.x, object.y, object.w, object.h);
+      context.shadowBlur = 0;
+      this.drawBoardText(context, object.text || "", object.x + 22, object.y + 36, object.w - 44, 28, "#25372f");
+    } else if (object.type === "comment") {
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "#49a66b";
+      context.lineWidth = 3;
+      context.fillRect(object.x, object.y, object.w, object.h);
+      context.strokeRect(object.x, object.y, object.w, object.h);
+      context.font = "700 18px ui-sans-serif";
+      context.fillStyle = "#2d6f4a";
+      context.fillText(object.author || "Comment", object.x + 16, object.y + 26);
+      this.drawBoardText(context, object.text || "", object.x + 16, object.y + 54, object.w - 32, 20, "#25372f");
+    } else if (object.type === "stamp") {
+      context.font = `${Number(object.size || 64)}px sans-serif`;
+      context.fillText(object.text || "👍", object.x, object.y + Number(object.size || 64));
+    } else if (object.type === "card") {
+      context.fillStyle = "#eef7f1";
+      context.strokeStyle = "#275547";
+      context.lineWidth = 3;
+      context.fillRect(object.x, object.y, object.w, object.h);
+      context.strokeRect(object.x, object.y, object.w, object.h);
+      this.drawBoardText(context, object.text || "", object.x + 22, object.y + 40, object.w - 44, 28, "#18392f");
+    } else if (object.type === "table") {
+      context.strokeStyle = "#38584d";
+      context.lineWidth = 2;
+      for (let row = 0; row <= object.rows; row += 1) {
+        const y = object.y + row * object.h / object.rows;
+        context.beginPath(); context.moveTo(object.x, y); context.lineTo(object.x + object.w, y); context.stroke();
+      }
+      for (let column = 0; column <= object.columns; column += 1) {
+        const x = object.x + column * object.w / object.columns;
+        context.beginPath(); context.moveTo(x, object.y); context.lineTo(x, object.y + object.h); context.stroke();
+      }
+    } else if (object.type === "chart") {
+      const max = Math.max(...object.values, 1);
+      const gap = object.w / object.values.length;
+      object.values.forEach((value, index) => {
+        const height = value / max * (object.h - 55);
+        context.fillStyle = ["#2f765c", "#e1b84a", "#6c8bc6", "#ce7667"][index % 4];
+        context.fillRect(object.x + index * gap + 14, object.y + object.h - height - 30, gap - 28, height);
+        context.fillStyle = "#25372f";
+        context.font = "18px ui-sans-serif";
+        context.fillText(object.labels?.[index] || String(index + 1), object.x + index * gap + gap / 2 - 8, object.y + object.h - 6);
+      });
+    } else if (object.type === "image") {
+      const cached = this.boardImages.get(object.id);
+      if (cached?.complete) context.drawImage(cached, object.x, object.y, object.w, object.h);
+      else {
+        context.fillStyle = "#e8efeb";
+        context.fillRect(object.x, object.y, object.w, object.h);
+        context.fillStyle = "#38584d";
+        context.font = "24px ui-sans-serif";
+        context.fillText("Loading image…", object.x + 24, object.y + 44);
+        if (!cached && object.dataUrl) {
+          const image = new Image();
+          image.onload = () => this.renderWhiteboard();
+          image.src = object.dataUrl;
+          this.boardImages.set(object.id, image);
+        }
+      }
+    } else if (object.type === "pdf") {
+      context.fillStyle = "#fff";
+      context.strokeStyle = "#d0574d";
+      context.lineWidth = 4;
+      context.fillRect(object.x, object.y, object.w, object.h);
+      context.strokeRect(object.x, object.y, object.w, object.h);
+      context.fillStyle = "#d0574d";
+      context.font = "800 54px ui-sans-serif";
+      context.fillText("PDF", object.x + 26, object.y + 76);
+      this.drawBoardText(context, object.name || "PDF attachment", object.x + 26, object.y + 122, object.w - 52, 24, "#25372f");
+      context.font = "18px ui-sans-serif";
+      context.fillStyle = "#65766f";
+      context.fillText("Annotations are saved above this file.", object.x + 26, object.y + object.h - 28);
+    }
+    if (object.locked) {
+      const bounds = this.boardObjectBounds(object);
+      context.fillStyle = "#17382e";
+      context.font = "22px sans-serif";
+      context.fillText("🔒", bounds.x + bounds.width - 24, bounds.y + 24);
+    }
+    context.restore();
+  }
+
+  drawBoardText(context, text, x, y, maxWidth, lineHeight, color) {
+    context.save();
+    context.fillStyle = color;
+    context.font = `${Math.max(16, lineHeight - 4)}px ui-sans-serif, system-ui`;
+    const words = String(text).split(/\s+/);
+    let line = "";
+    let offset = 0;
+    for (const word of words) {
+      const test = `${line}${word} `;
+      if (context.measureText(test).width > maxWidth && line) {
+        context.fillText(line.trim(), x, y + offset);
+        line = `${word} `;
+        offset += lineHeight;
+      } else line = test;
+    }
+    if (line) context.fillText(line.trim(), x, y + offset);
+    context.restore();
+  }
+
+  renderWhiteboard() {
     const canvas = document.querySelector("#meeting-whiteboard");
     const context = canvas?.getContext("2d");
-    if (!context || event.type !== "line") return;
-    context.strokeStyle = event.color || "#275547";
-    context.lineWidth = Number(event.width || 4);
-    context.beginPath();
-    context.moveTo(event.from.x, event.from.y);
-    context.lineTo(event.to.x, event.to.y);
-    context.stroke();
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = "#edf2ef";
+    context.lineWidth = 1;
+    for (let x = 0; x <= canvas.width; x += 40) { context.beginPath(); context.moveTo(x, 0); context.lineTo(x, canvas.height); context.stroke(); }
+    for (let y = 0; y <= canvas.height; y += 40) { context.beginPath(); context.moveTo(0, y); context.lineTo(canvas.width, y); context.stroke(); }
+    const objects = [...this.boardObjects.values()].filter((object) => Number(object.page || 1) === this.boardPage).sort((a, b) => Number(a.layer || 1) - Number(b.layer || 1));
+    objects.forEach((object) => this.drawBoardObject(context, object));
+    if (this.boardDraft) this.drawBoardObject(context, this.boardDraft);
+    const selected = this.boardObjects.get(this.boardSelectedId);
+    if (selected && Number(selected.page || 1) === this.boardPage) {
+      const bounds = this.boardObjectBounds(selected);
+      context.save();
+      context.setLineDash([12, 8]);
+      context.strokeStyle = "#2c75d6";
+      context.lineWidth = 3;
+      context.strokeRect(bounds.x - 8, bounds.y - 8, bounds.width + 16, bounds.height + 16);
+      context.restore();
+    }
+    const now = Date.now();
+    for (const [userId, cursor] of this.remoteBoardCursors) {
+      if (now - cursor.updatedAt > 6000 || Number(cursor.page || 1) !== this.boardPage) continue;
+      context.save();
+      context.fillStyle = cursor.color || "#d05f50";
+      context.beginPath();
+      context.moveTo(cursor.x, cursor.y);
+      context.lineTo(cursor.x + 12, cursor.y + 28);
+      context.lineTo(cursor.x + 19, cursor.y + 17);
+      context.closePath();
+      context.fill();
+      context.font = "16px ui-sans-serif";
+      context.fillText(cursor.name || userId.slice(0, 6), cursor.x + 22, cursor.y + 18);
+      context.restore();
+    }
+    this.renderBoardMinimap();
   }
 
-  clearWhiteboard() {
+  renderBoardMinimap() {
+    const source = document.querySelector("#meeting-whiteboard");
+    const minimap = document.querySelector("#meeting-board-minimap");
+    const context = minimap?.getContext("2d");
+    if (!source || !context) return;
+    context.clearRect(0, 0, minimap.width, minimap.height);
+    context.drawImage(source, 0, 0, minimap.width, minimap.height);
+    const viewport = document.querySelector("#meeting-board-viewport");
+    if (!viewport) return;
+    const scaleX = minimap.width / (source.width * this.boardZoom);
+    const scaleY = minimap.height / (source.height * this.boardZoom);
+    context.strokeStyle = "#2c75d6";
+    context.lineWidth = 2;
+    context.strokeRect(viewport.scrollLeft * scaleX, viewport.scrollTop * scaleY, Math.min(minimap.width, viewport.clientWidth * scaleX), Math.min(minimap.height, viewport.clientHeight * scaleY));
+  }
+
+  syncBoardControls() {
+    const page = document.querySelector("#meeting-board-page");
+    const layer = document.querySelector("#meeting-board-layer");
+    const versions = document.querySelector("#meeting-board-versions");
+    if (page) page.innerHTML = this.boardPages.map((value) => `<option value="${value}"${value === this.boardPage ? " selected" : ""}>${value}</option>`).join("");
+    if (layer) layer.innerHTML = this.boardLayers.map((value) => `<option value="${value}"${value === this.boardLayer ? " selected" : ""}>${value}</option>`).join("");
+    if (versions) versions.innerHTML = `<option value="">Versions</option>${this.boardVersions.slice().reverse().map((version) => `<option value="${escapeHtml(version.versionId)}">${escapeHtml(version.label || new Date(version.createdAt || Date.now()).toLocaleString())}</option>`).join("")}`;
+  }
+
+  applyBoardZoom() {
     const canvas = document.querySelector("#meeting-whiteboard");
-    canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas) {
+      canvas.style.width = `${canvas.width * this.boardZoom}px`;
+      canvas.style.height = `${canvas.height * this.boardZoom}px`;
+    }
+    const output = document.querySelector("#meeting-board-zoom-value");
+    if (output) output.textContent = `${Math.round(this.boardZoom * 100)}%`;
+    this.renderBoardMinimap();
+  }
+
+  addBoardPage() {
+    this.boardPage = Math.max(...this.boardPages) + 1;
+    this.boardPages.push(this.boardPage);
+    this.boardSelectedId = "";
+    this.syncBoardControls();
+    this.renderWhiteboard();
+  }
+
+  addBoardLayer() {
+    this.boardLayer = Math.max(...this.boardLayers) + 1;
+    this.boardLayers.push(this.boardLayer);
+    this.syncBoardControls();
+  }
+
+  async copyBoardSelection() {
+    const selected = this.boardObjects.get(this.boardSelectedId);
+    if (!selected) return this.toast("Select an item first.");
+    const copy = structuredClone(selected);
+    copy.id = meetingId();
+    copy.locked = false;
+    if (copy.from) { copy.from.x += 32; copy.from.y += 32; copy.to.x += 32; copy.to.y += 32; }
+    else if (copy.points) copy.points = copy.points.map((point) => ({ x: point.x + 32, y: point.y + 32 }));
+    else { copy.x += 32; copy.y += 32; }
+    await this.postBoardEvent({ type: "object", object: copy });
+    this.boardSelectedId = copy.id;
+  }
+
+  async lockBoardSelection() {
+    const selected = this.boardObjects.get(this.boardSelectedId);
+    if (!selected) return this.toast("Select an item first.");
+    await this.postBoardEvent({ type: "update", object: { ...selected, locked: !selected.locked } });
+  }
+
+  async deleteBoardSelection() {
+    const selected = this.boardObjects.get(this.boardSelectedId);
+    if (!selected) return this.toast("Select an item first.");
+    if (selected.locked) return this.toast("Unlock this item before deleting it.");
+    await this.postBoardEvent({ type: "delete", objectId: selected.id });
+  }
+
+  async clearWhiteboard(shared = false) {
+    if (!shared) {
+      this.boardObjects.clear();
+      this.renderWhiteboard();
+      return;
+    }
+    if (!confirm(`Clear whiteboard page ${this.boardPage} for everyone?`)) return;
+    await this.postBoardEvent({ type: "clear", page: this.boardPage });
+  }
+
+  async saveBoardVersion() {
+    const label = prompt("Version name:", `Whiteboard ${new Date().toLocaleString()}`);
+    if (!label) return;
+    const event = { type: "snapshot", versionId: meetingId(), label: label.slice(0, 100), createdAt: new Date().toISOString(), snapshot: this.boardSnapshot() };
+    await this.postBoardEvent(event, { recordHistory: false });
+    this.toast("Whiteboard version saved.");
+  }
+
+  async restoreBoardVersion(versionId) {
+    const version = this.boardVersions.find((item) => item.versionId === versionId);
+    if (!version?.snapshot || !confirm(`Restore "${version.label}" for everyone?`)) return;
+    await this.postBoardEvent({ type: "restore", snapshot: version.snapshot });
+  }
+
+  async undoBoard() {
+    const previous = this.boardHistory.pop();
+    if (!previous) return this.toast("Nothing to undo.");
+    this.boardFuture.push(this.boardSnapshot());
+    await this.postBoardEvent({ type: "restore", snapshot: previous }, { recordHistory: false });
+  }
+
+  async redoBoard() {
+    const next = this.boardFuture.pop();
+    if (!next) return this.toast("Nothing to redo.");
+    this.boardHistory.push(this.boardSnapshot());
+    await this.postBoardEvent({ type: "restore", snapshot: next }, { recordHistory: false });
+  }
+
+  broadcastBoardCursor(point) {
+    const now = Date.now();
+    if (now - this.boardCursorSentAt < 250) return;
+    this.boardCursorSentAt = now;
+    this.sendSignal("state", { boardCursor: { type: "cursor", x: point.x, y: point.y, page: this.boardPage, name: this.getUser()?.name || "Participant", color: "#d05f50" } }).catch(() => {});
   }
 
   async pollWhiteboard() {
@@ -660,7 +1857,7 @@ export class VillageMeetingRuntime {
         const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/whiteboard?after=${this.whiteboardCursor}`);
         for (const record of data.events || []) {
           this.whiteboardCursor = Math.max(this.whiteboardCursor, Number(record.id || 0));
-          if (record.userId !== this.getUser()?.id) this.drawWhiteboardLine(record.event);
+          this.applyWhiteboardEvent(record.event, record);
         }
       } catch {}
     };
@@ -674,7 +1871,9 @@ export class VillageMeetingRuntime {
     clearInterval(this.signalTimer);
     clearInterval(this.refreshTimer);
     clearInterval(this.whiteboardTimer);
+    clearInterval(this.pollCountdownTimer);
     clearTimeout(this.captionTimer);
+    clearTimeout(this.boardViewportTimer);
     this.captionRecognition?.stop();
     if (this.recorder?.state === "recording") this.recorder.stop();
     this.localStream?.getTracks().forEach((track) => track.stop());
@@ -683,6 +1882,9 @@ export class VillageMeetingRuntime {
     this.peers.clear();
     this.streams.clear();
     this.participantMeta.clear();
+    this.remoteBoardCursors.clear();
+    this.boardImages.clear();
+    this.boardDrag = null;
     this.activeSpeakerId = "";
     if (this.meeting && !quiet) {
       try { await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/join`, { method: "DELETE" }); } catch {}
