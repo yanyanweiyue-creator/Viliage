@@ -242,6 +242,7 @@ function safeImageDataUrl(value) {
 }
 
 function safeAttachment(input = {}) {
+  if (!input || typeof input !== "object") return null;
   const name = String(input.name || "").trim().replace(/[<>\r\n]/g, " ").slice(0, 140);
   const mime = String(input.mime || "").trim().toLowerCase().slice(0, 100);
   const dataUrl = String(input.dataUrl || "");
@@ -250,6 +251,43 @@ function safeAttachment(input = {}) {
   if (!allowed.test(mime)) throw new Error("Attach an image, PDF, text, Word, Excel, or PowerPoint file.");
   if (dataUrl.length > 900000 || !new RegExp(`^data:${mime.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")};base64,[a-z0-9+/=]+$`, "i").test(dataUrl)) throw new Error("Choose a supported file smaller than about 650 KB.");
   return { name, mime, dataUrl };
+}
+
+function safeMeetingFormat(input = {}) {
+  return {
+    bold: Boolean(input.bold),
+    italic: Boolean(input.italic),
+    list: [true, "bullets", "numbered"].includes(input.list) ? input.list : false
+  };
+}
+
+function safeMeetingMetadata(input = {}) {
+  const metadata = {};
+  const cloudUrl = String(input.cloudUrl || "").trim().slice(0, 1000);
+  if (cloudUrl) {
+    try {
+      const parsed = new URL(cloudUrl);
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+      metadata.cloudUrl = parsed.toString();
+      metadata.cloudProvider = String(input.cloudProvider || "Cloud file").trim().slice(0, 60) || "Cloud file";
+    } catch {
+      throw new Error("Use a valid HTTPS cloud-file link.");
+    }
+  }
+  return metadata;
+}
+
+function meetingSettings(input = {}) {
+  return {
+    waitingRoom: input.waitingRoom !== false,
+    recordingAllowed: input.recordingAllowed !== false,
+    captionsEnabled: input.captionsEnabled !== false,
+    chatPolicy: ["everyone", "host-only", "disabled"].includes(input.chatPolicy) ? input.chatPolicy : "everyone",
+    privateChat: input.privateChat !== false,
+    allowMemberPolls: Boolean(input.allowMemberPolls),
+    whiteboardPermission: ["edit", "comment", "view"].includes(input.whiteboardPermission) ? input.whiteboardPermission : "edit",
+    presenterMode: Boolean(input.presenterMode)
+  };
 }
 
 function communityDocumentInput(input = {}) {
@@ -1746,11 +1784,7 @@ async function api(request, env, ctx) {
       const startsAt = new Date(input.startsAt || Date.now());
       if (!Number.isFinite(startsAt.getTime())) return fail("Choose a valid meeting date and time.");
       const durationMinutes = Math.max(10, Math.min(480, Number(input.durationMinutes || 45)));
-      const settings = {
-        waitingRoom: input.settings?.waitingRoom !== false,
-        recordingAllowed: input.settings?.recordingAllowed !== false,
-        captionsEnabled: input.settings?.captionsEnabled !== false
-      };
+      const settings = meetingSettings(input.settings || {});
       const at = new Date().toISOString();
       const meeting = { id: randomBytes(12).toString("hex"), roomId, hostId: user.id, title, startsAt: startsAt.toISOString(), durationMinutes, status: "scheduled", settings, createdAt: at };
       const messageId = randomBytes(12).toString("hex");
@@ -1763,7 +1797,7 @@ async function api(request, env, ctx) {
     }
   }
 
-  const meetingMatch = url.pathname.match(/^\/api\/community\/meetings\/([^/]+)(?:\/(join|signals|state|whiteboard|polls|end))?$/);
+  const meetingMatch = url.pathname.match(/^\/api\/community\/meetings\/([^/]+)(?:\/(join|signals|state|whiteboard|polls|messages|end))?$/);
   if (meetingMatch) {
     const meetingId = decodeURIComponent(meetingMatch[1]);
     const operation = meetingMatch[2] || "";
@@ -1779,15 +1813,59 @@ async function api(request, env, ctx) {
         SELECT participant.*, account.avatar_data_url, COALESCE(profile.display_name, account.name) AS display_name
         FROM meeting_participants participant JOIN users account ON account.id = participant.user_id
         LEFT JOIN community_profiles profile ON profile.user_id = participant.user_id
-        WHERE participant.meeting_id = ? ORDER BY participant.role = 'host' DESC, participant.joined_at
+        WHERE participant.meeting_id = ? AND participant.left_at IS NULL
+        ORDER BY participant.role = 'host' DESC, participant.joined_at
       `).bind(meetingId));
       const polls = await allRows(env.DB.prepare("SELECT * FROM meeting_polls WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId));
+      const actor = participants.find((participant) => participant.user_id === user.id);
       return json({
-        meeting: { id: meeting.id, roomId: meeting.room_id, hostId: meeting.host_id, title: meeting.title, startsAt: meeting.starts_at, durationMinutes: meeting.duration_minutes, status: meeting.status, settings: parseJson(meeting.settings_json, {}) },
+        meeting: { id: meeting.id, roomId: meeting.room_id, hostId: meeting.host_id, title: meeting.title, startsAt: meeting.starts_at, durationMinutes: meeting.duration_minutes, status: meeting.status, settings: meetingSettings(parseJson(meeting.settings_json, {})) },
         participants: participants.map((participant) => ({ userId: participant.user_id, displayName: participant.display_name, avatarDataUrl: participant.avatar_data_url || "", role: participant.role, raisedHand: Boolean(participant.raised_hand), breakoutRoom: participant.breakout_room || "", mine: participant.user_id === user.id })),
         polls: await Promise.all(polls.map(async (poll) => {
-          const votes = await allRows(env.DB.prepare("SELECT option_index, COUNT(*) AS count FROM meeting_poll_votes WHERE poll_id = ? GROUP BY option_index").bind(poll.id));
-          return { id: poll.id, question: poll.question, options: parseJson(poll.options_json, []), closed: Boolean(poll.closed_at), votes: Object.fromEntries(votes.map((vote) => [vote.option_index, Number(vote.count)])), createdAt: poll.created_at };
+          let status = poll.status || (poll.closed_at ? "closed" : "active");
+          let closedAt = poll.closed_at || null;
+          if (status === "active" && poll.ends_at && new Date(poll.ends_at).getTime() <= Date.now()) {
+            status = "closed";
+            closedAt ||= new Date().toISOString();
+            await env.DB.prepare("UPDATE meeting_polls SET status = 'closed', closed_at = ? WHERE id = ? AND status = 'active'").bind(closedAt, poll.id).run();
+          }
+          const ballotRows = await allRows(env.DB.prepare(`
+            SELECT vote.*, COALESCE(profile.display_name, account.name) AS display_name
+            FROM meeting_poll_votes vote
+            JOIN users account ON account.id = vote.user_id
+            LEFT JOIN community_profiles profile ON profile.user_id = vote.user_id
+            WHERE vote.poll_id = ?
+          `).bind(poll.id));
+          const votes = {};
+          const ballots = ballotRows.map((vote) => {
+            const indexes = parseJson(vote.option_indexes_json, [Number(vote.option_index)]);
+            indexes.forEach((index) => { votes[index] = Number(votes[index] || 0) + 1; });
+            return { userId: vote.user_id, displayName: vote.display_name, optionIndexes: indexes };
+          });
+          const settings = parseJson(poll.settings_json, {});
+          const anonymous = Boolean(settings.anonymous);
+          const canSeeVoters = !anonymous && (meeting.host_id === user.id || actor?.role === "cohost");
+          return {
+            id: poll.id,
+            creatorId: poll.creator_id,
+            question: poll.question,
+            options: parseJson(poll.options_json, []),
+            status,
+            closed: status === "closed",
+            multiple: Boolean(settings.multiple),
+            anonymous,
+            showLiveResults: settings.showLiveResults !== false,
+            durationSeconds: Number(settings.durationSeconds || 0),
+            startedAt: poll.started_at || null,
+            endsAt: poll.ends_at || null,
+            closedAt,
+            votes,
+            totalVoters: ballots.length,
+            participantCount: participants.length,
+            mySelections: ballots.find((vote) => vote.userId === user.id)?.optionIndexes || [],
+            voters: canSeeVoters ? ballots : [],
+            createdAt: poll.created_at
+          };
         }))
       });
     }
@@ -1796,19 +1874,20 @@ async function api(request, env, ctx) {
       const at = new Date().toISOString();
       await env.DB.batch([
         env.DB.prepare(`
-          INSERT INTO meeting_participants (meeting_id, user_id, role, joined_at, last_seen_at)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(meeting_id, user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+          INSERT INTO meeting_participants (meeting_id, user_id, role, joined_at, last_seen_at, left_at)
+          VALUES (?, ?, ?, ?, ?, NULL)
+          ON CONFLICT(meeting_id, user_id) DO UPDATE
+          SET last_seen_at = excluded.last_seen_at, left_at = NULL
         `).bind(meetingId, user.id, meeting.host_id === user.id ? "host" : "participant", at, at),
         env.DB.prepare("UPDATE community_meetings SET status = 'live', updated_at = ? WHERE id = ? AND status = 'scheduled'").bind(at, meetingId)
       ]);
-      const participants = await allRows(env.DB.prepare("SELECT user_id FROM meeting_participants WHERE meeting_id = ? AND user_id != ?").bind(meetingId, user.id));
+      const participants = await allRows(env.DB.prepare("SELECT user_id FROM meeting_participants WHERE meeting_id = ? AND user_id != ? AND left_at IS NULL").bind(meetingId, user.id));
       return json({ ok: true, participantIds: participants.map((participant) => participant.user_id) });
     }
     if (operation === "join" && request.method === "DELETE") {
       const at = new Date().toISOString();
       await env.DB.batch([
-        env.DB.prepare("DELETE FROM meeting_participants WHERE meeting_id = ? AND user_id = ?").bind(meetingId, user.id),
+        env.DB.prepare("UPDATE meeting_participants SET left_at = ?, raised_hand = 0, last_seen_at = ? WHERE meeting_id = ? AND user_id = ?").bind(at, at, meetingId, user.id),
         env.DB.prepare("INSERT INTO meeting_signals (id, meeting_id, sender_id, kind, payload_json, created_at) VALUES (?, ?, ?, 'leave', '{}', ?)").bind(randomBytes(12).toString("hex"), meetingId, user.id, at)
       ]);
       return json({ ok: true });
@@ -1836,18 +1915,26 @@ async function api(request, env, ctx) {
     }
     if (operation === "state" && request.method === "PATCH") {
       const input = await body(request);
+      const actor = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(meetingId, user.id).first();
+      const canHost = meeting.host_id === user.id || actor?.role === "cohost";
+      let currentSettings = meetingSettings(parseJson(meeting.settings_json, {}));
+      if (input.settings && canHost) {
+        currentSettings = meetingSettings({ ...currentSettings, ...input.settings });
+        await env.DB.prepare("UPDATE community_meetings SET settings_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(currentSettings), new Date().toISOString(), meetingId).run();
+      }
       const targetId = meeting.host_id === user.id && input.userId ? String(input.userId) : user.id;
       if (input.remove === true && meeting.host_id === user.id && targetId !== user.id) {
-        await env.DB.prepare("DELETE FROM meeting_participants WHERE meeting_id = ? AND user_id = ?").bind(meetingId, targetId).run();
+        const at = new Date().toISOString();
+        await env.DB.prepare("UPDATE meeting_participants SET left_at = ?, raised_hand = 0, last_seen_at = ? WHERE meeting_id = ? AND user_id = ?").bind(at, at, meetingId, targetId).run();
         return json({ ok: true, removed: targetId });
       }
-      const existing = await env.DB.prepare("SELECT * FROM meeting_participants WHERE meeting_id = ? AND user_id = ? LIMIT 1").bind(meetingId, targetId).first();
+      const existing = await env.DB.prepare("SELECT * FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(meetingId, targetId).first();
       if (!existing) return fail("Participant is not in this meeting.", 404);
       const role = meeting.host_id === user.id && ["cohost", "participant"].includes(input.role) ? input.role : existing.role;
       const breakoutRoom = meeting.host_id === user.id && Object.prototype.hasOwnProperty.call(input, "breakoutRoom") ? String(input.breakoutRoom || "").slice(0, 80) || null : existing.breakout_room;
       const raisedHand = Object.prototype.hasOwnProperty.call(input, "raisedHand") ? Boolean(input.raisedHand) : Boolean(existing.raised_hand);
       await env.DB.prepare("UPDATE meeting_participants SET role = ?, breakout_room = ?, raised_hand = ?, last_seen_at = ? WHERE meeting_id = ? AND user_id = ?").bind(role, breakoutRoom, raisedHand ? 1 : 0, new Date().toISOString(), meetingId, targetId).run();
-      return json({ ok: true, participant: { userId: targetId, role, breakoutRoom: breakoutRoom || "", raisedHand } });
+      return json({ ok: true, meeting: { id: meetingId, settings: currentSettings }, participant: { userId: targetId, role, breakoutRoom: breakoutRoom || "", raisedHand } });
     }
     if (operation === "whiteboard" && request.method === "GET") {
       const after = Math.max(0, Number(url.searchParams.get("after") || 0));
@@ -1857,48 +1944,240 @@ async function api(request, env, ctx) {
     if (operation === "whiteboard" && request.method === "POST") {
       const event = (await body(request)).event;
       const encoded = JSON.stringify(event && typeof event === "object" ? event : {});
-      if (encoded.length > 5000) return fail("Whiteboard event is too large.");
+      if (encoded.length > 900000) return fail("Whiteboard event is too large.");
+      const participant = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(meetingId, user.id).first();
+      const permission = meetingSettings(parseJson(meeting.settings_json, {})).whiteboardPermission;
+      const canManage = meeting.host_id === user.id || participant?.role === "cohost";
+      const eventType = String(event?.type || "");
+      if (!canManage && permission === "view" && eventType !== "cursor") return fail("The whiteboard is view-only.", 403);
+      if (!canManage && permission === "comment" && !["cursor", "comment", "reaction", "stamp"].includes(eventType)) return fail("The whiteboard is limited to comments.", 403);
       const result = await env.DB.prepare("INSERT INTO meeting_whiteboard_events (meeting_id, user_id, event_json, created_at) VALUES (?, ?, ?, ?)").bind(meetingId, user.id, encoded, new Date().toISOString()).run();
       return json({ ok: true, id: Number(result.meta?.last_row_id || 0) }, 201);
     }
+    if (operation === "messages" && request.method === "GET") {
+      const rows = await allRows(env.DB.prepare(`
+        SELECT message.*, account.avatar_data_url,
+          COALESCE(profile.display_name, account.name) AS author
+        FROM meeting_chat_messages message
+        JOIN users account ON account.id = message.sender_id
+        LEFT JOIN community_profiles profile ON profile.user_id = message.sender_id
+        WHERE message.meeting_id = ?
+        ORDER BY message.created_at DESC LIMIT 250
+      `).bind(meetingId));
+      const ordered = rows.reverse();
+      const visible = ordered.filter((message) => {
+        if (message.audience === "everyone" || message.sender_id === user.id) return true;
+        return parseJson(message.recipient_ids_json, []).includes(user.id);
+      });
+      const reactions = visible.length ? await allRows(env.DB.prepare(`
+        SELECT reaction.* FROM meeting_chat_reactions reaction
+        JOIN meeting_chat_messages message ON message.id = reaction.message_id
+        WHERE message.meeting_id = ? ORDER BY reaction.created_at
+      `).bind(meetingId)) : [];
+      const byId = new Map(ordered.map((message) => [message.id, message]));
+      return json({
+        meetingId,
+        messages: visible.map((message) => {
+          const grouped = {};
+          reactions.filter((reaction) => reaction.message_id === message.id).forEach((reaction) => {
+            grouped[reaction.emoji] ||= { count: 0, mine: false };
+            grouped[reaction.emoji].count += 1;
+            if (reaction.user_id === user.id) grouped[reaction.emoji].mine = true;
+          });
+          const reply = message.reply_to_id ? byId.get(message.reply_to_id) : null;
+          return {
+            id: message.id,
+            meetingId,
+            senderId: message.sender_id,
+            author: message.author,
+            avatarDataUrl: message.avatar_data_url || "",
+            audience: message.audience,
+            recipientIds: parseJson(message.recipient_ids_json, []),
+            body: message.deleted_at ? "" : message.body,
+            format: parseJson(message.format_json, {}),
+            attachment: message.deleted_at || !message.attachment_data_url ? null : { name: message.attachment_name, mime: message.attachment_mime, dataUrl: message.attachment_data_url },
+            metadata: message.deleted_at ? {} : parseJson(message.metadata_json, {}),
+            replyToId: message.reply_to_id || null,
+            replyTo: reply ? { id: reply.id, author: reply.author || "Village member", body: reply.deleted_at ? "Message deleted" : reply.body } : null,
+            deletedAt: message.deleted_at || null,
+            createdAt: message.created_at,
+            mine: message.sender_id === user.id,
+            reactions: grouped
+          };
+        })
+      });
+    }
+    if (operation === "messages" && request.method === "POST") {
+      const input = await body(request);
+      const participant = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(meetingId, user.id).first();
+      const canHost = meeting.host_id === user.id || participant?.role === "cohost";
+      const settings = meetingSettings(parseJson(meeting.settings_json, {}));
+      if (!canHost && settings.chatPolicy === "disabled") return fail("The host turned meeting chat off.", 403);
+      const audience = ["everyone", "private", "group"].includes(input.audience) ? input.audience : "everyone";
+      const requestedRecipients = Array.isArray(input.recipientIds) ? input.recipientIds.map(String) : [];
+      if (!canHost && settings.chatPolicy === "host-only" && !(audience === "private" && requestedRecipients.includes(meeting.host_id))) return fail("Participants can only message the host.", 403);
+      if (!canHost && !settings.privateChat && audience !== "everyone") return fail("Private meeting chat is off.", 403);
+      const activeRows = await allRows(env.DB.prepare("SELECT user_id FROM meeting_participants WHERE meeting_id = ? AND left_at IS NULL").bind(meetingId));
+      const activeIds = new Set(activeRows.map((row) => row.user_id));
+      activeIds.add(meeting.host_id);
+      const recipientIds = [...new Set(requestedRecipients.filter((id) => id !== user.id && activeIds.has(id)))].slice(0, 20);
+      if (audience === "private" && recipientIds.length !== 1) return fail("Choose one person for a private message.");
+      if (audience === "group" && recipientIds.length < 1) return fail("Choose at least one person for this group chat.");
+      let attachment;
+      try { attachment = safeAttachment(input.attachment); } catch (error) { return fail(error.message); }
+      let metadata;
+      try { metadata = safeMeetingMetadata(input.metadata || {}); } catch (error) { return fail(error.message); }
+      const rawBody = String(input.message || "").trim().slice(0, 4000);
+      const messageBody = rawBody ? (await maskCommunityMessage(env, rawBody)).trim() : "";
+      if (!messageBody && !attachment && !metadata.cloudUrl) return fail("Write a message or attach something first.");
+      const replyToId = String(input.replyToId || "") || null;
+      const reply = replyToId ? await env.DB.prepare("SELECT id FROM meeting_chat_messages WHERE id = ? AND meeting_id = ? LIMIT 1").bind(replyToId, meetingId).first() : null;
+      const id = randomBytes(12).toString("hex");
+      const createdAt = new Date().toISOString();
+      const format = safeMeetingFormat(input.format || {});
+      await env.DB.prepare(`
+        INSERT INTO meeting_chat_messages (
+          id, meeting_id, sender_id, audience, recipient_ids_json, body, format_json,
+          attachment_name, attachment_mime, attachment_data_url, metadata_json,
+          reply_to_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        id, meetingId, user.id, audience, JSON.stringify(recipientIds), messageBody, JSON.stringify(format),
+        attachment?.name || null, attachment?.mime || null, attachment?.dataUrl || null,
+        JSON.stringify(metadata), reply?.id || null, createdAt
+      ).run();
+      return json({
+        message: {
+          id,
+          meetingId,
+          senderId: user.id,
+          author: user.name,
+          avatarDataUrl: user.avatarDataUrl || "",
+          audience,
+          recipientIds,
+          body: messageBody,
+          format,
+          attachment,
+          metadata,
+          replyToId: reply?.id || null,
+          deletedAt: null,
+          createdAt,
+          mine: true,
+          reactions: {}
+        }
+      }, 201);
+    }
     if (operation === "polls" && request.method === "POST") {
       const input = await body(request);
+      const participant = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(meetingId, user.id).first();
+      const canCreate = meeting.host_id === user.id || participant?.role === "cohost" || meetingSettings(parseJson(meeting.settings_json, {})).allowMemberPolls;
+      if (!canCreate) return fail("Only the host or co-host can create a poll.", 403);
       const question = String(input.question || "").trim().slice(0, 240);
       const options = [...new Set((Array.isArray(input.options) ? input.options : []).map((option) => String(option || "").trim().slice(0, 120)).filter(Boolean))].slice(0, 8);
       if (!question || options.length < 2) return fail("Add a poll question and at least two choices.");
       const pollId = randomBytes(12).toString("hex");
-      await env.DB.prepare("INSERT INTO meeting_polls (id, meeting_id, creator_id, question, options_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(pollId, meetingId, user.id, question, JSON.stringify(options), new Date().toISOString()).run();
-      return json({ poll: { id: pollId, question, options, votes: {} } }, 201);
+      const settings = {
+        multiple: Boolean(input.multiple),
+        anonymous: Boolean(input.anonymous),
+        showLiveResults: input.showLiveResults !== false,
+        durationSeconds: Math.max(0, Math.min(600, Number(input.durationSeconds || 0)))
+      };
+      const createdAt = new Date().toISOString();
+      await env.DB.prepare(`
+        INSERT INTO meeting_polls (
+          id, meeting_id, creator_id, question, options_json, status,
+          settings_json, started_at, ends_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'draft', ?, NULL, NULL, ?)
+      `).bind(pollId, meetingId, user.id, question, JSON.stringify(options), JSON.stringify(settings), createdAt).run();
+      return json({ poll: { id: pollId, creatorId: user.id, question, options, status: "draft", ...settings, votes: {}, totalVoters: 0, mySelections: [], createdAt } }, 201);
     }
     if (operation === "end" && request.method === "POST") {
       if (meeting.host_id !== user.id) return fail("Only the host can end this meeting.", 403);
       const at = new Date().toISOString();
       await env.DB.batch([
         env.DB.prepare("UPDATE community_meetings SET status = 'ended', updated_at = ? WHERE id = ?").bind(at, meetingId),
-        env.DB.prepare("DELETE FROM meeting_participants WHERE meeting_id = ?").bind(meetingId)
+        env.DB.prepare("UPDATE meeting_participants SET left_at = ?, raised_hand = 0, last_seen_at = ? WHERE meeting_id = ? AND left_at IS NULL").bind(at, at, meetingId)
       ]);
       return json({ ok: true, status: "ended" });
     }
   }
 
-  const pollVoteMatch = url.pathname.match(/^\/api\/community\/polls\/([^/]+)\/vote$/);
-  if (request.method === "POST" && pollVoteMatch) {
-    const pollId = decodeURIComponent(pollVoteMatch[1]);
+  const meetingMessageMatch = url.pathname.match(/^\/api\/community\/meeting-messages\/([^/]+)(?:\/(reactions))?$/);
+  if (meetingMessageMatch) {
+    const messageId = decodeURIComponent(meetingMessageMatch[1]);
+    const message = await env.DB.prepare(`
+      SELECT message.*, meeting.host_id, meeting.room_id
+      FROM meeting_chat_messages message
+      JOIN community_meetings meeting ON meeting.id = message.meeting_id
+      JOIN chat_members member ON member.room_id = meeting.room_id
+      WHERE message.id = ? AND member.user_id = ? LIMIT 1
+    `).bind(messageId, user.id).first();
+    if (!message) return fail("Meeting message not found.", 404);
+    const visible = message.audience === "everyone" || message.sender_id === user.id || parseJson(message.recipient_ids_json, []).includes(user.id);
+    if (!visible) return fail("Meeting message not found.", 404);
+    if (!meetingMessageMatch[2] && request.method === "DELETE") {
+      const participant = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? LIMIT 1").bind(message.meeting_id, user.id).first();
+      if (message.sender_id !== user.id && message.host_id !== user.id && participant?.role !== "cohost") return fail("You can only delete your own meeting messages.", 403);
+      const deletedAt = new Date().toISOString();
+      await env.DB.prepare(`
+        UPDATE meeting_chat_messages
+        SET body = '', attachment_name = NULL, attachment_mime = NULL,
+          attachment_data_url = NULL, metadata_json = '{}', deleted_at = ?
+        WHERE id = ?
+      `).bind(deletedAt, messageId).run();
+      return json({ ok: true, deletedAt });
+    }
+    if (meetingMessageMatch[2] === "reactions" && request.method === "POST") {
+      const emoji = String((await body(request)).emoji || "").trim().slice(0, 12);
+      if (!emoji || !/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]+$/u.test(emoji)) return fail("Choose an emoji reaction.");
+      const existing = await env.DB.prepare("SELECT 1 AS found FROM meeting_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ? LIMIT 1").bind(messageId, user.id, emoji).first();
+      if (existing) await env.DB.prepare("DELETE FROM meeting_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?").bind(messageId, user.id, emoji).run();
+      else await env.DB.prepare("INSERT INTO meeting_chat_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)").bind(messageId, user.id, emoji, new Date().toISOString()).run();
+      return json({ ok: true, active: !existing });
+    }
+  }
+
+  const pollActionMatch = url.pathname.match(/^\/api\/community\/polls\/([^/]+)\/(vote|start|end)$/);
+  if (request.method === "POST" && pollActionMatch) {
+    const pollId = decodeURIComponent(pollActionMatch[1]);
     const poll = await env.DB.prepare(`
-      SELECT poll.* FROM meeting_polls poll
+      SELECT poll.*, meeting.host_id FROM meeting_polls poll
       JOIN community_meetings meeting ON meeting.id = poll.meeting_id
       JOIN chat_members member ON member.room_id = meeting.room_id
       WHERE poll.id = ? AND member.user_id = ? LIMIT 1
     `).bind(pollId, user.id).first();
-    if (!poll || poll.closed_at) return fail("This poll is unavailable.", 404);
-    const optionIndex = Number((await body(request)).optionIndex);
+    if (!poll) return fail("This poll is unavailable.", 404);
+    const participant = await env.DB.prepare("SELECT role FROM meeting_participants WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL LIMIT 1").bind(poll.meeting_id, user.id).first();
+    const canManage = poll.host_id === user.id || participant?.role === "cohost";
+    const action = pollActionMatch[2];
+    if (["start", "end"].includes(action)) {
+      if (!canManage) return fail("Only the host or co-host can manage this poll.", 403);
+      const at = new Date().toISOString();
+      if (action === "start") {
+        const durationSeconds = Number(parseJson(poll.settings_json, {}).durationSeconds || 0);
+        const endsAt = durationSeconds ? new Date(Date.now() + durationSeconds * 1000).toISOString() : null;
+        await env.DB.prepare("UPDATE meeting_polls SET status = 'active', started_at = ?, ends_at = ?, closed_at = NULL WHERE id = ?").bind(at, endsAt, pollId).run();
+        return json({ ok: true, status: "active", startedAt: at, endsAt, closedAt: null });
+      }
+      await env.DB.prepare("UPDATE meeting_polls SET status = 'closed', closed_at = ? WHERE id = ?").bind(at, pollId).run();
+      return json({ ok: true, status: "closed", startedAt: poll.started_at || null, endsAt: poll.ends_at || null, closedAt: at });
+    }
+    if ((poll.status || "active") !== "active" || poll.closed_at || (poll.ends_at && new Date(poll.ends_at).getTime() <= Date.now())) return fail("This poll is unavailable.", 404);
+    const input = await body(request);
     const options = parseJson(poll.options_json, []);
-    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= options.length) return fail("Choose a poll option.");
+    const settings = parseJson(poll.settings_json, {});
+    const requested = Array.isArray(input.optionIndexes) ? input.optionIndexes : [input.optionIndex];
+    const optionIndexes = [...new Set(requested.map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < options.length))];
+    if (!optionIndexes.length || (!settings.multiple && optionIndexes.length !== 1)) return fail(settings.multiple ? "Choose one or more poll options." : "Choose one poll option.");
     await env.DB.prepare(`
-      INSERT INTO meeting_poll_votes (poll_id, user_id, option_index, created_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(poll_id, user_id) DO UPDATE SET option_index = excluded.option_index, created_at = excluded.created_at
-    `).bind(pollId, user.id, optionIndex, new Date().toISOString()).run();
-    return json({ ok: true, optionIndex });
+      INSERT INTO meeting_poll_votes (poll_id, user_id, option_index, option_indexes_json, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(poll_id, user_id) DO UPDATE SET
+        option_index = excluded.option_index,
+        option_indexes_json = excluded.option_indexes_json,
+        created_at = excluded.created_at
+    `).bind(pollId, user.id, optionIndexes[0], JSON.stringify(optionIndexes), new Date().toISOString()).run();
+    return json({ ok: true, optionIndex: optionIndexes[0], optionIndexes });
   }
 
   if (url.pathname === "/api/community/document-folders") {
