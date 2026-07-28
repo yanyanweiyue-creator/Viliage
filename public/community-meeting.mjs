@@ -16,6 +16,8 @@ const icon = (name) => {
     board: "M3 4h18v14H3zM8 22l4-4 4 4M7 13l3-3 3 2 4-5",
     poll: "M5 20V10M12 20V4M19 20v-7",
     background: "M4 5h16v14H4zM8 15l3-3 2 2 3-4 4 5M9 9h.01",
+    participants: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
+    chat: "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z",
     phone: "M5 4h4l2 5-3 2c1.5 3 3 4.5 6 6l2-3 5 2v4c0 1-1 2-2 2C10 21 3 14 2 6c0-1 1-2 3-2Z",
     close: "M5 5l14 14M19 5 5 19"
   };
@@ -54,6 +56,9 @@ export class VillageMeetingRuntime {
     this.captionRecognition = null;
     this.raisedHand = false;
     this.virtualBackground = false;
+    this.streams = new Map();
+    this.participantMeta = new Map();
+    this.activeSpeakerId = "";
     this.closed = true;
   }
 
@@ -76,6 +81,21 @@ export class VillageMeetingRuntime {
 
   mount(data) {
     document.querySelector("#village-meeting")?.remove();
+    this.participantMeta.clear();
+    for (const participant of data.participants || []) {
+      this.participantMeta.set(String(participant.userId), participant);
+    }
+    const localId = String(this.getUser()?.id || "");
+    if (!this.participantMeta.has(localId)) {
+      this.participantMeta.set(localId, {
+        userId: localId,
+        displayName: this.getUser()?.name || "You",
+        avatarDataUrl: this.getUser()?.avatarDataUrl || "",
+        role: data.meeting.hostId === this.getUser()?.id ? "host" : "participant",
+        mine: true
+      });
+    }
+    this.activeSpeakerId = localId;
     const overlay = document.createElement("section");
     overlay.id = "village-meeting";
     overlay.className = "village-meeting";
@@ -88,14 +108,19 @@ export class VillageMeetingRuntime {
           <button type="button" data-meeting-action="close" class="meeting-icon" title="Leave meeting">${icon("close")}<span class="sr-only">Leave meeting</span></button>
         </div>
       </header>
-      <div class="meeting-layout">
+      <div class="meeting-layout sidebar-closed">
         <main class="meeting-stage">
-          <div id="meeting-video-grid" class="meeting-video-grid">
-            <article class="meeting-video-tile local" data-user-id="${escapeHtml(this.getUser()?.id || "")}">
-              <video id="meeting-local-video" autoplay muted playsinline></video>
-              <div class="meeting-video-placeholder">${escapeHtml(String(this.getUser()?.name || "You").charAt(0))}</div>
-              <footer><strong>You</strong><span id="meeting-local-state">Connecting…</span></footer>
-            </article>
+          <div id="meeting-video-strip" class="meeting-video-strip" aria-label="Participant video strip">
+            ${[...this.participantMeta.values()].map((participant) => this.participantThumbnailHtml(participant)).join("")}
+          </div>
+          <div class="meeting-speaker-stage">
+            <div id="meeting-video-grid" class="meeting-video-grid">
+              <article id="meeting-focus-tile" class="meeting-video-tile local active-speaker" data-user-id="${escapeHtml(localId)}">
+                <video id="meeting-focus-video" autoplay muted playsinline></video>
+                <div class="meeting-video-placeholder">${this.participantPlaceholder(this.participantMeta.get(localId))}</div>
+                <footer><strong id="meeting-focus-name">You</strong><span id="meeting-focus-state">Connecting…</span></footer>
+              </article>
+            </div>
           </div>
           <div id="meeting-captions" class="meeting-captions" aria-live="polite"></div>
           <section id="meeting-whiteboard-panel" class="meeting-tool-panel hidden">
@@ -112,9 +137,14 @@ export class VillageMeetingRuntime {
             <div id="meeting-poll-list">${this.pollsHtml(data.polls || [])}</div>
           </section>
         </main>
-        <aside class="meeting-sidebar">
-          <section><header><strong>Members</strong><span id="meeting-participant-count">${(data.participants || []).length}</span></header><div id="meeting-participants">${this.participantsHtml(data.participants || [])}</div></section>
-          <section class="meeting-chat"><header><strong>Meeting chat</strong><label class="meeting-file-button" title="Attach file">+<input id="meeting-chat-file" type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"></label></header><div id="meeting-chat-list"></div><form id="meeting-chat-form"><input name="message" maxlength="1000" placeholder="Message everyone"><button>Send</button><p class="form-error"></p></form></section>
+        <aside class="meeting-sidebar hidden" data-sidebar-view="participants">
+          <nav class="meeting-sidebar-tabs" aria-label="Meeting side panels">
+            <button type="button" data-meeting-action="sidebar-participants" class="active">Members <span id="meeting-participant-count">${(data.participants || []).length}</span></button>
+            <button type="button" data-meeting-action="sidebar-chat">Chat</button>
+            <button type="button" data-meeting-action="sidebar-close" class="meeting-sidebar-close" title="Close side panel">${icon("close")}<span class="sr-only">Close side panel</span></button>
+          </nav>
+          <section data-meeting-sidebar-panel="participants"><header><strong>Members</strong></header><div id="meeting-participants">${this.participantsHtml(data.participants || [])}</div></section>
+          <section class="meeting-chat hidden" data-meeting-sidebar-panel="chat"><header><strong>Meeting chat</strong><label class="meeting-file-button" title="Attach file">+<input id="meeting-chat-file" type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx"></label></header><div id="meeting-chat-list"></div><form id="meeting-chat-form"><input name="message" maxlength="1000" placeholder="Message everyone"><button>Send</button><p class="form-error"></p></form></section>
         </aside>
       </div>
       <nav class="meeting-controls" aria-label="Meeting controls">
@@ -122,6 +152,8 @@ export class VillageMeetingRuntime {
         <button type="button" data-meeting-action="camera" class="active" title="Turn camera off">${icon("video")}<span>Camera</span></button>
         <button type="button" data-meeting-action="screen" title="Share screen">${icon("screen")}<span>Share</span></button>
         <button type="button" data-meeting-action="record" title="Record locally">${icon("record")}<span>Record</span></button>
+        <button type="button" data-meeting-action="sidebar-participants" title="Show participants">${icon("participants")}<span>Members</span></button>
+        <button type="button" data-meeting-action="sidebar-chat" title="Open meeting chat">${icon("chat")}<span>Chat</span></button>
         <button type="button" data-meeting-action="background" title="Toggle village backdrop">${icon("background")}<span>Backdrop</span></button>
         <button type="button" data-meeting-action="hand" title="Raise hand">${icon("hand")}<span>Raise</span></button>
         <button type="button" data-meeting-action="captions" title="Toggle live captions">${icon("captions")}<span>Captions</span></button>
@@ -136,6 +168,98 @@ export class VillageMeetingRuntime {
     this.refreshChat();
   }
 
+  participantPlaceholder(participant = {}) {
+    if (participant.avatarDataUrl) return `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">`;
+    return escapeHtml(String(participant.displayName || "V").charAt(0).toUpperCase());
+  }
+
+  participantThumbnailHtml(participant = {}) {
+    const userId = String(participant.userId || "");
+    const mine = participant.mine || userId === String(this.getUser()?.id || "");
+    return `<button type="button" class="meeting-video-thumb${userId === this.activeSpeakerId ? " active-speaker" : ""}${mine ? " local" : ""}" data-meeting-action="focus-participant" data-user-id="${escapeHtml(userId)}" aria-label="Focus ${escapeHtml(participant.displayName || "Village member")}"><video autoplay ${mine ? "muted " : ""}playsinline></video><span class="meeting-video-placeholder">${this.participantPlaceholder(participant)}</span><footer><strong>${escapeHtml(mine ? "You" : participant.displayName || "Village member")}</strong><small>${escapeHtml(participant.role || "participant")}</small></footer></button>`;
+  }
+
+  syncParticipantStrip(participants = []) {
+    const strip = document.querySelector("#meeting-video-strip");
+    if (!strip) return;
+    const localId = String(this.getUser()?.id || "");
+    const records = [...participants];
+    if (!records.some((participant) => String(participant.userId) === localId)) {
+      records.unshift({
+        userId: localId,
+        displayName: this.getUser()?.name || "You",
+        avatarDataUrl: this.getUser()?.avatarDataUrl || "",
+        role: this.meeting?.hostId === this.getUser()?.id ? "host" : "participant",
+        mine: true
+      });
+    }
+    const activeIds = new Set();
+    for (const participant of records) {
+      const userId = String(participant.userId || "");
+      activeIds.add(userId);
+      this.participantMeta.set(userId, participant);
+      let thumbnail = strip.querySelector(`[data-user-id="${CSS.escape(userId)}"]`);
+      if (!thumbnail) {
+        strip.insertAdjacentHTML("beforeend", this.participantThumbnailHtml(participant));
+        thumbnail = strip.lastElementChild;
+      }
+      thumbnail.classList.toggle("active-speaker", userId === this.activeSpeakerId);
+      thumbnail.classList.toggle("local", userId === localId || participant.mine);
+      thumbnail.setAttribute("aria-label", `Focus ${participant.displayName || "Village member"}`);
+      thumbnail.querySelector(".meeting-video-placeholder").innerHTML = this.participantPlaceholder(participant);
+      thumbnail.querySelector("strong").textContent = userId === localId || participant.mine ? "You" : participant.displayName || "Village member";
+      thumbnail.querySelector("small").textContent = participant.role || "participant";
+      this.attachStream(userId, this.streams.get(userId));
+    }
+    strip.querySelectorAll("[data-user-id]").forEach((thumbnail) => {
+      if (!activeIds.has(String(thumbnail.dataset.userId || ""))) thumbnail.remove();
+    });
+    if (!activeIds.has(this.activeSpeakerId)) this.focusParticipant(localId);
+  }
+
+  attachStream(userId, stream) {
+    const id = String(userId || "");
+    const videoTrack = stream?.getVideoTracks?.()[0];
+    const hasVideo = Boolean(videoTrack);
+    const cameraOff = hasVideo && !videoTrack.enabled;
+    const thumbnail = document.querySelector(`#meeting-video-strip [data-user-id="${CSS.escape(id)}"]`);
+    const thumbnailVideo = thumbnail?.querySelector("video");
+    if (thumbnailVideo && thumbnailVideo.srcObject !== stream) thumbnailVideo.srcObject = stream || null;
+    thumbnail?.classList.toggle("has-video", hasVideo);
+    thumbnail?.classList.toggle("camera-off", cameraOff);
+    if (this.activeSpeakerId !== id) return;
+    const focusVideo = document.querySelector("#meeting-focus-video");
+    if (focusVideo && focusVideo.srcObject !== stream) focusVideo.srcObject = stream || null;
+    const focusTile = document.querySelector("#meeting-focus-tile");
+    focusTile?.classList.toggle("has-video", hasVideo);
+    focusTile?.classList.toggle("camera-off", cameraOff);
+  }
+
+  focusParticipant(userId) {
+    const id = String(userId || "");
+    const localId = String(this.getUser()?.id || "");
+    const participant = this.participantMeta.get(id) || {
+      userId: id,
+      displayName: id === localId ? this.getUser()?.name || "You" : "Village member",
+      mine: id === localId
+    };
+    this.activeSpeakerId = id;
+    const tile = document.querySelector("#meeting-focus-tile");
+    if (!tile) return;
+    tile.dataset.userId = id;
+    tile.classList.toggle("local", id === localId || participant.mine);
+    tile.classList.toggle("village-backdrop", this.virtualBackground && (id === localId || participant.mine));
+    tile.querySelector(".meeting-video-placeholder").innerHTML = this.participantPlaceholder(participant);
+    tile.querySelector("#meeting-focus-name").textContent = id === localId || participant.mine ? "You" : participant.displayName || "Village member";
+    tile.querySelector("#meeting-focus-state").textContent = this.streams.get(id)?.getTracks?.().length ? "Connected" : "Joined without camera";
+    const focusVideo = tile.querySelector("#meeting-focus-video");
+    focusVideo.muted = id === localId || Boolean(participant.mine);
+    this.attachStream(id, this.streams.get(id));
+    document.querySelectorAll("#meeting-video-strip [data-user-id]").forEach((thumbnail) => {
+      thumbnail.classList.toggle("active-speaker", String(thumbnail.dataset.userId || "") === id);
+    });
+  }
+
   participantsHtml(participants = []) {
     const host = this.meeting?.hostId === this.getUser()?.id;
     return participants.map((participant) => `<article class="meeting-participant" data-participant-id="${escapeHtml(participant.userId)}"><span class="meeting-avatar">${participant.avatarDataUrl ? `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">` : escapeHtml(String(participant.displayName || "V").charAt(0))}</span><div><strong>${escapeHtml(participant.displayName)}${participant.mine ? " (You)" : ""}</strong><small>${escapeHtml(participant.breakoutRoom || participant.role)}${participant.raisedHand ? " · Hand raised" : ""}</small></div>${host && !participant.mine ? `<details><summary>Manage</summary><button type="button" data-meeting-action="cohost" data-user-id="${escapeHtml(participant.userId)}">Make cohost</button><button type="button" data-meeting-action="breakout" data-user-id="${escapeHtml(participant.userId)}">Assign room</button><button type="button" data-meeting-action="remove" data-user-id="${escapeHtml(participant.userId)}">Remove</button></details>` : ""}</article>`).join("") || `<p class="meeting-empty">Waiting for others to join.</p>`;
@@ -146,16 +270,19 @@ export class VillageMeetingRuntime {
   }
 
   async startMedia() {
+    const localId = String(this.getUser()?.id || "");
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
-      const video = document.querySelector("#meeting-local-video");
-      if (video) video.srcObject = this.localStream;
-      video?.closest(".meeting-video-tile")?.classList.add("has-video");
-      document.querySelector("#meeting-local-state").textContent = "Camera and mic ready";
+      this.streams.set(localId, this.localStream);
+      this.attachStream(localId, this.localStream);
+      this.focusParticipant(localId);
+      document.querySelector("#meeting-focus-state").textContent = "Camera and mic ready";
       for (const peer of this.peers.values()) this.localStream.getTracks().forEach((track) => peer.addTrack(track, this.localStream));
     } catch {
       this.localStream = new MediaStream();
-      document.querySelector("#meeting-local-state").textContent = "Joined without camera";
+      this.streams.set(localId, this.localStream);
+      this.attachStream(localId, this.localStream);
+      this.focusParticipant(localId);
       this.toast("Camera or microphone was unavailable. You can still use chat, polls, and the whiteboard.");
     }
   }
@@ -217,24 +344,22 @@ export class VillageMeetingRuntime {
   }
 
   showRemoteStream(userId, stream) {
-    const grid = document.querySelector("#meeting-video-grid");
-    if (!grid) return;
-    let tile = grid.querySelector(`[data-user-id="${CSS.escape(userId)}"]`);
-    if (!tile) {
-      tile = document.createElement("article");
-      tile.className = "meeting-video-tile";
-      tile.dataset.userId = userId;
-      tile.innerHTML = `<video autoplay playsinline></video><div class="meeting-video-placeholder">V</div><footer><strong>Village member</strong><span>Connected</span></footer>`;
-      grid.append(tile);
-    }
-    tile.querySelector("video").srcObject = stream;
-    tile.classList.add("has-video");
+    const id = String(userId || "");
+    this.streams.set(id, stream);
+    if (!this.participantMeta.has(id)) this.participantMeta.set(id, { userId: id, displayName: "Village member", role: "participant" });
+    this.syncParticipantStrip([...this.participantMeta.values()]);
+    this.attachStream(id, stream);
+    if (!this.activeSpeakerId || this.activeSpeakerId === String(this.getUser()?.id || "")) this.focusParticipant(id);
   }
 
   removePeer(userId) {
-    this.peers.get(userId)?.close();
-    this.peers.delete(userId);
-    document.querySelector(`#meeting-video-grid [data-user-id="${CSS.escape(userId)}"]`)?.remove();
+    const id = String(userId || "");
+    this.peers.get(id)?.close();
+    this.peers.delete(id);
+    this.streams.delete(id);
+    this.participantMeta.delete(id);
+    document.querySelector(`#meeting-video-strip [data-user-id="${CSS.escape(id)}"]`)?.remove();
+    if (this.activeSpeakerId === id) this.focusParticipant(String(this.getUser()?.id || ""));
   }
 
   async refreshWorkspace() {
@@ -242,6 +367,7 @@ export class VillageMeetingRuntime {
     try {
       const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}`);
       this.meeting = data.meeting;
+      this.syncParticipantStrip(data.participants || []);
       const participants = document.querySelector("#meeting-participants");
       if (participants) participants.innerHTML = this.participantsHtml(data.participants || []);
       const count = document.querySelector("#meeting-participant-count");
@@ -309,6 +435,10 @@ export class VillageMeetingRuntime {
       if (action === "background") return this.toggleBackground(button);
       if (action === "hand") return this.toggleHand(button);
       if (action === "captions") return this.toggleCaptions(button);
+      if (action === "focus-participant") return this.focusParticipant(button.dataset.userId);
+      if (action === "sidebar-participants") return this.toggleSidebar("participants");
+      if (action === "sidebar-chat") return this.toggleSidebar("chat");
+      if (action === "sidebar-close") return this.toggleSidebar("");
       if (action === "board") return this.toggleTool("meeting-whiteboard-panel", button);
       if (action === "poll") return this.toggleTool("meeting-poll-panel", button);
       if (action === "clear-local-board") return this.clearWhiteboard();
@@ -340,9 +470,14 @@ export class VillageMeetingRuntime {
     track.enabled = !track.enabled;
     button.classList.toggle("active", track.enabled);
     button.querySelector("span").textContent = kind === "audio" ? (track.enabled ? "Mic" : "Muted") : (track.enabled ? "Camera" : "Camera off");
+    if (kind === "video") {
+      const localId = String(this.getUser()?.id || "");
+      document.querySelectorAll(`[data-user-id="${CSS.escape(localId)}"]`).forEach((tile) => tile.classList.toggle("camera-off", !track.enabled));
+    }
   }
 
   async toggleScreen(button) {
+    const localId = String(this.getUser()?.id || "");
     if (this.screenStream) {
       const cameraTrack = this.localStream?.getVideoTracks()[0];
       for (const peer of this.peers.values()) {
@@ -351,7 +486,9 @@ export class VillageMeetingRuntime {
       }
       this.screenStream.getTracks().forEach((track) => track.stop());
       this.screenStream = null;
-      document.querySelector("#meeting-local-video").srcObject = this.localStream;
+      this.streams.set(localId, this.localStream);
+      this.attachStream(localId, this.localStream);
+      this.focusParticipant(localId);
       button.classList.remove("active");
       return;
     }
@@ -362,7 +499,9 @@ export class VillageMeetingRuntime {
         const sender = peer.getSenders().find((item) => item.track?.kind === "video");
         if (sender) await sender.replaceTrack(screenTrack);
       }
-      document.querySelector("#meeting-local-video").srcObject = this.screenStream;
+      this.streams.set(localId, this.screenStream);
+      this.attachStream(localId, this.screenStream);
+      this.focusParticipant(localId);
       screenTrack.onended = () => this.toggleScreen(button);
       button.classList.add("active");
     } catch {}
@@ -392,7 +531,8 @@ export class VillageMeetingRuntime {
 
   async toggleBackground(button) {
     this.virtualBackground = !this.virtualBackground;
-    document.querySelector(".meeting-video-tile.local")?.classList.toggle("village-backdrop", this.virtualBackground);
+    const localId = String(this.getUser()?.id || "");
+    document.querySelectorAll(`[data-user-id="${CSS.escape(localId)}"]`).forEach((tile) => tile.classList.toggle("village-backdrop", this.virtualBackground));
     button.classList.toggle("active", this.virtualBackground);
     const track = this.localStream?.getVideoTracks()[0];
     if (track?.applyConstraints) {
@@ -449,6 +589,25 @@ export class VillageMeetingRuntime {
     panel.classList.toggle("hidden", !opening);
     button.classList.toggle("active", opening);
     if (id === "meeting-whiteboard-panel" && opening) this.pollWhiteboard();
+  }
+
+  toggleSidebar(view) {
+    const layout = document.querySelector(".meeting-layout");
+    const sidebar = document.querySelector(".meeting-sidebar");
+    if (!layout || !sidebar) return;
+    const opening = Boolean(view);
+    sidebar.classList.toggle("hidden", !opening);
+    layout.classList.toggle("sidebar-closed", !opening);
+    if (!opening) {
+      document.querySelectorAll('[data-meeting-action^="sidebar-"]').forEach((item) => item.classList.remove("active"));
+      return;
+    }
+    sidebar.dataset.sidebarView = view;
+    document.querySelectorAll("[data-meeting-sidebar-panel]").forEach((panel) => {
+      panel.classList.toggle("hidden", panel.dataset.meetingSidebarPanel !== view);
+    });
+    document.querySelectorAll('[data-meeting-action="sidebar-participants"]').forEach((item) => item.classList.toggle("active", view === "participants"));
+    document.querySelectorAll('[data-meeting-action="sidebar-chat"]').forEach((item) => item.classList.toggle("active", view === "chat"));
   }
 
   setupWhiteboard() {
@@ -522,6 +681,9 @@ export class VillageMeetingRuntime {
     this.screenStream?.getTracks().forEach((track) => track.stop());
     this.peers.forEach((peer) => peer.close());
     this.peers.clear();
+    this.streams.clear();
+    this.participantMeta.clear();
+    this.activeSpeakerId = "";
     if (this.meeting && !quiet) {
       try { await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/join`, { method: "DELETE" }); } catch {}
     }
