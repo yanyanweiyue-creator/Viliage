@@ -272,8 +272,11 @@ test("registration and survey automatically send the expected Google Sheet field
     });
     assert.equal(feedback.status, 200);
     assert.equal(JSON.parse(feedback.text).sync.synced, true);
-    assert.equal(received[2].action, "upsert-user");
-    assert.equal("feedback" in received[2], false);
+    assert.equal(received[2].action, "record-feedback");
+    assert.equal(received[2].sheetGid, "0");
+    assert.equal(received[2].Feedback, "Please keep the calmer map controls.");
+    assert.equal(received[2]["Star(1-5)"], "");
+    assert.equal(received[2]["Helpful / Nonhelpful"], "");
 
     const likeBody = JSON.stringify({ resource: { name: "Inclusive Resource", url: "https://example.org/resource", description: "A calm support listing.", topic: "Education", score: 42 }, liked: true });
     const like = await httpRequest(`http://127.0.0.1:${port}/api/resources/like`, {
@@ -579,6 +582,509 @@ test("admin primary keyword blocklist filters local recommendation keywords", as
     assert.deepEqual(JSON.parse(recommend.text).researchContext.primaryKeywords, ["medicaid"]);
   } finally {
     globalThis.fetch = originalFetch;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local meeting invitations grant meeting-only access without parent chat membership", async () => {
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const call = async (path, { cookie = "", method = "GET", payload } = {}) => {
+    const requestBody = payload === undefined ? "" : JSON.stringify(payload);
+    const response = await httpRequest(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: {
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(requestBody ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(requestBody) } : {})
+      },
+      ...(requestBody ? { body: requestBody } : {})
+    });
+    return { response, data: JSON.parse(response.text) };
+  };
+  const register = async (name, email) => {
+    const result = await call("/api/auth/register", { method: "POST", payload: { name, email, password: "safe-password" } });
+    assert.equal(result.response.status, 201);
+    const member = { user: result.data.user, cookie: result.response.headers["set-cookie"][0].split(";")[0] };
+    assert.equal((await call("/api/community/settings", { cookie: member.cookie, method: "POST", payload: { enabled: true, displayName: name } })).response.status, 200);
+    return member;
+  };
+  try {
+    const owner = await register("Local Meeting Owner", `meeting-owner-${unique}@example.com`);
+    const friend = await register("Local Meeting Friend", `meeting-friend-${unique}@example.com`);
+    const observer = await register("Local Meeting Observer", `meeting-observer-${unique}@example.com`);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: observer.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call("/api/community/connect", { cookie: owner.cookie, method: "POST", payload: { targetUserId: friend.user.id } })).response.status, 201);
+    const friendOverview = await call("/api/community", { cookie: friend.cookie });
+    const connectionId = friendOverview.data.incoming.find((connection) => connection.user_id === owner.user.id).id;
+    assert.equal((await call(`/api/community/connections/${connectionId}/accept`, { cookie: friend.cookie, method: "POST", payload: {} })).response.status, 200);
+
+    const meeting = await call("/api/community/meetings", {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: {
+        roomId: "group-general",
+        title: "Local invitation boundary",
+        startsAt: new Date(Date.now() + 60_000).toISOString(),
+        durationMinutes: 30
+      }
+    });
+    const meetingId = meeting.data.meeting.id;
+    assert.equal((await call(`/api/community/meetings/${meetingId}/invitations`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientIds: [friend.user.id] }
+    })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: owner.cookie })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/messages`, { cookie: owner.cookie })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/whiteboard`, { cookie: owner.cookie })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: observer.cookie, method: "POST", payload: {} })).response.status, 200);
+    const beforeInvitation = JSON.parse(await readFile(communityFile, "utf8"));
+    const invited = await call(`/api/community/meetings/${meetingId}/invitations`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientIds: [friend.user.id] }
+    });
+    assert.equal(invited.response.status, 200);
+    assert.equal(invited.data.invited, 1);
+    const afterInvitation = JSON.parse(await readFile(communityFile, "utf8"));
+    assert.equal(afterInvitation.members.length, beforeInvitation.members.length);
+    assert.equal(afterInvitation.connections.length, beforeInvitation.connections.length);
+    assert.equal(afterInvitation.members.some((member) => member.roomId === "group-general" && member.userId === friend.user.id), false);
+    const invitation = afterInvitation.meetingInvitations.find((item) => item.meetingId === meetingId && item.recipientId === friend.user.id);
+    assert.equal(invitation.status, "pending");
+    const notifications = await call("/api/community/notifications", { cookie: friend.cookie });
+    const notification = notifications.data.notifications.find((item) => item.kind === "meeting-invite" && item.metadata.meetingId === meetingId);
+    assert.deepEqual(Object.keys(notification.metadata).sort(), ["invitationId", "meetingId"]);
+
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: friend.cookie })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/messages`, { cookie: friend.cookie })).response.status, 403);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: friend.cookie })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: friend.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/messages`, { cookie: friend.cookie })).response.status, 200);
+
+    const localMeetingMessage = await call(`/api/community/meetings/${meetingId}/messages`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { message: "Local Meeting access boundary", audience: "everyone" }
+    });
+    assert.equal(localMeetingMessage.response.status, 201);
+    const localPrivateMessage = await call(`/api/community/meetings/${meetingId}/messages`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { message: "Private local Meeting note", audience: "private", recipientIds: [friend.user.id] }
+    });
+    assert.equal(localPrivateMessage.response.status, 201);
+    const localPublicReply = await call(`/api/community/meetings/${meetingId}/messages`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { message: "Public local follow-up", audience: "everyone", replyToId: localPrivateMessage.data.message.id }
+    });
+    assert.equal(localPublicReply.response.status, 201);
+    const localOwnerReplyView = await call(`/api/community/meetings/${meetingId}/messages`, { cookie: owner.cookie });
+    assert.equal(localOwnerReplyView.data.messages.at(-1).replyTo.body, "Private local Meeting note");
+    const localObserverReplyView = await call(`/api/community/meetings/${meetingId}/messages`, { cookie: observer.cookie });
+    assert.equal(localObserverReplyView.data.messages.at(-1).body, "Public local follow-up");
+    assert.equal(localObserverReplyView.data.messages.at(-1).replyToId, null);
+    assert.equal(localObserverReplyView.data.messages.at(-1).replyTo, null);
+    assert.equal(JSON.stringify(localObserverReplyView.data).includes("Private local Meeting note"), false);
+    assert.equal((await call(`/api/community/meeting-messages/${localPrivateMessage.data.message.id}/reactions`, {
+      cookie: observer.cookie,
+      method: "POST",
+      payload: { emoji: "👍" }
+    })).response.status, 404);
+    const localPoll = await call(`/api/community/meetings/${meetingId}/polls`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { question: "Local access?", options: ["Yes", "No"] }
+    });
+    assert.equal(localPoll.response.status, 201);
+    assert.equal((await call(`/api/community/polls/${localPoll.data.poll.id}/start`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: {}
+    })).response.status, 200);
+
+    assert.equal((await call(`/api/community/meetings/${meetingId}/signals`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientId: friend.user.id, kind: "offer", payload: { sdp: "before-cleanup" } }
+    })).response.status, 201);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/signals`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientId: friend.user.id, kind: "offer", payload: {} }
+    })).response.status, 400);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/signals`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientId: friend.user.id, kind: "candidate", payload: [] }
+    })).response.status, 400);
+    const beforeSignalCleanup = await call(`/api/community/meetings/${meetingId}/signals?cursor=0`, { cookie: friend.cookie });
+    const savedSignalCursor = beforeSignalCleanup.data.signals[0].cursor;
+    const signalState = JSON.parse(await readFile(communityFile, "utf8"));
+    signalState.meetingSignals = [];
+    await writeFile(communityFile, JSON.stringify(signalState, null, 2));
+    assert.equal((await call(`/api/community/meetings/${meetingId}/signals`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientId: friend.user.id, kind: "candidate", payload: { candidate: "after-cleanup" } }
+    })).response.status, 201);
+    const afterSignalCleanup = await call(`/api/community/meetings/${meetingId}/signals?cursor=${savedSignalCursor}`, { cookie: friend.cookie });
+    assert.equal(afterSignalCleanup.data.signals.length, 1);
+    assert.equal(afterSignalCleanup.data.signals[0].payload.candidate, "after-cleanup");
+    assert.ok(afterSignalCleanup.data.signals[0].cursor > savedSignalCursor);
+
+    assert.equal((await call(`/api/community/meetings/${meetingId}/state`, {
+      cookie: friend.cookie,
+      method: "PATCH",
+      payload: { userId: owner.user.id, remove: true }
+    })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/state`, {
+      cookie: owner.cookie,
+      method: "PATCH",
+      payload: { userId: friend.user.id, remove: true }
+    })).response.status, 200);
+    const removedState = JSON.parse(await readFile(communityFile, "utf8"));
+    const removedFriend = removedState.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === friend.user.id);
+    assert.ok(removedFriend.leftAt);
+    assert.ok(removedFriend.removedAt);
+    assert.equal(removedFriend.removedBy, owner.user.id);
+    assert.equal(removedFriend.restoredAt, null);
+    assert.equal(removedFriend.restoredBy, null);
+    for (const [path, options] of [
+      [`/api/community/meetings/${meetingId}`, {}],
+      [`/api/community/meetings/${meetingId}/signals`, {}],
+      [`/api/community/meetings/${meetingId}/translate`, { method: "POST", payload: { text: "hello", targetLanguage: "es" } }],
+      [`/api/community/meetings/${meetingId}/state`, { method: "PATCH", payload: { raisedHand: true } }],
+      [`/api/community/meetings/${meetingId}/whiteboard`, {}],
+      [`/api/community/meetings/${meetingId}/messages`, {}],
+      [`/api/community/meetings/${meetingId}/polls`, { method: "POST", payload: { question: "Blocked?", options: ["Yes", "No"] } }],
+      [`/api/community/meetings/${meetingId}/invitations`, {}],
+      [`/api/community/meeting-messages/${localMeetingMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } }],
+      [`/api/community/polls/${localPoll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } }]
+    ]) {
+      assert.equal((await call(path, { cookie: friend.cookie, ...options })).response.status, 403, path);
+    }
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: friend.cookie, method: "POST", payload: {} })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/state`, {
+      cookie: friend.cookie,
+      method: "PATCH",
+      payload: { userId: friend.user.id, restore: true }
+    })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/state`, {
+      cookie: owner.cookie,
+      method: "PATCH",
+      payload: { userId: friend.user.id, restore: true }
+    })).response.status, 200);
+    const restoredState = JSON.parse(await readFile(communityFile, "utf8"));
+    const restoredFriend = restoredState.meetingParticipants.find((item) => item.meetingId === meetingId && item.userId === friend.user.id);
+    assert.ok(restoredFriend.leftAt);
+    assert.ok(restoredFriend.removedAt);
+    assert.equal(restoredFriend.removedBy, owner.user.id);
+    assert.ok(restoredFriend.restoredAt);
+    assert.equal(restoredFriend.restoredBy, owner.user.id);
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: friend.cookie })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/messages`, { cookie: friend.cookie })).response.status, 403);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: friend.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: friend.cookie })).response.status, 200);
+
+    assert.equal((await call(`/api/community/meetings/${meetingId}/invitations`, {
+      cookie: owner.cookie,
+      method: "DELETE",
+      payload: { invitationId: invitation.id }
+    })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: friend.cookie })).response.status, 404);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/invitations`, {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { recipientIds: [friend.user.id] }
+    })).response.status, 200);
+    assert.equal((await call(`/api/community/blocks/${friend.user.id}`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: friend.cookie })).response.status, 404);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: friend.cookie, method: "POST", payload: {} })).response.status, 404);
+    assert.equal((await call(`/api/community/meetings/${meetingId}/end`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    const ended = JSON.parse(await readFile(communityFile, "utf8"));
+    assert.equal(ended.meetingInvitations.find((item) => item.id === invitation.id).status, "ended");
+    for (const [path, options] of [
+      [`/api/community/meetings/${meetingId}`, {}],
+      [`/api/community/meetings/${meetingId}/signals`, {}],
+      [`/api/community/meetings/${meetingId}/whiteboard`, {}],
+      [`/api/community/meetings/${meetingId}/messages`, {}],
+      [`/api/community/meeting-messages/${localMeetingMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } }],
+      [`/api/community/polls/${localPoll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } }]
+    ]) {
+      assert.equal((await call(path, { cookie: owner.cookie, ...options })).response.status, 404, path);
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local server persists and enforces report-linked Community penalties", async () => {
+  const previousAdmins = process.env.ADMIN_EMAILS;
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const adminEmail = `moderation-admin-${unique}@example.com`;
+  process.env.ADMIN_EMAILS = [previousAdmins, adminEmail].filter(Boolean).join(",");
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const call = async (path, { cookie = "", method = "GET", payload } = {}) => {
+    const requestBody = payload === undefined ? "" : JSON.stringify(payload);
+    const response = await httpRequest(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: {
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(requestBody ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(requestBody) } : {})
+      },
+      ...(requestBody ? { body: requestBody } : {})
+    });
+    return { response, data: JSON.parse(response.text) };
+  };
+  const register = async (name, email) => {
+    const result = await call("/api/auth/register", { method: "POST", payload: { name, email, password: "safe-password" } });
+    assert.equal(result.response.status, 201);
+    return { user: result.data.user, cookie: result.response.headers["set-cookie"][0].split(";")[0] };
+  };
+  try {
+    const admin = await register("Moderation Admin", adminEmail);
+    const target = await register("Local Reported Member", `moderation-target-${unique}@example.com`);
+    const reporter = await register("Local Reporter", `moderation-reporter-${unique}@example.com`);
+    for (const member of [admin, target, reporter]) {
+      assert.equal((await call("/api/community/settings", { cookie: member.cookie, method: "POST", payload: { enabled: true, displayName: member.user.name } })).response.status, 200);
+      assert.equal((await call("/api/community/rooms/group-general/join", { cookie: member.cookie, method: "POST", payload: {} })).response.status, 200);
+    }
+    const sent = await call("/api/community/rooms/group-general/messages", { cookie: target.cookie, method: "POST", payload: { message: "Local reported message" } });
+    const reported = await call(`/api/community/messages/${sent.data.message.id}/report`, { cookie: reporter.cookie, method: "POST", payload: { reason: "Local repeated harassment" } });
+    assert.equal(reported.response.status, 201);
+    const reports = await call("/api/admin/community-reports", { cookie: admin.cookie });
+    assert.equal(reports.response.status, 200);
+    const reportId = reports.data.reports.find((report) => report.id === reported.data.reportId).id;
+    assert.equal((await call(`/api/admin/community-reports/${reportId}`, {
+      cookie: admin.cookie,
+      method: "PATCH",
+      payload: { status: "dismissed", resolutionNote: "Not actionable yet" }
+    })).response.status, 200);
+    assert.equal((await call(`/api/admin/community-reports/${reportId}/sanctions`, {
+      cookie: admin.cookie,
+      method: "POST",
+      payload: { type: "chat_mute", reason: "Local repeated harassment", durationSeconds: 864000 }
+    })).response.status, 409);
+    assert.equal((await call(`/api/admin/community-reports/${reportId}`, {
+      cookie: admin.cookie,
+      method: "PATCH",
+      payload: { status: "open" }
+    })).response.status, 200);
+    const muted = await call(`/api/admin/community-reports/${reportId}/sanctions`, {
+      cookie: admin.cookie,
+      method: "POST",
+      payload: { type: "chat_mute", reason: "Local repeated harassment", durationSeconds: 864000 }
+    });
+    assert.equal(muted.response.status, 201);
+    const overview = await call("/api/community", { cookie: target.cookie });
+    assert.equal(overview.data.moderation.access.chatWrite, false);
+    assert.equal(overview.data.moderation.sanctions[0].reason, "Local repeated harassment");
+    assert.ok(overview.data.moderation.sanctions[0].endsAt);
+    const blocked = await call("/api/community/rooms/group-general/messages", { cookie: target.cookie, method: "POST", payload: { message: "@所有人 blocked by the account chat mute" } });
+    assert.equal(blocked.response.status, 403);
+    assert.equal(blocked.data.code, "COMMUNITY_SANCTION");
+    for (const path of [
+      "/api/community/connect",
+      "/api/community/groups",
+      "/api/community/posts",
+      "/api/community/posts/missing/comments",
+      "/api/community/rooms/group-general/invite",
+      "/api/community/meetings",
+      "/api/community/meetings/missing/invitations",
+      "/api/community/meetings/missing/messages",
+      "/api/community/meetings/missing/polls",
+      "/api/community/meetings/missing/whiteboard",
+      "/api/community/meeting-messages/missing/reactions",
+      "/api/community/documents/missing/comments",
+      "/api/community/documents/missing/share"
+    ]) {
+      const blockedWrite = await call(path, { cookie: target.cookie, method: "POST", payload: {} });
+      assert.equal(blockedWrite.response.status, 403, path);
+      assert.equal(blockedWrite.data.code, "COMMUNITY_SANCTION", path);
+    }
+    assert.equal((await call(`/api/admin/community-sanctions/${muted.data.sanction.id}/revoke`, { cookie: admin.cookie, method: "PATCH", payload: { reason: "Appeal accepted" } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: target.cookie, method: "POST", payload: { message: "Allowed after appeal" } })).response.status, 201);
+
+    assert.equal((await call(`/api/admin/community-reports/${reportId}/sanctions`, {
+      cookie: admin.cookie,
+      method: "POST",
+      payload: { type: "community_ban", reason: "Local safety review", durationSeconds: 259200 }
+    })).response.status, 201);
+    const restricted = await call("/api/community", { cookie: target.cookie });
+    assert.equal(restricted.data.restricted, true);
+    assert.equal(restricted.data.moderation.sanctions[0].reason, "Local safety review");
+    assert.equal((await call("/api/community/posts", { cookie: target.cookie })).response.status, 403);
+
+    assert.equal((await call(`/api/admin/community-reports/${reportId}/sanctions`, {
+      cookie: admin.cookie,
+      method: "POST",
+      payload: { type: "site_blacklist", reason: "Local severe safety violation", permanent: true }
+    })).response.status, 201);
+    assert.equal((await call("/api/auth/me", { cookie: target.cookie })).response.status, 401);
+    const login = await call("/api/auth/login", { method: "POST", payload: { email: target.user.email, password: "safe-password" } });
+    assert.equal(login.response.status, 403);
+    assert.equal(login.data.moderation.access.site, false);
+    assert.ok((await readFile(usersFile, "utf8")).includes(target.user.email));
+    const persistedCommunity = JSON.parse(await readFile(communityFile, "utf8"));
+    assert.equal(persistedCommunity.profiles[target.user.id].displayName, target.user.name);
+    assert.equal(persistedCommunity.messages.some((message) => message.userId === target.user.id), true);
+  } finally {
+    if (previousAdmins === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = previousAdmins;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local group administration mirrors owner, admin, mute, approval, transfer, and dissolve rules", async () => {
+  const previousAdmins = process.env.ADMIN_EMAILS;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const siteAdminEmail = `group-system-admin-${suffix}@example.com`;
+  process.env.ADMIN_EMAILS = [previousAdmins, siteAdminEmail].filter(Boolean).join(",");
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const call = async (path, { cookie = "", method = "GET", payload } = {}) => {
+    const requestBody = payload === undefined ? "" : JSON.stringify(payload);
+    const response = await httpRequest(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: {
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(requestBody ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(requestBody) } : {})
+      },
+      ...(requestBody ? { body: requestBody } : {})
+    });
+    return { response, data: JSON.parse(response.text) };
+  };
+  const register = async (name, email) => {
+    const result = await call("/api/auth/register", { method: "POST", payload: { name, email, password: "safe-password" } });
+    assert.equal(result.response.status, 201);
+    const member = { user: result.data.user, cookie: result.response.headers["set-cookie"][0].split(";")[0] };
+    assert.equal((await call("/api/community/settings", { cookie: member.cookie, method: "POST", payload: { enabled: true, displayName: name } })).response.status, 200);
+    return member;
+  };
+  const connect = async (requester, recipient) => {
+    assert.equal((await call("/api/community/connect", { cookie: requester.cookie, method: "POST", payload: { targetUserId: recipient.user.id } })).response.status, 201);
+    const overview = await call("/api/community", { cookie: recipient.cookie });
+    const pending = overview.data.incoming.find((item) => item.user_id === requester.user.id);
+    assert.ok(pending);
+    assert.equal((await call(`/api/community/connections/${pending.id}/accept`, { cookie: recipient.cookie, method: "POST", payload: {} })).response.status, 200);
+  };
+  const acceptGroupInvite = async (member, roomId, reviewer) => {
+    const overview = await call("/api/community", { cookie: member.cookie });
+    const invitation = overview.data.groupInvites.find((item) => item.room_id === roomId);
+    assert.ok(invitation);
+    const accepted = await call(`/api/community/group-invitations/${invitation.id}/accept`, { cookie: member.cookie, method: "POST", payload: {} });
+    if (!reviewer) {
+      assert.equal(accepted.response.status, 200);
+      assert.equal(accepted.data.pendingApproval, false);
+      return;
+    }
+    assert.equal(accepted.response.status, 202);
+    assert.equal(accepted.data.pendingApproval, true);
+    const requests = await call(`/api/community/rooms/${roomId}/join-requests`, { cookie: reviewer.cookie });
+    const requestItem = requests.data.requests.find((item) => item.userId === member.user.id);
+    assert.ok(requestItem);
+    assert.equal((await call(`/api/community/rooms/${roomId}/join-requests/${requestItem.id}`, { cookie: reviewer.cookie, method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+  };
+
+  try {
+    const owner = await register("Local Group Owner", `local-group-owner-${suffix}@example.com`);
+    const successor = await register("Local Future Owner", `local-group-successor-${suffix}@example.com`);
+    const appointedAdmin = await register("Local Group Admin", `local-group-admin-${suffix}@example.com`);
+    const ordinary = await register("Local Ordinary Member", `local-group-member-${suffix}@example.com`);
+    const outsider = await register("Local Outsider", `local-group-outsider-${suffix}@example.com`);
+    for (const member of [successor, appointedAdmin, ordinary]) await connect(owner, member);
+
+    const created = await call("/api/community/groups", {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { name: "Local Family Circle", memberIds: [successor.user.id, appointedAdmin.user.id, ordinary.user.id] }
+    });
+    assert.equal(created.response.status, 201);
+    const roomId = created.data.room.id;
+    for (const member of [successor, appointedAdmin, ordinary]) await acceptGroupInvite(member, roomId);
+
+    const ownerView = await call(`/api/community/rooms/${roomId}/messages`, { cookie: owner.cookie });
+    assert.equal(ownerView.data.room.ownerId, owner.user.id);
+    assert.equal(ownerView.data.room.currentUserRole, "owner");
+    assert.equal(ownerView.data.room.canManageAdmins, true);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: ordinary.cookie, method: "PATCH", payload: { name: "Unauthorized" } })).response.status, 403);
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${outsider.user.id}`, { cookie: owner.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 404);
+    await connect(owner, outsider);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: owner.cookie, method: "PATCH", payload: { inviteConfirmationRequired: true } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/invite`, { cookie: owner.cookie, method: "POST", payload: { memberIds: [outsider.user.id] } })).response.status, 200);
+    await acceptGroupInvite(outsider, roomId, owner);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${appointedAdmin.user.id}`, { cookie: owner.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, {
+      cookie: appointedAdmin.cookie,
+      method: "PATCH",
+      payload: { name: "Locally managed circle", announcement: "Local group notice", announcementPinned: true }
+    })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: appointedAdmin.cookie, method: "PATCH", payload: { joinApprovalRequired: false } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${successor.user.id}`, { cookie: appointedAdmin.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 403);
+
+    const muted = await call(`/api/community/rooms/${roomId}/members/${ordinary.user.id}`, {
+      cookie: appointedAdmin.cookie,
+      method: "PATCH",
+      payload: { durationSeconds: 3600, muteReason: "Local cooling-off period" }
+    });
+    assert.equal(muted.response.status, 200);
+    assert.ok(muted.data.member.mutedUntil);
+    const blocked = await call(`/api/community/rooms/${roomId}/messages`, { cookie: ordinary.cookie, method: "POST", payload: { message: "@所有人 muted local broadcast" } });
+    assert.equal(blocked.response.status, 403);
+    assert.equal(blocked.data.code, "ROOM_MUTED");
+    assert.equal((await call(`/api/community/rooms/${roomId}/messages`, { cookie: successor.cookie, method: "POST", payload: { message: "@everyone ordinary local broadcast" } })).response.status, 201);
+    assert.equal((await call(`/api/community/rooms/${roomId}/messages`, { cookie: appointedAdmin.cookie, method: "POST", payload: { message: "@everyone valid local notice" } })).response.status, 201);
+
+    const memberView = await call(`/api/community/rooms/${roomId}/messages`, { cookie: successor.cookie });
+    assert.equal(memberView.data.room.announcement, "Local group notice");
+    assert.equal(memberView.data.room.announcementPinned, true);
+    assert.equal(memberView.data.room.currentUserRole, "member");
+    assert.equal(memberView.data.room.canMentionEveryone, true);
+    assert.equal(memberView.data.members.find((item) => item.userId === ordinary.user.id).isMuted, true);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}/ownership`, { cookie: owner.cookie, method: "POST", payload: { userId: successor.user.id } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/leave`, { cookie: successor.cookie, method: "POST", payload: {} })).response.status, 409);
+    assert.equal((await call(`/api/community/rooms/${roomId}/leave`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/ownership`, { cookie: owner.cookie, method: "POST", payload: { userId: appointedAdmin.user.id } })).response.status, 403);
+
+    const siteAdmin = await register("Local System Administrator", siteAdminEmail);
+    const systemModerator = await register("Local System Moderator", `local-system-moderator-${suffix}@example.com`);
+    const applicant = await register("Local Join Applicant", `local-system-applicant-${suffix}@example.com`);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: siteAdmin.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: systemModerator.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/group-general/members/${systemModerator.user.id}`, { cookie: siteAdmin.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: systemModerator.cookie, method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: siteAdmin.cookie, method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+    const pendingJoin = await call("/api/community/rooms/group-general/join", { cookie: applicant.cookie, method: "POST", payload: {} });
+    assert.equal(pendingJoin.response.status, 202);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: applicant.cookie })).response.status, 403);
+    const requests = await call("/api/community/rooms/group-general/join-requests", { cookie: systemModerator.cookie });
+    const requestItem = requests.data.requests.find((item) => item.userId === applicant.user.id);
+    assert.ok(requestItem);
+    assert.equal((await call(`/api/community/rooms/group-general/join-requests/${requestItem.id}`, { cookie: systemModerator.cookie, method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: applicant.cookie })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: siteAdmin.cookie, method: "DELETE" })).response.status, 403);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: successor.cookie, method: "DELETE" })).response.status, 200);
+    const persisted = JSON.parse(await readFile(communityFile, "utf8"));
+    assert.equal(persisted.rooms.some((room) => room.id === roomId), false);
+    assert.equal(persisted.members.some((member) => member.roomId === roomId), false);
+  } finally {
+    if (previousAdmins === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = previousAdmins;
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }

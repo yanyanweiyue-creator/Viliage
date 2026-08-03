@@ -60,6 +60,63 @@ function readFileDataUrl(file, maxBytes = 650000) {
 
 const meetingId = () => globalThis.crypto?.randomUUID?.() || `meeting-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value)));
+const DEFAULT_MEETING_ICE_SERVERS = [
+  { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }
+];
+const CAPTION_SPEECH_LANGUAGES = [
+  ["en-US", "English"],
+  ["zh-CN", "中文（普通话）"],
+  ["es-ES", "Español"],
+  ["fr-FR", "Français"],
+  ["de-DE", "Deutsch"],
+  ["pt-BR", "Português"],
+  ["ja-JP", "日本語"],
+  ["ko-KR", "한국어"],
+  ["ar-SA", "العربية"],
+  ["hi-IN", "हिन्दी"]
+];
+const CAPTION_TRANSLATION_LANGUAGES = [
+  ["", "Original language"],
+  ["en", "English"],
+  ["zh-CN", "简体中文"],
+  ["zh-TW", "繁體中文"],
+  ["es", "Español"],
+  ["fr", "Français"],
+  ["de", "Deutsch"],
+  ["pt", "Português"],
+  ["ja", "日本語"],
+  ["ko", "한국어"],
+  ["ar", "العربية"],
+  ["hi", "हिन्दी"]
+];
+const MODERATION_BLOCKED_MEETING_ACTIONS = new Set([
+  "board-tool",
+  "board-undo",
+  "board-redo",
+  "board-copy",
+  "board-lock",
+  "board-delete",
+  "board-clear",
+  "board-add-page",
+  "board-add-layer",
+  "board-version",
+  "chat-everyone",
+  "chat-new",
+  "chat-start",
+  "chat-reply",
+  "chat-cancel-reply",
+  "chat-format",
+  "chat-emoji",
+  "chat-insert-emoji",
+  "chat-cloud",
+  "chat-react"
+]);
+
+function captionLanguageForSite(language = "en") {
+  if (language === "zh") return "zh-CN";
+  if (language === "es") return "es-ES";
+  return "en-US";
+}
 
 function meetingMessageBody(value = "", format = {}) {
   const lines = String(value).split(/\r?\n/);
@@ -84,20 +141,37 @@ function downloadMeetingFile(name, value, type = "text/plain") {
 }
 
 export class VillageMeetingRuntime {
-  constructor({ api, getUser, toast = () => {}, onClose = () => {} }) {
+  constructor({
+    api,
+    getUser,
+    canChatWrite = () => true,
+    toast = () => {},
+    onClose = () => {},
+    getLanguage = () => "en",
+    suspendVoiceControl = () => false,
+    resumeVoiceControl = () => {}
+  }) {
     this.api = api;
     this.getUser = getUser;
+    this.canChatWrite = canChatWrite;
     this.toast = toast;
     this.onClose = onClose;
+    this.getLanguage = getLanguage;
+    this.suspendVoiceControl = suspendVoiceControl;
+    this.resumeVoiceControl = resumeVoiceControl;
     this.meeting = null;
     this.room = null;
     this.localStream = null;
     this.screenStream = null;
     this.peers = new Map();
+    this.peerStates = new Map();
+    this.peerRecoveryTimers = new Map();
+    this.iceServers = DEFAULT_MEETING_ICE_SERVERS;
     this.signalTimer = null;
     this.refreshTimer = null;
     this.whiteboardTimer = null;
-    this.signalCursor = "";
+    this.signalCursor = 0;
+    this.signalPollBusy = false;
     this.whiteboardCursor = 0;
     this.whiteboardEvents = [];
     this.boardObjects = new Map();
@@ -121,11 +195,21 @@ export class VillageMeetingRuntime {
     this.recorder = null;
     this.recordingChunks = [];
     this.captionRecognition = null;
+    this.captionsWanted = false;
+    this.captionRestartTimer = null;
+    this.captionRestartAttempt = 0;
+    this.captionSpeechLanguage = "en-US";
+    this.captionTranslationLanguage = "";
+    this.captionTranslationCache = new Map();
+    this.captionDisplayToken = 0;
+    this.captionTranslationWarned = false;
+    this.voiceControlWasSuspended = false;
     this.raisedHand = false;
     this.virtualBackground = false;
     this.streams = new Map();
     this.participantMeta = new Map();
     this.activeSpeakerId = "";
+    this.audioUnlockPending = false;
     this.polls = [];
     this.pollCountdownTimer = null;
     this.dismissedPollIds = new Set();
@@ -137,23 +221,64 @@ export class VillageMeetingRuntime {
     this.closed = true;
   }
 
+  captionPreferenceKey() {
+    return `village-meeting-captions:${String(this.getUser()?.id || "anonymous")}`;
+  }
+
+  loadCaptionPreferences() {
+    this.captionSpeechLanguage = captionLanguageForSite(this.getLanguage());
+    this.captionTranslationLanguage = "";
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem(this.captionPreferenceKey()) || "{}");
+      if (CAPTION_SPEECH_LANGUAGES.some(([value]) => value === saved.speechLanguage)) {
+        this.captionSpeechLanguage = saved.speechLanguage;
+      }
+      if (CAPTION_TRANSLATION_LANGUAGES.some(([value]) => value === saved.translationLanguage)) {
+        this.captionTranslationLanguage = saved.translationLanguage;
+      }
+    } catch {}
+  }
+
+  saveCaptionPreferences() {
+    try {
+      globalThis.localStorage?.setItem(this.captionPreferenceKey(), JSON.stringify({
+        speechLanguage: this.captionSpeechLanguage,
+        translationLanguage: this.captionTranslationLanguage
+      }));
+    } catch {}
+  }
+
   async open(meetingId, room) {
     await this.close({ quiet: true });
     this.closed = false;
     this.room = room;
-    const data = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}`);
-    this.meeting = data.meeting;
-    this.polls = data.polls || [];
-    this.raisedHand = Boolean((data.participants || []).find((participant) => participant.mine)?.raisedHand);
-    this.mount(data);
-    const joined = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}/join`, { method: "POST", body: "{}" });
-    await this.startMedia();
-    for (const participantId of joined.participantIds || []) {
-      if (String(this.getUser()?.id || "") < String(participantId)) await this.offerTo(participantId);
+    this.signalCursor = 0;
+    this.signalPollBusy = false;
+    this.loadCaptionPreferences();
+    try {
+      const data = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}`);
+      this.meeting = data.meeting;
+      this.iceServers = Array.isArray(data.rtcConfiguration?.iceServers) && data.rtcConfiguration.iceServers.length
+        ? data.rtcConfiguration.iceServers
+        : DEFAULT_MEETING_ICE_SERVERS;
+      this.polls = data.polls || [];
+      this.raisedHand = Boolean((data.participants || []).find((participant) => participant.mine)?.raisedHand);
+      this.mount(data);
+      const joined = await this.api(`/api/community/meetings/${encodeURIComponent(meetingId)}/join`, { method: "POST", body: "{}" });
+      this.signalCursor = Math.max(0, Number(joined.signalCursor || 0));
+      this.signalTimer = setInterval(() => this.pollSignals(), 650);
+      this.refreshTimer = setInterval(() => this.refreshWorkspace(), 4000);
+      this.startMedia().catch(() => {
+        const status = document.querySelector("#meeting-focus-state");
+        if (status && !this.closed && this.meeting?.id === meetingId) status.textContent = "Joined without camera or microphone";
+      });
+      await this.pollSignals();
+      await Promise.allSettled((joined.participantIds || []).map((participantId) => this.offerTo(participantId)));
+      await this.refreshMeetingInvitations();
+    } catch (error) {
+      await this.close({ quiet: true });
+      throw error;
     }
-    this.signalTimer = setInterval(() => this.pollSignals(), 1200);
-    this.refreshTimer = setInterval(() => this.refreshWorkspace(), 4000);
-    await this.pollSignals();
   }
 
   mount(data) {
@@ -175,6 +300,7 @@ export class VillageMeetingRuntime {
     }
     this.activeSpeakerId = localId;
     const canModerate = this.canModerate(data.participants || []);
+    const chatWritable = this.canChatWrite();
     const overlay = document.createElement("section");
     overlay.id = "village-meeting";
     overlay.className = "village-meeting";
@@ -193,6 +319,7 @@ export class VillageMeetingRuntime {
           <div id="meeting-video-strip" class="meeting-video-strip" aria-label="Participant video strip">
             ${[...this.participantMeta.values()].map((participant) => this.participantThumbnailHtml(participant)).join("")}
           </div>
+          <div id="meeting-remote-audio" aria-hidden="true"></div>
           <div class="meeting-speaker-stage">
             <div id="meeting-video-grid" class="meeting-video-grid">
               <article id="meeting-focus-tile" class="meeting-video-tile local active-speaker" data-user-id="${escapeHtml(localId)}">
@@ -205,8 +332,8 @@ export class VillageMeetingRuntime {
           </div>
           <div id="meeting-captions" class="meeting-captions" aria-live="polite"></div>
           <section id="meeting-live-poll" class="meeting-live-poll hidden" role="dialog" aria-modal="true" aria-label="Live poll"></section>
-          ${this.whiteboardMarkup(canModerate)}
-          ${this.pollPanelMarkup(data.polls || [], canModerate)}
+          ${this.whiteboardMarkup(canModerate, chatWritable)}
+          ${this.pollPanelMarkup(data.polls || [], canModerate, chatWritable)}
         </main>
         <aside class="meeting-sidebar hidden" data-sidebar-view="participants">
           <nav class="meeting-sidebar-tabs" aria-label="Meeting side panels">
@@ -214,8 +341,15 @@ export class VillageMeetingRuntime {
             <button type="button" data-meeting-action="sidebar-chat">Chat</button>
             <button type="button" data-meeting-action="sidebar-close" class="meeting-sidebar-close" title="Close side panel">${icon("close")}<span class="sr-only">Close side panel</span></button>
           </nav>
-          <section data-meeting-sidebar-panel="participants"><header><strong>Members</strong></header><div id="meeting-participants">${this.participantsHtml(data.participants || [])}</div></section>
-          ${this.chatMarkup(data.participants || [], canModerate)}
+          <section data-meeting-sidebar-panel="participants">
+            <header><strong>Members</strong></header>
+            <div id="meeting-participants">${this.participantsHtml(data.participants || [])}</div>
+            ${chatWritable ? `<details class="meeting-friend-invite">
+              <summary>Invite friends</summary>
+              <div id="meeting-friend-invite-content"><p class="meeting-empty">Loading your friends…</p></div>
+            </details>` : `<p class="meeting-write-restricted">Meeting invitations are unavailable while your Community chat mute is active.</p>`}
+          </section>
+          ${this.chatMarkup(data.participants || [], canModerate, chatWritable)}
         </aside>
       </div>
       <nav class="meeting-controls" aria-label="Meeting controls">
@@ -227,7 +361,25 @@ export class VillageMeetingRuntime {
         <button type="button" data-meeting-action="sidebar-chat" title="Open meeting chat">${icon("chat")}<span>Chat</span></button>
         <button type="button" data-meeting-action="background" title="Toggle village backdrop">${icon("background")}<span>Backdrop</span></button>
         <button type="button" data-meeting-action="hand" class="${this.raisedHand ? "active" : ""}" title="Raise hand">${icon("hand")}<span>${this.raisedHand ? "Lower" : "Raise"}</span></button>
-        <button type="button" data-meeting-action="captions" title="Toggle live captions">${icon("captions")}<span>Captions</span></button>
+        <div class="meeting-caption-control">
+          <button type="button" data-meeting-action="captions" title="Toggle live captions">${icon("captions")}<span>Captions</span></button>
+          <details class="meeting-caption-options">
+            <summary title="Caption language and translation" aria-label="Caption language and translation">⌄</summary>
+            <div>
+              <label>I'm speaking
+                <select id="meeting-caption-language">
+                  ${CAPTION_SPEECH_LANGUAGES.map(([value, label]) => `<option value="${value}"${value === this.captionSpeechLanguage ? " selected" : ""}>${label}</option>`).join("")}
+                </select>
+              </label>
+              <label>Translate my view to
+                <select id="meeting-caption-translation">
+                  ${CAPTION_TRANSLATION_LANGUAGES.map(([value, label]) => `<option value="${value}"${value === this.captionTranslationLanguage ? " selected" : ""}>${label}</option>`).join("")}
+                </select>
+              </label>
+              <small>This translation choice only changes what you see.</small>
+            </div>
+          </details>
+        </div>
         <button type="button" data-meeting-action="board" title="Open whiteboard">${icon("board")}<span>Board</span></button>
         <button type="button" data-meeting-action="poll" title="Open polls">${icon("poll")}<span>Polls</span><i id="meeting-poll-alert" class="meeting-control-alert hidden"></i></button>
         <button type="button" data-meeting-action="close" class="hangup" title="Leave meeting">${icon("phone")}<span>Leave</span></button>
@@ -248,14 +400,15 @@ export class VillageMeetingRuntime {
     return this.meeting?.hostId === this.getUser()?.id || participants.some((participant) => participant.mine && participant.role === "cohost");
   }
 
-  whiteboardMarkup(canModerate) {
+  whiteboardMarkup(canModerate, chatWritable = this.canChatWrite()) {
     const permission = this.meeting?.settings?.whiteboardPermission || "edit";
+    const writeDisabled = chatWritable ? "" : "disabled";
     return `
       <section id="meeting-whiteboard-panel" class="meeting-tool-panel meeting-board-panel hidden" aria-label="Shared whiteboard">
         <header class="meeting-board-header">
           <div><strong>Shared whiteboard</strong><small id="meeting-board-sync">Saved to this meeting</small></div>
           <div>
-            <button type="button" data-meeting-action="board-version" title="Save a version">${icon("save")}<span class="sr-only">Save version</span></button>
+            <button type="button" ${writeDisabled} data-meeting-action="board-version" title="${chatWritable ? "Save a version" : "Whiteboard editing is unavailable during your chat mute"}">${icon("save")}<span class="sr-only">Save version</span></button>
             <button type="button" data-meeting-action="tool-close" title="Close whiteboard">${icon("close")}<span class="sr-only">Close whiteboard</span></button>
           </div>
         </header>
@@ -272,11 +425,11 @@ export class VillageMeetingRuntime {
               ["ellipse", "shape", "Ellipse"],
               ["text", "text", "Text"],
               ["sticky", "note", "Sticky note"]
-            ].map(([tool, iconName, label]) => `<button type="button" data-meeting-action="board-tool" data-board-tool="${tool}" class="${tool === this.boardTool ? "active" : ""}" title="${label}">${icon(iconName)}<span class="sr-only">${label}</span></button>`).join("")}
-            <label class="board-color-control" title="Drawing color"><input id="meeting-board-color" type="color" value="${escapeHtml(this.boardColor)}"><span class="sr-only">Drawing color</span></label>
-            <label class="board-width-control" title="Line width"><input id="meeting-board-width" type="range" min="1" max="28" value="${this.boardWidth}"><span id="meeting-board-width-value">${this.boardWidth}</span></label>
+            ].map(([tool, iconName, label]) => `<button type="button" ${writeDisabled} data-meeting-action="board-tool" data-board-tool="${tool}" class="${tool === this.boardTool ? "active" : ""}" title="${chatWritable ? label : "Whiteboard editing is unavailable during your chat mute"}">${icon(iconName)}<span class="sr-only">${label}</span></button>`).join("")}
+            <label class="board-color-control" title="Drawing color"><input id="meeting-board-color" ${writeDisabled} type="color" value="${escapeHtml(this.boardColor)}"><span class="sr-only">Drawing color</span></label>
+            <label class="board-width-control" title="Line width"><input id="meeting-board-width" ${writeDisabled} type="range" min="1" max="28" value="${this.boardWidth}"><span id="meeting-board-width-value">${this.boardWidth}</span></label>
             <span class="board-toolbar-separator"></span>
-            <select id="meeting-board-insert" title="Insert content">
+            <select id="meeting-board-insert" ${writeDisabled} title="Insert content">
               <option value="">Insert</option>
               <option value="card">Card</option>
               <option value="table">Table</option>
@@ -284,14 +437,14 @@ export class VillageMeetingRuntime {
               <option value="comment">Comment</option>
               <option value="stamp">Stamp</option>
             </select>
-            <label class="meeting-board-upload" title="Upload image or PDF">${icon("image")}<span class="sr-only">Upload image or PDF</span><input id="meeting-board-file" type="file" accept="image/*,application/pdf"></label>
-            <button type="button" data-meeting-action="board-undo" title="Undo">${icon("undo")}<span class="sr-only">Undo</span></button>
-            <button type="button" data-meeting-action="board-redo" title="Redo">${icon("redo")}<span class="sr-only">Redo</span></button>
+            <label class="meeting-board-upload" title="Upload image or PDF">${icon("image")}<span class="sr-only">Upload image or PDF</span><input id="meeting-board-file" ${writeDisabled} type="file" accept="image/*,application/pdf"></label>
+            <button type="button" ${writeDisabled} data-meeting-action="board-undo" title="Undo">${icon("undo")}<span class="sr-only">Undo</span></button>
+            <button type="button" ${writeDisabled} data-meeting-action="board-redo" title="Redo">${icon("redo")}<span class="sr-only">Redo</span></button>
             <span class="board-toolbar-separator"></span>
             <label>Page <select id="meeting-board-page"><option value="1">1</option></select></label>
-            <button type="button" data-meeting-action="board-add-page" title="Add page">${icon("plus")}<span class="sr-only">Add page</span></button>
+            <button type="button" ${writeDisabled} data-meeting-action="board-add-page" title="Add page">${icon("plus")}<span class="sr-only">Add page</span></button>
             <label>Layer <select id="meeting-board-layer"><option value="1">1</option></select></label>
-            <button type="button" data-meeting-action="board-add-layer" title="Add layer">${icon("plus")}<span class="sr-only">Add layer</span></button>
+            <button type="button" ${writeDisabled} data-meeting-action="board-add-layer" title="Add layer">${icon("plus")}<span class="sr-only">Add layer</span></button>
             ${canModerate ? `<label class="board-permission">Access <select id="meeting-board-permission"><option value="edit"${permission === "edit" ? " selected" : ""}>Edit</option><option value="comment"${permission === "comment" ? " selected" : ""}>Comment</option><option value="view"${permission === "view" ? " selected" : ""}>View</option></select></label>` : ""}
           </div>
           <div class="meeting-board-workspace">
@@ -302,12 +455,12 @@ export class VillageMeetingRuntime {
           </div>
           <footer class="meeting-board-footer">
             <div class="meeting-board-selection">
-              <button type="button" data-meeting-action="board-copy" title="Duplicate selected item">${icon("copy")}<span>Copy</span></button>
-              <button type="button" data-meeting-action="board-lock" title="Lock selected item">${icon("lock")}<span>Lock</span></button>
-              <button type="button" data-meeting-action="board-delete" title="Delete selected item">${icon("trash")}<span>Delete</span></button>
-              <button type="button" data-meeting-action="board-clear" title="Clear this page">Clear page</button>
+              <button type="button" ${writeDisabled} data-meeting-action="board-copy" title="Duplicate selected item">${icon("copy")}<span>Copy</span></button>
+              <button type="button" ${writeDisabled} data-meeting-action="board-lock" title="Lock selected item">${icon("lock")}<span>Lock</span></button>
+              <button type="button" ${writeDisabled} data-meeting-action="board-delete" title="Delete selected item">${icon("trash")}<span>Delete</span></button>
+              <button type="button" ${writeDisabled} data-meeting-action="board-clear" title="Clear this page">Clear page</button>
             </div>
-            <label class="meeting-board-versions">History <select id="meeting-board-versions"><option value="">Versions</option></select></label>
+            <label class="meeting-board-versions">History <select id="meeting-board-versions" ${writeDisabled}><option value="">Versions</option></select></label>
             ${canModerate ? `<label class="meeting-presenter-toggle"><input id="meeting-presenter-mode" type="checkbox"${this.meeting?.settings?.presenterMode ? " checked" : ""}> Follow presenter</label>` : ""}
             <label class="meeting-board-zoom">${icon("search")}<span>Zoom</span><input id="meeting-board-zoom" type="range" min="35" max="160" value="${Math.round(this.boardZoom * 100)}"><output id="meeting-board-zoom-value">${Math.round(this.boardZoom * 100)}%</output></label>
           </footer>
@@ -315,13 +468,13 @@ export class VillageMeetingRuntime {
       </section>`;
   }
 
-  pollPanelMarkup(polls, canModerate) {
+  pollPanelMarkup(polls, canModerate, chatWritable = this.canChatWrite()) {
     const canCreate = canModerate || Boolean(this.meeting?.settings?.allowMemberPolls);
     return `
       <section id="meeting-poll-panel" class="meeting-tool-panel meeting-poll-panel hidden" role="dialog" aria-modal="true" aria-label="Meeting polls">
         <header><div><strong>Polls</strong><small>Draft, launch, and review this meeting's polls</small></div><button type="button" data-meeting-action="tool-close" title="Close polls">${icon("close")}<span class="sr-only">Close polls</span></button></header>
         <div class="meeting-poll-workspace">
-          ${canCreate ? `<form id="meeting-poll-form" class="meeting-poll-form">
+          ${canCreate && chatWritable ? `<form id="meeting-poll-form" class="meeting-poll-form">
             <label>Question<input name="question" maxlength="240" placeholder="Ask the room a question" required></label>
             <label>Choices<textarea name="options" rows="4" placeholder="One answer per line" required></textarea></label>
             <div class="meeting-poll-options">
@@ -331,20 +484,20 @@ export class VillageMeetingRuntime {
               <label>Timer <select name="durationSeconds"><option value="0">No timer</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label>
             </div>
             <button type="submit">Create draft</button><p class="form-error"></p>
-          </form>` : `<p class="meeting-poll-permission">The host controls poll creation for this meeting.</p>`}
+          </form>` : `<p class="meeting-poll-permission">${chatWritable ? "The host controls poll creation for this meeting." : "Creating polls is unavailable while your Community chat mute is active."}</p>`}
           <div id="meeting-poll-list">${this.pollsHtml(polls)}</div>
         </div>
       </section>`;
   }
 
-  chatMarkup(participants, canModerate) {
+  chatMarkup(participants, canModerate, chatWritable = this.canChatWrite()) {
     return `
       <section class="meeting-chat hidden" data-meeting-sidebar-panel="chat">
         <header>
           <div><strong>Meeting chat</strong><small id="meeting-chat-scope">Only saved in this meeting</small></div>
           <div><button type="button" data-meeting-action="chat-export" title="Save visible chat">${icon("download")}<span class="sr-only">Save chat</span></button>${canModerate ? `<button type="button" data-meeting-action="settings" title="Chat settings">${icon("settings")}<span class="sr-only">Chat settings</span></button>` : ""}</div>
         </header>
-        <nav class="meeting-chat-targets" aria-label="Chat recipients">
+        <nav class="meeting-chat-targets ${chatWritable ? "" : "hidden"}" aria-label="Chat recipients">
           <button type="button" data-meeting-action="chat-everyone" class="active"><span class="meeting-target-icon">${icon("participants")}</span><strong>Everyone</strong></button>
           <button type="button" data-meeting-action="chat-new"><span class="meeting-target-icon">${icon("plus")}</span><strong>New chat</strong></button>
         </nav>
@@ -355,7 +508,7 @@ export class VillageMeetingRuntime {
         </div>
         <div id="meeting-chat-reply" class="meeting-chat-reply hidden"><span></span><button type="button" data-meeting-action="chat-cancel-reply">${icon("close")}<span class="sr-only">Cancel reply</span></button></div>
         <div id="meeting-chat-list" aria-live="polite"></div>
-        <form id="meeting-chat-form">
+        ${chatWritable ? `<form id="meeting-chat-form">
           <div class="meeting-chat-compose-toolbar">
             <button type="button" data-meeting-action="chat-format" data-format="bold" title="Bold"><strong>B</strong></button>
             <button type="button" data-meeting-action="chat-format" data-format="italic" title="Italic"><em>I</em></button>
@@ -369,7 +522,7 @@ export class VillageMeetingRuntime {
           <textarea name="message" maxlength="4000" rows="2" placeholder="Message everyone"></textarea>
           <button type="submit">Send</button>
           <p class="form-error"></p>
-        </form>
+        </form>` : `<div class="meeting-chat-muted" role="status">Meeting chat is read-only while your Community chat mute is active.</div>`}
       </section>`;
   }
 
@@ -403,7 +556,7 @@ export class VillageMeetingRuntime {
   participantThumbnailHtml(participant = {}) {
     const userId = String(participant.userId || "");
     const mine = participant.mine || userId === String(this.getUser()?.id || "");
-    return `<button type="button" class="meeting-video-thumb${userId === this.activeSpeakerId ? " active-speaker" : ""}${mine ? " local" : ""}${participant.raisedHand ? " hand-raised" : ""}" data-meeting-action="focus-participant" data-user-id="${escapeHtml(userId)}" aria-label="Focus ${escapeHtml(participant.displayName || "Village member")}"><video autoplay ${mine ? "muted " : ""}playsinline></video><span class="meeting-video-placeholder">${this.participantPlaceholder(participant)}</span><span class="meeting-hand-badge${participant.raisedHand ? "" : " hidden"}" title="Hand raised">${icon("hand")}</span><footer><strong>${escapeHtml(mine ? "You" : participant.displayName || "Village member")}</strong><small>${escapeHtml(participant.role || "participant")}</small></footer></button>`;
+    return `<button type="button" class="meeting-video-thumb${userId === this.activeSpeakerId ? " active-speaker" : ""}${mine ? " local" : ""}${participant.raisedHand ? " hand-raised" : ""}" data-meeting-action="focus-participant" data-user-id="${escapeHtml(userId)}" aria-label="Focus ${escapeHtml(participant.displayName || "Village member")}"><video autoplay muted playsinline></video><span class="meeting-video-placeholder">${this.participantPlaceholder(participant)}</span><span class="meeting-hand-badge${participant.raisedHand ? "" : " hidden"}" title="Hand raised">${icon("hand")}</span><footer><strong>${escapeHtml(mine ? "You" : participant.displayName || "Village member")}</strong><small>${escapeHtml(participant.role || "participant")}</small></footer></button>`;
   }
 
   syncParticipantStrip(participants = []) {
@@ -485,16 +638,102 @@ export class VillageMeetingRuntime {
     tile.querySelector("#meeting-focus-state").textContent = this.streams.get(id)?.getTracks?.().length ? "Connected" : "Joined without camera";
     tile.querySelector("#meeting-focus-hand")?.classList.toggle("hidden", !participant.raisedHand);
     const focusVideo = tile.querySelector("#meeting-focus-video");
-    focusVideo.muted = id === localId || Boolean(participant.mine);
+    focusVideo.muted = true;
     this.attachStream(id, this.streams.get(id));
     document.querySelectorAll("#meeting-video-strip [data-user-id]").forEach((thumbnail) => {
       thumbnail.classList.toggle("active-speaker", String(thumbnail.dataset.userId || "") === id);
     });
   }
 
+  attachRemoteAudio(userId, stream) {
+    const id = String(userId || "");
+    if (!id || id === String(this.getUser()?.id || "")) return;
+    const container = document.querySelector("#meeting-remote-audio");
+    if (!container) return;
+    let audio = container.querySelector(`[data-audio-user-id="${CSS.escape(id)}"]`);
+    if (!audio) {
+      audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.dataset.audioUserId = id;
+      container.append(audio);
+    }
+    if (audio.srcObject !== stream) audio.srcObject = stream || null;
+    audio.play?.().catch(() => {
+      const status = this.activeSpeakerId === id ? document.querySelector("#meeting-focus-state") : null;
+      if (status) status.textContent = "Tap the meeting once to enable sound";
+      this.queueRemoteAudioUnlock(container);
+    });
+  }
+
+  queueRemoteAudioUnlock(container) {
+    if (this.audioUnlockPending || this.closed) return;
+    const surface = document.querySelector("#village-meeting");
+    if (!surface) return;
+    this.audioUnlockPending = true;
+    surface.addEventListener("pointerdown", () => {
+      this.audioUnlockPending = false;
+      const attempts = [...container.querySelectorAll("audio")].map((audio) => {
+        try {
+          return Promise.resolve(audio.play?.());
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      });
+      Promise.allSettled(attempts).then((results) => {
+        if (this.closed) return;
+        const played = results.some((result) => result.status === "fulfilled");
+        const status = played ? document.querySelector("#meeting-focus-state") : null;
+        if (status?.textContent === "Tap the meeting once to enable sound") status.textContent = "Connected";
+        if (results.some((result) => result.status === "rejected")) {
+          this.queueRemoteAudioUnlock(container);
+        }
+      });
+    }, { once: true, capture: true });
+  }
+
   participantsHtml(participants = []) {
     const host = this.meeting?.hostId === this.getUser()?.id;
     return participants.map((participant) => `<article class="meeting-participant${participant.raisedHand ? " hand-raised" : ""}" data-participant-id="${escapeHtml(participant.userId)}"><span class="meeting-avatar">${participant.avatarDataUrl ? `<img src="${escapeHtml(participant.avatarDataUrl)}" alt="">` : escapeHtml(String(participant.displayName || "V").charAt(0))}${participant.raisedHand ? `<i class="meeting-avatar-hand" title="Hand raised">${icon("hand")}</i>` : ""}</span><div><strong>${escapeHtml(participant.displayName)}${participant.mine ? " (You)" : ""}</strong><small>${escapeHtml(participant.breakoutRoom || participant.role)}${participant.raisedHand ? " · Hand raised" : ""}</small></div>${host && !participant.mine ? `<details><summary>Manage</summary><button type="button" data-meeting-action="cohost" data-user-id="${escapeHtml(participant.userId)}">Make cohost</button><button type="button" data-meeting-action="breakout" data-user-id="${escapeHtml(participant.userId)}">Assign room</button><button type="button" data-meeting-action="remove" data-user-id="${escapeHtml(participant.userId)}">Remove</button></details>` : ""}</article>`).join("") || `<p class="meeting-empty">Waiting for others to join.</p>`;
+  }
+
+  meetingInvitationFriendsHtml(friends = []) {
+    if (!this.canChatWrite()) return `<p class="meeting-write-restricted">Meeting invitations are unavailable while your Community chat mute is active.</p>`;
+    if (!friends.length) return `<p class="meeting-empty">No eligible friends are available to invite.</p>`;
+    const choices = friends.map((friend) => {
+      const invited = ["pending", "accepted"].includes(friend.invitationStatus);
+      const label = friend.invitationStatus === "accepted" ? "Access granted" : "Invitation sent";
+      return `<div class="meeting-invite-friend">
+        <label>
+          ${invited ? "" : `<input type="checkbox" name="recipientIds" value="${escapeHtml(friend.userId)}">`}
+          <span class="meeting-avatar">${friend.avatarDataUrl ? `<img src="${escapeHtml(friend.avatarDataUrl)}" alt="">` : escapeHtml(String(friend.displayName || "V").charAt(0))}</span>
+          <span><strong>${escapeHtml(friend.displayName || "Village member")}</strong>${invited ? `<small>${label}</small>` : `<small>Meeting access only</small>`}</span>
+        </label>
+        ${invited ? `<button type="button" data-meeting-action="revoke-invitation" data-invitation-id="${escapeHtml(friend.invitationId)}">Revoke</button>` : ""}
+      </div>`;
+    }).join("");
+    const hasAvailable = friends.some((friend) => !["pending", "accepted"].includes(friend.invitationStatus));
+    return `<form id="meeting-invite-form">
+      <div class="meeting-invite-friends">${choices}</div>
+      ${hasAvailable ? `<button type="submit">Send meeting invitation</button>` : ""}
+      <p class="form-error" role="alert"></p>
+      <small>Invited friends can join this meeting, but they cannot read the parent chat.</small>
+    </form>`;
+  }
+
+  async refreshMeetingInvitations() {
+    const content = document.querySelector("#meeting-friend-invite-content");
+    if (!content || !this.meeting || this.closed) return;
+    if (!this.canChatWrite()) {
+      content.innerHTML = this.meetingInvitationFriendsHtml();
+      return;
+    }
+    try {
+      const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/invitations`);
+      content.innerHTML = this.meetingInvitationFriendsHtml(data.friends || []);
+    } catch (error) {
+      content.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+    }
   }
 
   pollsHtml(polls = []) {
@@ -521,43 +760,129 @@ export class VillageMeetingRuntime {
   }
 
   async startMedia() {
+    const meetingId = this.meeting?.id;
     const localId = String(this.getUser()?.id || "");
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
-      this.streams.set(localId, this.localStream);
-      this.attachStream(localId, this.localStream);
-      this.focusParticipant(localId);
-      document.querySelector("#meeting-focus-state").textContent = "Camera and mic ready";
-      for (const peer of this.peers.values()) this.localStream.getTracks().forEach((track) => peer.addTrack(track, this.localStream));
-    } catch {
-      this.localStream = new MediaStream();
-      this.streams.set(localId, this.localStream);
-      this.attachStream(localId, this.localStream);
-      this.focusParticipant(localId);
-      this.toast("Camera or microphone was unavailable. You can still use chat, polls, and the whiteboard.");
+    const tracks = [];
+    const mediaDevices = globalThis.navigator?.mediaDevices;
+    if (mediaDevices?.getUserMedia) {
+      const [audioResult, videoResult] = await Promise.allSettled([
+        mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false }),
+        mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } })
+      ]);
+      if (audioResult.status === "fulfilled") tracks.push(...audioResult.value.getAudioTracks());
+      if (videoResult.status === "fulfilled") tracks.push(...videoResult.value.getVideoTracks());
     }
+    if (this.closed || !meetingId || this.meeting?.id !== meetingId) {
+      tracks.forEach((track) => track.stop?.());
+      return;
+    }
+    this.localStream = new MediaStream(tracks);
+    this.streams.set(localId, this.localStream);
+    this.attachStream(localId, this.localStream);
+    this.focusParticipant(localId);
+    const hasAudio = Boolean(this.localStream.getAudioTracks().length);
+    const hasVideo = Boolean(this.localStream.getVideoTracks().length);
+    const status = document.querySelector("#meeting-focus-state");
+    if (status) status.textContent = hasAudio && hasVideo ? "Camera and mic ready" : hasAudio ? "Microphone ready · camera unavailable" : hasVideo ? "Camera ready · microphone unavailable" : "Joined without camera or microphone";
+    const micButton = document.querySelector('[data-meeting-action="mic"]');
+    const cameraButton = document.querySelector('[data-meeting-action="camera"]');
+    if (!hasAudio) micButton?.classList.remove("active");
+    if (!hasVideo) cameraButton?.classList.remove("active");
+    if (!hasAudio || !hasVideo) this.toast(`${!hasAudio && !hasVideo ? "Camera and microphone were" : !hasAudio ? "Microphone was" : "Camera was"} unavailable. The rest of the meeting still works.`);
+    await Promise.allSettled([...this.peers.keys()].map((userId) => this.syncPeerSenders(userId)));
   }
 
   async peerFor(userId) {
-    if (this.peers.has(userId)) return this.peers.get(userId);
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    this.localStream?.getTracks().forEach((track) => peer.addTrack(track, this.localStream));
+    const id = String(userId || "");
+    if (this.peers.has(id)) return this.peers.get(id);
+    const peer = new RTCPeerConnection({ iceServers: this.iceServers });
+    const audioTrack = this.localStream?.getAudioTracks()[0] || null;
+    const videoTrack = this.screenStream?.getVideoTracks()[0] || this.localStream?.getVideoTracks()[0] || null;
+    const screenAudioTrack = this.screenStream?.getAudioTracks()[0] || null;
+    const audioTransceiver = peer.addTransceiver(audioTrack || "audio", {
+      direction: "sendrecv",
+      ...(audioTrack ? { streams: [this.localStream] } : {})
+    });
+    const videoStream = this.screenStream || this.localStream;
+    const videoTransceiver = peer.addTransceiver(videoTrack || "video", {
+      direction: "sendrecv",
+      ...(videoTrack && videoStream ? { streams: [videoStream] } : {})
+    });
+    const screenAudioTransceiver = peer.addTransceiver(screenAudioTrack || "audio", {
+      direction: "sendrecv",
+      ...(screenAudioTrack && this.screenStream ? { streams: [this.screenStream] } : {})
+    });
+    const state = {
+      makingOffer: false,
+      ignoreOffer: false,
+      pendingCandidates: [],
+      remoteStream: new MediaStream(),
+      audioSender: audioTransceiver.sender,
+      videoSender: videoTransceiver.sender,
+      screenAudioSender: screenAudioTransceiver.sender,
+      disconnectTimer: null
+    };
     peer.onicecandidate = (event) => {
-      if (event.candidate) this.sendSignal("candidate", event.candidate.toJSON(), userId);
+      if (event.candidate) this.sendSignal("candidate", event.candidate.toJSON(), id).catch(() => this.updatePeerStatus(id, "Signaling interrupted"));
     };
-    peer.ontrack = (event) => this.showRemoteStream(userId, event.streams[0]);
+    peer.ontrack = (event) => {
+      if (!state.remoteStream.getTracks().some((track) => track.id === event.track.id)) state.remoteStream.addTrack(event.track);
+      this.showRemoteStream(id, state.remoteStream);
+    };
     peer.onconnectionstatechange = () => {
-      if (["failed", "closed", "disconnected"].includes(peer.connectionState)) this.removePeer(userId);
+      clearTimeout(state.disconnectTimer);
+      if (peer.connectionState === "connected") {
+        this.updatePeerStatus(id, "Connected");
+        return;
+      }
+      if (peer.connectionState === "disconnected") {
+        this.updatePeerStatus(id, "Reconnecting…");
+        state.disconnectTimer = setTimeout(() => {
+          if (peer.connectionState === "disconnected") this.recoverPeer(id);
+        }, 8000);
+        return;
+      }
+      if (peer.connectionState === "failed") {
+        this.updatePeerStatus(id, "Reconnecting…");
+        this.recoverPeer(id);
+      }
     };
-    this.peers.set(userId, peer);
+    this.peers.set(id, peer);
+    this.peerStates.set(id, state);
+    this.updatePeerStatus(id, "Connecting…");
     return peer;
   }
 
-  async offerTo(userId) {
-    const peer = await this.peerFor(userId);
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    await this.sendSignal("offer", offer, userId);
+  async syncPeerSenders(userId) {
+    const id = String(userId || "");
+    const state = this.peerStates.get(id);
+    if (!state) return;
+    const audioTrack = this.localStream?.getAudioTracks()[0] || null;
+    const videoTrack = this.screenStream?.getVideoTracks()[0] || this.localStream?.getVideoTracks()[0] || null;
+    const screenAudioTrack = this.screenStream?.getAudioTracks()[0] || null;
+    await Promise.all([
+      state.audioSender.replaceTrack(audioTrack),
+      state.videoSender.replaceTrack(videoTrack),
+      state.screenAudioSender.replaceTrack(screenAudioTrack)
+    ]);
+  }
+
+  async offerTo(userId, { iceRestart = false } = {}) {
+    const id = String(userId || "");
+    if (!id || id === String(this.getUser()?.id || "") || this.closed) return;
+    const peer = await this.peerFor(id);
+    const state = this.peerStates.get(id);
+    if (!state || state.makingOffer || peer.signalingState === "closed") return;
+    try {
+      state.makingOffer = true;
+      await this.syncPeerSenders(id);
+      const offer = await peer.createOffer({ iceRestart });
+      if (peer.signalingState !== "stable") return;
+      await peer.setLocalDescription(offer);
+      await this.sendSignal("offer", peer.localDescription || offer, id);
+    } finally {
+      state.makingOffer = false;
+    }
   }
 
   async sendSignal(kind, payload, recipientId = "") {
@@ -565,47 +890,113 @@ export class VillageMeetingRuntime {
     await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/signals`, { method: "POST", body: JSON.stringify({ kind, payload, recipientId }) });
   }
 
+  async closeForMeetingAccessError(error) {
+    if (![403, 404].includes(Number(error?.status))) return false;
+    if (!this.closed) {
+      const message = Number(error.status) === 403
+        ? error.message
+        : "This meeting is no longer available.";
+      await this.close({ quiet: true });
+      this.toast(message);
+    }
+    return true;
+  }
+
   async pollSignals() {
-    if (!this.meeting || this.closed) return;
+    if (!this.meeting || this.closed || this.signalPollBusy) return;
+    this.signalPollBusy = true;
     try {
-      const data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/signals?after=${encodeURIComponent(this.signalCursor)}`);
+      let data;
+      try {
+        data = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/signals?cursor=${encodeURIComponent(this.signalCursor)}`);
+      } catch (error) {
+        if (await this.closeForMeetingAccessError(error)) return;
+        if (!this.closed) this.updateMeetingStatus("Signaling interrupted · retrying");
+        return;
+      }
       for (const signal of data.signals || []) {
-        this.signalCursor = signal.createdAt > this.signalCursor ? signal.createdAt : this.signalCursor;
-        if (signal.kind === "leave") {
-          this.removePeer(signal.senderId);
-          continue;
-        }
-        if (signal.kind === "state") {
-          if (signal.payload?.caption) this.showCaption(signal.payload.caption, signal.senderId);
-          if (signal.payload?.boardCursor) {
-            this.remoteBoardCursors.set(String(signal.senderId), { ...signal.payload.boardCursor, updatedAt: Date.now() });
-            this.renderWhiteboard();
+        try {
+          await this.handleSignal(signal);
+        } catch {
+          if (!this.closed) {
+            this.updateMeetingStatus("Skipped an invalid meeting update");
+            if (["offer", "answer", "candidate"].includes(signal.kind) && this.peerStates.has(String(signal.senderId || ""))) {
+              this.recoverPeer(signal.senderId).catch(() => {});
+            }
           }
-          if (signal.payload?.boardViewport && this.meeting?.settings?.presenterMode && signal.senderId === this.meeting.hostId && !this.canModerate()) {
-            const viewport = document.querySelector("#meeting-board-viewport");
-            const view = signal.payload.boardViewport;
-            if (view.page && this.boardPages.includes(Number(view.page))) this.boardPage = Number(view.page);
-            if (view.zoom) this.boardZoom = clamp(Number(view.zoom), 0.35, 1.6);
-            this.applyBoardZoom();
-            if (viewport) viewport.scrollTo({ left: Number(view.left || 0), top: Number(view.top || 0), behavior: "smooth" });
-            this.syncBoardControls();
-            this.renderWhiteboard();
-          }
-          continue;
-        }
-        const peer = await this.peerFor(signal.senderId);
-        if (signal.kind === "offer") {
-          await peer.setRemoteDescription(signal.payload);
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-          await this.sendSignal("answer", answer, signal.senderId);
-        } else if (signal.kind === "answer") {
-          if (!peer.currentRemoteDescription) await peer.setRemoteDescription(signal.payload);
-        } else if (signal.kind === "candidate") {
-          try { await peer.addIceCandidate(signal.payload); } catch {}
+        } finally {
+          this.signalCursor = Math.max(this.signalCursor, Number(signal.cursor || 0));
         }
       }
-    } catch {}
+    } finally {
+      this.signalPollBusy = false;
+    }
+  }
+
+  async handleSignal(signal) {
+    if (signal.kind === "leave") {
+      this.removePeer(signal.senderId, { removeParticipant: true });
+      return;
+    }
+    if (signal.kind === "state") {
+      if (signal.payload?.caption) await this.showCaption(signal.payload.caption, signal.senderId);
+      if (signal.payload?.boardCursor) {
+        this.remoteBoardCursors.set(String(signal.senderId), { ...signal.payload.boardCursor, updatedAt: Date.now() });
+        this.renderWhiteboard();
+      }
+      if (signal.payload?.boardViewport && this.meeting?.settings?.presenterMode && signal.senderId === this.meeting.hostId && !this.canModerate()) {
+        const viewport = document.querySelector("#meeting-board-viewport");
+        const view = signal.payload.boardViewport;
+        if (view.page && this.boardPages.includes(Number(view.page))) this.boardPage = Number(view.page);
+        if (view.zoom) this.boardZoom = clamp(Number(view.zoom), 0.35, 1.6);
+        this.applyBoardZoom();
+        if (viewport) viewport.scrollTo({ left: Number(view.left || 0), top: Number(view.top || 0), behavior: "smooth" });
+        this.syncBoardControls();
+        this.renderWhiteboard();
+      }
+      return;
+    }
+    const peer = await this.peerFor(signal.senderId);
+    const state = this.peerStates.get(String(signal.senderId));
+    if (!state) return;
+    if (signal.kind === "offer") {
+      const offerCollision = state.makingOffer || peer.signalingState !== "stable";
+      const polite = String(this.getUser()?.id || "") > String(signal.senderId);
+      state.ignoreOffer = !polite && offerCollision;
+      if (state.ignoreOffer) return;
+      if (offerCollision) {
+        try { await peer.setLocalDescription({ type: "rollback" }); } catch {}
+      }
+      await peer.setRemoteDescription(signal.payload);
+      await this.flushPendingCandidates(signal.senderId);
+      await this.syncPeerSenders(signal.senderId);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await this.sendSignal("answer", peer.localDescription || answer, signal.senderId);
+    } else if (signal.kind === "answer") {
+      state.ignoreOffer = false;
+      if (peer.signalingState === "have-local-offer") {
+        await peer.setRemoteDescription(signal.payload);
+        await this.flushPendingCandidates(signal.senderId);
+      }
+    } else if (signal.kind === "candidate") {
+      if (state.ignoreOffer) return;
+      if (peer.remoteDescription) {
+        try { await peer.addIceCandidate(signal.payload); } catch {}
+      } else {
+        state.pendingCandidates.push(signal.payload);
+      }
+    }
+  }
+
+  async flushPendingCandidates(userId) {
+    const state = this.peerStates.get(String(userId || ""));
+    const peer = this.peers.get(String(userId || ""));
+    if (!state || !peer?.remoteDescription) return;
+    const pending = state.pendingCandidates.splice(0);
+    for (const candidate of pending) {
+      try { await peer.addIceCandidate(candidate); } catch {}
+    }
   }
 
   showRemoteStream(userId, stream) {
@@ -614,16 +1005,66 @@ export class VillageMeetingRuntime {
     if (!this.participantMeta.has(id)) this.participantMeta.set(id, { userId: id, displayName: "Village member", role: "participant" });
     this.syncParticipantStrip([...this.participantMeta.values()]);
     this.attachStream(id, stream);
+    this.attachRemoteAudio(id, stream);
     if (!this.activeSpeakerId || this.activeSpeakerId === String(this.getUser()?.id || "")) this.focusParticipant(id);
   }
 
-  removePeer(userId) {
+  updateMeetingStatus(text) {
+    const status = document.querySelector("#meeting-status");
+    if (status) status.textContent = text;
+  }
+
+  updatePeerStatus(userId, text) {
     const id = String(userId || "");
+    if (this.activeSpeakerId === id) {
+      const status = document.querySelector("#meeting-focus-state");
+      if (status) status.textContent = text;
+    }
+    const thumbnail = document.querySelector(`#meeting-video-strip [data-user-id="${CSS.escape(id)}"]`);
+    if (thumbnail) thumbnail.dataset.connectionState = String(text || "").toLowerCase().replace(/\W+/g, "-");
+    if (text === "Connected") this.updateMeetingStatus(this.meeting?.status || "live");
+  }
+
+  async recoverPeer(userId) {
+    const id = String(userId || "");
+    if (!id || this.closed || this.peerRecoveryTimers.has(id)) return;
+    const peer = this.peers.get(id);
+    try {
+      if (peer && peer.signalingState === "stable") {
+        peer.restartIce?.();
+        await this.offerTo(id, { iceRestart: true });
+        return;
+      }
+    } catch (error) {
+      if (await this.closeForMeetingAccessError(error)) return;
+    }
+    this.removePeer(id);
+    const timer = setTimeout(() => {
+      this.peerRecoveryTimers.delete(id);
+      if (!this.closed && this.participantMeta.has(id)) this.offerTo(id).catch(() => {});
+    }, 500);
+    this.peerRecoveryTimers.set(id, timer);
+  }
+
+  removePeer(userId, { removeParticipant = false } = {}) {
+    const id = String(userId || "");
+    const state = this.peerStates.get(id);
+    clearTimeout(state?.disconnectTimer);
     this.peers.get(id)?.close();
     this.peers.delete(id);
+    this.peerStates.delete(id);
     this.streams.delete(id);
-    this.participantMeta.delete(id);
-    document.querySelector(`#meeting-video-strip [data-user-id="${CSS.escape(id)}"]`)?.remove();
+    const audio = document.querySelector(`#meeting-remote-audio [data-audio-user-id="${CSS.escape(id)}"]`);
+    if (audio) {
+      audio.srcObject = null;
+      audio.remove();
+    }
+    if (removeParticipant) {
+      this.participantMeta.delete(id);
+      document.querySelector(`#meeting-video-strip [data-user-id="${CSS.escape(id)}"]`)?.remove();
+    } else {
+      this.attachStream(id, null);
+    }
     if (this.activeSpeakerId === id) this.focusParticipant(String(this.getUser()?.id || ""));
   }
 
@@ -636,6 +1077,12 @@ export class VillageMeetingRuntime {
       const mine = (data.participants || []).find((participant) => participant.mine || String(participant.userId) === String(this.getUser()?.id || ""));
       if (mine) this.raisedHand = Boolean(mine.raisedHand);
       this.syncParticipantStrip(data.participants || []);
+      const localId = String(this.getUser()?.id || "");
+      const remoteIds = new Set((data.participants || []).map((participant) => String(participant.userId || "")).filter((id) => id && id !== localId));
+      for (const peerId of [...this.peers.keys()]) {
+        if (!remoteIds.has(peerId)) this.removePeer(peerId, { removeParticipant: true });
+      }
+      await Promise.allSettled([...remoteIds].filter((id) => !this.peers.has(id)).map((id) => this.offerTo(id)));
       const participants = document.querySelector("#meeting-participants");
       if (participants) participants.innerHTML = this.participantsHtml(data.participants || []);
       const count = document.querySelector("#meeting-participant-count");
@@ -650,7 +1097,9 @@ export class VillageMeetingRuntime {
       this.syncLivePoll(data.polls || []);
       if (data.meeting.status === "ended") await this.close();
       await this.refreshChat();
-    } catch {}
+    } catch (error) {
+      await this.closeForMeetingAccessError(error);
+    }
   }
 
   async refreshChat() {
@@ -664,10 +1113,13 @@ export class VillageMeetingRuntime {
       list.innerHTML = this.chatMessages.map((message) => this.chatMessageHtml(message)).join("") || `<p class="meeting-empty">No messages in this meeting yet.</p>`;
       if (stayAtBottom || !list.dataset.loaded) list.scrollTop = list.scrollHeight;
       list.dataset.loaded = "true";
-    } catch {}
+    } catch (error) {
+      await this.closeForMeetingAccessError(error);
+    }
   }
 
   chatMessageHtml(message = {}) {
+    const chatWritable = this.canChatWrite();
     const recipientNames = (message.recipientIds || []).map((id) => this.participantMeta.get(String(id))?.displayName || "Participant");
     const audience = message.audience === "private" ? `Private · ${recipientNames.join(", ")}` : message.audience === "group" ? `Group · ${recipientNames.join(", ")}` : "Everyone";
     const body = message.deletedAt ? `<p class="meeting-message-deleted">Message deleted</p>` : message.body ? `<div class="meeting-message-body">${meetingMessageBody(message.body, message.format)}</div>` : "";
@@ -676,21 +1128,53 @@ export class VillageMeetingRuntime {
       : `<a class="meeting-chat-file" href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">${icon("download")}<span><strong>${escapeHtml(message.attachment.name)}</strong><small>${escapeHtml(message.attachment.mime || "File")}</small></span></a>`) : "";
     const cloud = !message.deletedAt && message.metadata?.cloudUrl ? `<a class="meeting-chat-file" href="${escapeHtml(message.metadata.cloudUrl)}" target="_blank" rel="noopener">${icon("link")}<span><strong>${escapeHtml(message.metadata.cloudProvider || "Cloud file")}</strong><small>${escapeHtml(message.metadata.cloudUrl)}</small></span></a>` : "";
     const reply = message.replyTo ? `<blockquote><strong>${escapeHtml(message.replyTo.author || "Participant")}</strong><span>${escapeHtml(message.replyTo.body || "Message deleted")}</span></blockquote>` : "";
-    const reactions = Object.entries(message.reactions || {}).map(([emoji, state]) => `<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="${escapeHtml(emoji)}" class="${state.mine ? "active" : ""}">${escapeHtml(emoji)} ${Number(state.count || 0)}</button>`).join("");
+    const reactions = Object.entries(message.reactions || {}).map(([emoji, state]) => chatWritable
+      ? `<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="${escapeHtml(emoji)}" class="${state.mine ? "active" : ""}">${escapeHtml(emoji)} ${Number(state.count || 0)}</button>`
+      : `<span class="${state.mine ? "active" : ""}">${escapeHtml(emoji)} ${Number(state.count || 0)}</span>`).join("");
     return `<article class="meeting-chat-message${message.mine ? " mine" : ""}${message.deletedAt ? " deleted" : ""}" data-message-id="${escapeHtml(message.id)}">
       <span class="meeting-chat-avatar">${message.avatarDataUrl ? `<img src="${escapeHtml(message.avatarDataUrl)}" alt="">` : escapeHtml(String(message.author || "V").charAt(0))}</span>
       <div class="meeting-chat-bubble">
         <header><strong>${escapeHtml(message.author || "Village member")}</strong><span>${escapeHtml(audience)}</span><time>${escapeHtml(new Date(message.createdAt || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time></header>
         ${reply}${body}${attachment}${cloud}
-        ${message.deletedAt ? "" : `<footer><div class="meeting-message-reactions">${reactions}<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="👍" title="React">＋</button></div><div><button type="button" data-meeting-action="chat-reply" data-message-id="${escapeHtml(message.id)}">${icon("reply")}<span>Reply</span></button>${message.mine ? `<button type="button" data-meeting-action="chat-delete" data-message-id="${escapeHtml(message.id)}">${icon("trash")}<span>Delete</span></button>` : ""}</div></footer>`}
+        ${message.deletedAt ? "" : `<footer><div class="meeting-message-reactions">${reactions}${chatWritable ? `<button type="button" data-meeting-action="chat-react" data-message-id="${escapeHtml(message.id)}" data-emoji="👍" title="React">＋</button>` : ""}</div><div>${chatWritable ? `<button type="button" data-meeting-action="chat-reply" data-message-id="${escapeHtml(message.id)}">${icon("reply")}<span>Reply</span></button>` : ""}${message.mine ? `<button type="button" data-meeting-action="chat-delete" data-message-id="${escapeHtml(message.id)}">${icon("trash")}<span>Delete</span></button>` : ""}</div></footer>`}
       </div>
     </article>`;
   }
 
   async handleSubmit(event) {
     event.preventDefault();
+    if (event.target.id === "meeting-invite-form") {
+      const form = event.target;
+      if (!this.canChatWrite()) {
+        const error = form.querySelector(".form-error");
+        if (error) error.textContent = "Meeting invitations are unavailable while your Community chat mute is active.";
+        return;
+      }
+      const recipientIds = new FormData(form).getAll("recipientIds").map(String);
+      const error = form.querySelector(".form-error");
+      if (!recipientIds.length) {
+        if (error) error.textContent = "Choose at least one friend.";
+        return;
+      }
+      try {
+        const result = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/invitations`, {
+          method: "POST",
+          body: JSON.stringify({ recipientIds })
+        });
+        this.toast(result.invited === 1 ? "Meeting invitation sent." : `${result.invited} meeting invitations sent.`);
+        await this.refreshMeetingInvitations();
+      } catch (failure) {
+        if (error) error.textContent = failure.message;
+      }
+      return;
+    }
     if (event.target.id === "meeting-chat-form") {
       const form = event.target;
+      if (!this.canChatWrite()) {
+        const error = form.querySelector(".form-error");
+        if (error) error.textContent = "Meeting chat is read-only while your Community chat mute is active.";
+        return;
+      }
       try {
         const attachment = await readFileDataUrl(this.chatFile || document.querySelector("#meeting-chat-file")?.files?.[0]);
         const message = new FormData(form).get("message");
@@ -719,6 +1203,11 @@ export class VillageMeetingRuntime {
     }
     if (event.target.id === "meeting-poll-form") {
       const form = event.target;
+      if (!this.canChatWrite()) {
+        const error = form.querySelector(".form-error");
+        if (error) error.textContent = "Creating polls is unavailable while your Community chat mute is active.";
+        return;
+      }
       const data = new FormData(form);
       try {
         await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/polls`, {
@@ -773,6 +1262,12 @@ export class VillageMeetingRuntime {
     if (!button) return;
     const action = button.dataset.meetingAction;
     try {
+      if (!this.canChatWrite() && MODERATION_BLOCKED_MEETING_ACTIONS.has(action)) {
+        this.toast(action.startsWith("board-")
+          ? "Whiteboard editing is unavailable while your Community chat mute is active."
+          : "Meeting chat is read-only while your Community chat mute is active.");
+        return;
+      }
       if (action === "close") return this.close();
       if (action === "end") {
         if (confirm("End this meeting for everyone?")) {
@@ -853,6 +1348,14 @@ export class VillageMeetingRuntime {
         await this.api(`/api/community/meeting-messages/${encodeURIComponent(button.dataset.messageId)}`, { method: "DELETE" });
         return this.refreshChat();
       }
+      if (action === "revoke-invitation") {
+        if (!confirm("Revoke this meeting-only invitation?")) return;
+        await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/invitations`, {
+          method: "DELETE",
+          body: JSON.stringify({ invitationId: button.dataset.invitationId })
+        });
+        return this.refreshMeetingInvitations();
+      }
       if (action === "remove") {
         await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/state`, { method: "PATCH", body: JSON.stringify({ userId: button.dataset.userId, remove: true }) });
         this.removePeer(button.dataset.userId);
@@ -878,6 +1381,20 @@ export class VillageMeetingRuntime {
         this.chatFile = target.files?.[0] || null;
         const label = document.querySelector("#meeting-chat-file-name");
         if (label) label.textContent = this.chatFile?.name || "";
+        return;
+      }
+      if (target.id === "meeting-caption-language") {
+        if (!CAPTION_SPEECH_LANGUAGES.some(([value]) => value === target.value)) return;
+        this.captionSpeechLanguage = target.value;
+        this.saveCaptionPreferences();
+        this.restartCaptionRecognition();
+        return;
+      }
+      if (target.id === "meeting-caption-translation") {
+        if (!CAPTION_TRANSLATION_LANGUAGES.some(([value]) => value === target.value)) return;
+        this.captionTranslationLanguage = target.value;
+        this.captionTranslationWarned = false;
+        this.saveCaptionPreferences();
         return;
       }
       if (target.id === "meeting-board-file") {
@@ -1092,32 +1609,38 @@ export class VillageMeetingRuntime {
   async toggleScreen(button) {
     const localId = String(this.getUser()?.id || "");
     if (this.screenStream) {
-      const cameraTrack = this.localStream?.getVideoTracks()[0];
-      for (const peer of this.peers.values()) {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        if (sender && cameraTrack) await sender.replaceTrack(cameraTrack);
-      }
-      this.screenStream.getTracks().forEach((track) => track.stop());
+      const previous = this.screenStream;
       this.screenStream = null;
+      await Promise.allSettled([...this.peers.keys()].map((userId) => this.syncPeerSenders(userId)));
+      previous.getTracks().forEach((track) => {
+        track.onended = null;
+        track.stop();
+      });
       this.streams.set(localId, this.localStream);
       this.attachStream(localId, this.localStream);
       this.focusParticipant(localId);
       button.classList.remove("active");
+      button.querySelector("span").textContent = "Share";
       return;
     }
     try {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       const screenTrack = this.screenStream.getVideoTracks()[0];
-      for (const peer of this.peers.values()) {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        if (sender) await sender.replaceTrack(screenTrack);
-      }
+      if (!screenTrack) throw new Error("No screen video track was selected.");
+      await Promise.allSettled([...this.peers.keys()].map((userId) => this.syncPeerSenders(userId)));
       this.streams.set(localId, this.screenStream);
       this.attachStream(localId, this.screenStream);
       this.focusParticipant(localId);
-      screenTrack.onended = () => this.toggleScreen(button);
+      screenTrack.onended = () => {
+        if (this.screenStream) this.toggleScreen(button).catch(() => {});
+      };
       button.classList.add("active");
-    } catch {}
+      button.querySelector("span").textContent = "Sharing";
+    } catch (error) {
+      this.screenStream?.getTracks().forEach((track) => track.stop());
+      this.screenStream = null;
+      if (error?.name !== "NotAllowedError") this.toast(error?.message || "Screen sharing could not start.");
+    }
   }
 
   toggleRecording(button) {
@@ -1162,36 +1685,181 @@ export class VillageMeetingRuntime {
   }
 
   toggleCaptions(button) {
-    if (this.captionRecognition) {
-      this.captionRecognition.stop();
-      this.captionRecognition = null;
-      button.classList.remove("active");
-      return;
-    }
+    if (this.captionsWanted) return this.stopCaptions({ button });
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) return this.toast("Live captions are unavailable in this browser.");
-    const recognition = new Recognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      const result = event.results[event.results.length - 1];
-      const caption = String(result?.[0]?.transcript || "").trim();
-      if (!caption) return;
-      this.showCaption(caption, this.getUser()?.id);
-      if (result.isFinal) this.sendSignal("state", { caption });
-    };
-    recognition.onend = () => { if (this.captionRecognition === recognition && !this.closed) try { recognition.start(); } catch {} };
-    recognition.start();
-    this.captionRecognition = recognition;
+    this.captionsWanted = true;
+    this.captionRestartAttempt = 0;
+    this.voiceControlWasSuspended = Boolean(this.suspendVoiceControl());
     button.classList.add("active");
+    button.querySelector("span").textContent = "Captions on";
+    this.startCaptionRecognition();
   }
 
-  showCaption(text, userId) {
+  startCaptionRecognition() {
+    if (!this.captionsWanted || this.closed || this.captionRecognition) return;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return this.stopCaptions({ notify: "Live captions are unavailable in this browser." });
+    const recognition = new Recognition();
+    this.captionRecognition = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    recognition.lang = this.captionSpeechLanguage;
+    recognition.onresult = (event) => {
+      this.captionRestartAttempt = 0;
+      let interim = "";
+      for (let index = Number(event.resultIndex || 0); index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const text = String(result?.[0]?.transcript || "").trim().slice(0, 1000);
+        if (!text) continue;
+        if (!result.isFinal) {
+          interim = `${interim} ${text}`.trim();
+          continue;
+        }
+        const caption = {
+          id: meetingId(),
+          text,
+          sourceLanguage: this.captionSpeechLanguage,
+          final: true,
+          createdAt: new Date().toISOString()
+        };
+        this.showCaption(caption, this.getUser()?.id);
+        this.sendSignal("state", { caption }).catch(() => this.updateMeetingStatus("Caption sync interrupted · retrying"));
+      }
+      if (interim) this.showCaption({
+        id: `interim-${Date.now()}`,
+        text: interim,
+        sourceLanguage: this.captionSpeechLanguage,
+        final: false
+      }, this.getUser()?.id);
+    };
+    recognition.onerror = (event) => {
+      const fatal = ["not-allowed", "service-not-allowed", "audio-capture"].includes(String(event.error || ""));
+      if (fatal) {
+        this.stopCaptions({ notify: event.error === "audio-capture" ? "No microphone is available for captions." : "Microphone permission is required for captions." });
+      }
+    };
+    recognition.onend = () => {
+      if (this.captionRecognition === recognition) this.captionRecognition = null;
+      if (this.captionsWanted && !this.closed) this.scheduleCaptionRestart();
+    };
+    try {
+      recognition.start();
+    } catch {
+      this.captionRecognition = null;
+      this.scheduleCaptionRestart();
+    }
+  }
+
+  scheduleCaptionRestart(delay) {
+    if (!this.captionsWanted || this.closed) return;
+    clearTimeout(this.captionRestartTimer);
+    const wait = Number.isFinite(delay) ? delay : Math.min(5000, 350 * (2 ** Math.min(this.captionRestartAttempt, 4)));
+    this.captionRestartAttempt += 1;
+    this.captionRestartTimer = setTimeout(() => {
+      this.captionRestartTimer = null;
+      this.startCaptionRecognition();
+    }, wait);
+  }
+
+  restartCaptionRecognition() {
+    if (!this.captionsWanted) return;
+    clearTimeout(this.captionRestartTimer);
+    this.captionRestartTimer = null;
+    const recognition = this.captionRecognition;
+    this.captionRecognition = null;
+    if (recognition) {
+      recognition.onend = null;
+      try { recognition.stop(); } catch {}
+    }
+    this.captionRestartAttempt = 0;
+    this.scheduleCaptionRestart(120);
+  }
+
+  stopCaptions({ button = document.querySelector('[data-meeting-action="captions"]'), notify = "", resumeVoice = true } = {}) {
+    this.captionsWanted = false;
+    clearTimeout(this.captionRestartTimer);
+    this.captionRestartTimer = null;
+    const recognition = this.captionRecognition;
+    this.captionRecognition = null;
+    if (recognition) {
+      recognition.onend = null;
+      recognition.onresult = null;
+      recognition.onerror = null;
+      try { recognition.stop(); } catch {}
+    }
+    button?.classList.remove("active");
+    const label = button?.querySelector("span");
+    if (label) label.textContent = "Captions";
+    if (resumeVoice && this.voiceControlWasSuspended) this.resumeVoiceControl(true);
+    this.voiceControlWasSuspended = false;
+    if (notify) this.toast(notify);
+  }
+
+  renderCaption({ speaker, text, original = "", status = "" }) {
     const captions = document.querySelector("#meeting-captions");
     if (!captions) return;
-    captions.textContent = `${userId === this.getUser()?.id ? "You" : "Participant"}: ${text}`;
+    captions.replaceChildren();
+    const heading = document.createElement("strong");
+    heading.textContent = `${speaker}: `;
+    const primary = document.createElement("span");
+    primary.textContent = text;
+    captions.append(heading, primary);
+    if (original && original !== text) {
+      const source = document.createElement("small");
+      source.textContent = original;
+      captions.append(source);
+    }
+    if (status) {
+      const note = document.createElement("em");
+      note.textContent = status;
+      captions.append(note);
+    }
     clearTimeout(this.captionTimer);
-    this.captionTimer = setTimeout(() => { if (captions) captions.textContent = ""; }, 6000);
+    this.captionTimer = setTimeout(() => captions.replaceChildren(), 9000);
+  }
+
+  async showCaption(value, userId) {
+    const caption = typeof value === "string" ? { id: meetingId(), text: value, sourceLanguage: "", final: true } : value || {};
+    const text = String(caption.text || "").trim().slice(0, 1000);
+    if (!text) return;
+    const id = String(userId || "");
+    const participant = this.participantMeta.get(id);
+    const speaker = id === String(this.getUser()?.id || "") ? "You" : participant?.displayName || "Participant";
+    const displayToken = ++this.captionDisplayToken;
+    const targetLanguage = this.captionTranslationLanguage;
+    const sourceLanguage = String(caption.sourceLanguage || "");
+    const exactLanguage = sourceLanguage.toLowerCase() === targetLanguage.toLowerCase();
+    const sameBaseLanguage = !targetLanguage.includes("-") && sourceLanguage.toLowerCase().startsWith(`${targetLanguage.toLowerCase()}-`);
+    if (!caption.final || !targetLanguage || exactLanguage || sameBaseLanguage) {
+      this.renderCaption({ speaker, text });
+      return;
+    }
+    const targetLabel = CAPTION_TRANSLATION_LANGUAGES.find(([value]) => value === targetLanguage)?.[1] || targetLanguage;
+    this.renderCaption({ speaker, text, status: `Translating to ${targetLabel}…` });
+    const cacheKey = `${targetLanguage}\u0000${sourceLanguage}\u0000${text}`;
+    try {
+      let translation = this.captionTranslationCache.get(cacheKey);
+      if (!translation) {
+        const result = await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/translate`, {
+          method: "POST",
+          body: JSON.stringify({ text, sourceLanguage, targetLanguage })
+        });
+        translation = String(result.translation || "").trim();
+        if (translation) {
+          this.captionTranslationCache.set(cacheKey, translation);
+          if (this.captionTranslationCache.size > 200) this.captionTranslationCache.delete(this.captionTranslationCache.keys().next().value);
+        }
+      }
+      if (displayToken === this.captionDisplayToken && translation) this.renderCaption({ speaker, text: translation, original: text });
+    } catch {
+      if (displayToken === this.captionDisplayToken) this.renderCaption({ speaker, text, status: "Translation unavailable" });
+      if (!this.captionTranslationWarned) {
+        this.captionTranslationWarned = true;
+        this.toast("Caption translation is unavailable right now; original captions will continue.");
+      }
+    }
   }
 
   toggleTool(id, button) {
@@ -1249,6 +1917,7 @@ export class VillageMeetingRuntime {
     };
     canvas.addEventListener("pointerdown", async (event) => {
       if (event.button !== 0) return;
+      if (!this.canChatWrite()) return this.toast("Whiteboard editing is unavailable while your Community chat mute is active.");
       const point = this.boardPoint(event);
       if (this.boardTool === "select") {
         const selected = this.hitBoardObject(point);
@@ -1351,6 +2020,7 @@ export class VillageMeetingRuntime {
       await finish();
     });
     canvas.addEventListener("dblclick", async (event) => {
+      if (!this.canChatWrite()) return this.toast("Whiteboard editing is unavailable while your Community chat mute is active.");
       const object = this.hitBoardObject(this.boardPoint(event));
       if (!object || object.locked || !["text", "sticky", "comment", "card"].includes(object.type)) return;
       const text = prompt("Edit this whiteboard item:", object.text || "");
@@ -1368,6 +2038,7 @@ export class VillageMeetingRuntime {
   }
 
   boardCanEdit(tool = "") {
+    if (!this.canChatWrite()) return false;
     if (this.canModerate()) return true;
     const permission = this.meeting?.settings?.whiteboardPermission || "edit";
     if (permission === "edit") return true;
@@ -1487,6 +2158,10 @@ export class VillageMeetingRuntime {
   }
 
   async postBoardEvent(event, { recordHistory = true } = {}) {
+    if (!this.canChatWrite()) {
+      this.toast("Whiteboard editing is unavailable while your Community chat mute is active.");
+      return null;
+    }
     if (recordHistory && !["cursor", "snapshot"].includes(event.type)) {
       this.boardHistory.push(this.boardSnapshot());
       this.boardHistory = this.boardHistory.slice(-50);
@@ -1868,24 +2543,30 @@ export class VillageMeetingRuntime {
   async close({ quiet = false } = {}) {
     if (this.closed && !document.querySelector("#village-meeting")) return;
     this.closed = true;
+    this.signalPollBusy = false;
     clearInterval(this.signalTimer);
     clearInterval(this.refreshTimer);
     clearInterval(this.whiteboardTimer);
     clearInterval(this.pollCountdownTimer);
     clearTimeout(this.captionTimer);
     clearTimeout(this.boardViewportTimer);
-    this.captionRecognition?.stop();
+    this.stopCaptions({ resumeVoice: true });
     if (this.recorder?.state === "recording") this.recorder.stop();
     this.localStream?.getTracks().forEach((track) => track.stop());
     this.screenStream?.getTracks().forEach((track) => track.stop());
+    this.peerRecoveryTimers.forEach((timer) => clearTimeout(timer));
+    this.peerRecoveryTimers.clear();
+    this.peerStates.forEach((state) => clearTimeout(state.disconnectTimer));
     this.peers.forEach((peer) => peer.close());
     this.peers.clear();
+    this.peerStates.clear();
     this.streams.clear();
     this.participantMeta.clear();
     this.remoteBoardCursors.clear();
     this.boardImages.clear();
     this.boardDrag = null;
     this.activeSpeakerId = "";
+    this.audioUnlockPending = false;
     if (this.meeting && !quiet) {
       try { await this.api(`/api/community/meetings/${encodeURIComponent(this.meeting.id)}/join`, { method: "DELETE" }); } catch {}
     }
@@ -1894,6 +2575,8 @@ export class VillageMeetingRuntime {
     this.room = null;
     this.localStream = null;
     this.screenStream = null;
+    this.signalCursor = 0;
+    this.captionDisplayToken += 1;
     this.onClose();
   }
 }

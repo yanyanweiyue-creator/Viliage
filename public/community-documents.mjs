@@ -154,9 +154,10 @@ function lineDiff(before = "", after = "") {
 }
 
 export class VillageDocumentStudio {
-  constructor({ api, getUser, toast, onClose = () => {} }) {
+  constructor({ api, getUser, canChatWrite = () => true, toast, onClose = () => {} }) {
     this.api = api;
     this.getUser = getUser;
+    this.canChatWrite = canChatWrite;
     this.toast = toast;
     this.onClose = onClose;
     this.documents = [];
@@ -307,6 +308,10 @@ export class VillageDocumentStudio {
   }
 
   async createFromTemplate(templateKey) {
+    if (this.roomId && !this.canChatWrite()) {
+      this.toast("Creating and sharing a document in chat is unavailable while your Community chat mute is active.");
+      return;
+    }
     const template = TEMPLATES.find((item) => item.key === templateKey) || TEMPLATES[0];
     const result = await this.api("/api/community/documents", {
       method: "POST",
@@ -504,6 +509,7 @@ export class VillageDocumentStudio {
 
   commentsPanelHtml() {
     const comments = this.workspace?.comments || [];
+    const chatWritable = this.canChatWrite();
     const roots = comments.filter((comment) => !comment.parentId);
     const cards = roots.map((comment) => {
       const replies = comments.filter((reply) => reply.parentId === comment.id);
@@ -512,12 +518,12 @@ export class VillageDocumentStudio {
         ${comment.anchorText ? `<blockquote>${escapeHtml(comment.anchorText)}</blockquote>` : ""}
         <p>${escapeHtml(comment.body)}</p>
         ${comment.assignedName ? `<small>Task assigned to ${escapeHtml(comment.assignedName)}</small>` : ""}
-        <div class="doc-comment-actions">${comment.status !== "resolved" ? `<button type="button" data-doc-action="reply-comment" data-comment-id="${escapeHtml(comment.id)}">Reply</button>` : ""}${comment.mine || this.active.mine ? `<button type="button" data-doc-action="toggle-comment-status" data-comment-id="${escapeHtml(comment.id)}" data-status="${comment.status === "resolved" ? "open" : "resolved"}">${comment.status === "resolved" ? "Reopen" : "Resolve"}</button>` : ""}</div>
+        <div class="doc-comment-actions">${comment.status !== "resolved" && chatWritable ? `<button type="button" data-doc-action="reply-comment" data-comment-id="${escapeHtml(comment.id)}">Reply</button>` : ""}${comment.mine || this.active.mine ? `<button type="button" data-doc-action="toggle-comment-status" data-comment-id="${escapeHtml(comment.id)}" data-status="${comment.status === "resolved" ? "open" : "resolved"}">${comment.status === "resolved" ? "Reopen" : "Resolve"}</button>` : ""}</div>
         ${replies.map((reply) => `<div class="doc-comment-reply"><strong>${escapeHtml(reply.author)}</strong><p>${escapeHtml(reply.body)}</p></div>`).join("")}
       </article>`;
     }).join("");
     return `<header><strong>Comments and tasks</strong><button type="button" data-doc-action="close-drawer">${icon("close")}</button></header><div class="doc-drawer-body">
-      ${this.active.canComment ? `<form data-doc-comment-form><label>Comment<textarea name="body" rows="3" required placeholder="Comment on the selected text or the document"></textarea></label><label>@ mention<select name="mentionedUserId">${this.collaboratorOptions()}</select></label><label>Assign as task<select name="assignedTo">${this.collaboratorOptions()}</select></label><input type="hidden" name="anchorText" value="${escapeHtml(this.selectedText())}"><button class="doc-primary-button">Comment</button><p class="doc-form-status"></p></form>` : ""}
+      ${this.active.canComment && chatWritable ? `<form data-doc-comment-form><label>Comment<textarea name="body" rows="3" required placeholder="Comment on the selected text or the document"></textarea></label><label>@ mention<select name="mentionedUserId">${this.collaboratorOptions()}</select></label><label>Assign as task<select name="assignedTo">${this.collaboratorOptions()}</select></label><input type="hidden" name="anchorText" value="${escapeHtml(this.selectedText())}"><button class="doc-primary-button">Comment</button><p class="doc-form-status"></p></form>` : this.active.canComment ? `<p class="doc-write-restricted">Comments are unavailable while your Community chat mute is active.</p>` : ""}
       <div class="doc-comment-list">${cards || `<p class="doc-empty">No comments yet.</p>`}</div>
     </div>`;
   }
@@ -1112,6 +1118,7 @@ export class VillageDocumentStudio {
       return this.markDirty();
     }
     if (action === "reply-comment") {
+      if (!this.canChatWrite()) return this.toast("Comments are unavailable while your Community chat mute is active.");
       const reply = prompt("Reply:");
       if (!reply) return;
       const result = await this.api(`/api/community/documents/${encodeURIComponent(this.active.id)}/comments`, { method: "POST", body: JSON.stringify({ body: reply, parentId: button.dataset.commentId }) });
@@ -1220,6 +1227,10 @@ export class VillageDocumentStudio {
     const status = form.querySelector(".doc-form-status");
     try {
       if (form.matches("[data-doc-comment-form]")) {
+        if (!this.canChatWrite()) {
+          if (status) status.textContent = "Comments are unavailable while your Community chat mute is active.";
+          return;
+        }
         const result = await this.api(`/api/community/documents/${encodeURIComponent(this.active.id)}/comments`, { method: "POST", body: JSON.stringify(Object.fromEntries(data)) });
         this.workspace.comments.push(result.comment);
         this.renderDrawer();

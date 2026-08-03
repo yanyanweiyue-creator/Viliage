@@ -47,11 +47,15 @@ Use Node.js 20 or newer.
    npx wrangler@4 secret put USER_COUNT_SHEET_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_EMAIL_WEBHOOK_URL
    npx wrangler@4 secret put PASSWORD_RESET_SECRET
+   npx wrangler@4 secret put CLOUDFLARE_TURN_KEY_ID
+   npx wrangler@4 secret put CLOUDFLARE_TURN_API_TOKEN
    ```
 
    Set the same long random value as the Apps Script project property `WEBHOOK_SECRET` and the Worker secret `SHEET_WEBHOOK_SECRET`. Every webhook action is rejected without it. `USER_SHEET_ID` and `USER_SHEET_GID` are non-secret Worker variables already set in `wrangler.jsonc` to private spreadsheet `1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U`, tab gid `1080069851`; Feedback uses the same spreadsheet and gid `0`. User updates include both values and `action=upsert-user`. The Apps Script pins every action to its expected database and gid, rejects a missing or unknown target instead of falling back to another tab, preserves the existing row-1 headers, and upserts by `Unique User ID` or `Email`. Before deployment, confirm that the User Data tab already contains the nine documented headers; the script never adds columns.
 
    `PASSWORD_EMAIL_WEBHOOK_URL` may use the same Google Apps Script `/exec` URL after the updated `integrations/google-apps-script.gs` has been saved and deployed as a new version. If this secret is omitted, the Worker automatically falls back to `USER_SHEET_WEBHOOK_URL` for reset email delivery. Apps Script sends the six-digit code through the Google account's Gmail service. Use a long random value for `PASSWORD_RESET_SECRET`; codes are stored only as salted hashes in D1 and expire after 10 minutes.
+
+   For reliable Meeting audio, video, and screen sharing across restrictive networks, create a Cloudflare TURN key and store its ID and API token in `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN`. The Worker keeps the long-lived token server-side and returns only per-member, short-lived ICE credentials. Meetings still use Cloudflare and Google STUN when TURN is not configured. A self-hosted TURN service can instead be stored with `npx wrangler@4 secret put MEETING_ICE_SERVERS_JSON`; its ICE URLs and credentials are returned only to authorized active Meeting participants, so use short-lived or tightly restricted TURN credentials.
 
    `ERROR_SHEET_WEBHOOK_URL` may reuse the same Apps Script `/exec` URL as the user sheet, as long as that Apps Script deployment runs under an account with access to the Error database spreadsheet. The Worker sends `ERROR_SHEET_ID` and `ERROR_SHEET_GID`, appends at most one row per search when the requested count is missed or fewer than three displayed resources score at least 20, and appends one row for each **Not Helpful** research response. It maps the row-1 research fields exactly and writes `No` to `Helpful?`.
 
@@ -97,6 +101,7 @@ In the GitHub repository, add Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID` — shown in the Cloudflare dashboard.
 - `SHEET_WEBHOOK_SECRET` — the same long random value stored as the Apps Script `WEBHOOK_SECRET` project property.
 - `USER_SHEET_WEBHOOK_URL`, `ERROR_SHEET_WEBHOOK_URL`, `FEEDBACK_SHEET_WEBHOOK_URL`, `USER_COUNT_SHEET_WEBHOOK_URL`, and `PASSWORD_EMAIL_WEBHOOK_URL` — the canonical authenticated Apps Script `/exec` URL. The deployment workflow refreshes every Worker webhook secret from these values so historical URLs cannot drift.
+- For reliable Meeting connectivity across restrictive NATs and firewalls, add both `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN`. Alternatively, add `MEETING_ICE_SERVERS_JSON` for another trusted TURN service. The workflow preserves existing Worker secrets, uploads repository values when supplied, and reports a warning when no relay secret is present.
 
 After those are configured, every push to `main` runs `.github/workflows/deploy-cloudflare.yml`. Migration failure stops deployment, which prevents new code from running against an incompatible database.
 
@@ -113,6 +118,6 @@ The reset removes accounts, sessions, password-reset codes, announcements, user-
 - Password-reset codes are six digits, hashed with a server-only secret, limited to five attempts, rate-limited to one request per minute, and expire after 10 minutes.
 - Login sessions live in D1 for seven days and survive Worker deployments/restarts.
 - Community memberships, accepted connections, per-user history cutoffs, blocks, messages, and Moments survive Worker deployments/restarts.
-- The scheduled trigger runs every 12 hours and deletes messages older than 12 hours only from system-managed groups.
+- The scheduled trigger runs hourly and deletes messages older than 12 hours only from system-managed groups.
 - The local Node server writes users and hashed sessions atomically to ignored data files, so ordinary code updates do not overwrite them.
 - Do not delete the D1 database, reuse its name for testing, or run destructive SQL in a migration.

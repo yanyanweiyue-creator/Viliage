@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 
+test("production deploy preserves reset serialization and checks Meeting relay secrets", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/deploy-cloudflare.yml", import.meta.url), "utf8");
+
+  assert.match(workflow, /group:\s*cloudflare-production/);
+  assert.match(workflow, /cancel-in-progress:\s*false/);
+  assert.match(workflow, /secret bulk/);
+  assert.match(workflow, /secret list --format=json/);
+  assert.match(workflow, /CLOUDFLARE_TURN_KEY_ID/);
+  assert.match(workflow, /CLOUDFLARE_TURN_API_TOKEN/);
+  assert.match(workflow, /MEETING_ICE_SERVERS_JSON/);
+  assert.doesNotMatch(workflow, /reset-production\.sql/);
+});
+
 test("production reset removes account-owned state and preserves shared defaults", async () => {
   const database = new DatabaseSync(":memory:");
   const migrationDirectory = new URL("../migrations/", import.meta.url);
@@ -80,7 +93,7 @@ test("production reset removes account-owned state and preserves shared defaults
     database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'userXcountXmetrics:keep'").get().count,
     1
   );
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "13");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "19");
 
   database.close();
 });

@@ -5,7 +5,7 @@ import { SurfaceMotion } from "./surface-motion.mjs?v=land-map-20260624";
 import { celestialOrbit, moonPhaseForDate, moonPhaseName } from "./celestial-logic.mjs?v=village-guide-voice-20260625";
 import { loadLocalTrack, removeLocalTrack, saveLocalTrack, validateAudioFileMeta } from "./local-music-store.mjs";
 import { activeAmbientScenes } from "./ambient-schedule.mjs?v=grounded-audio-20260623";
-import { VillageMeetingRuntime } from "./community-meeting.mjs?v=meeting-collaboration-20260727a";
+import { VillageMeetingRuntime } from "./community-meeting.mjs?v=meeting-media-captions-20260728a";
 import { VillageDocumentStudio } from "./community-documents.mjs?v=village-docs-20260727";
 
 const config = window.CAPY_CONFIG;
@@ -61,6 +61,14 @@ const state = {
   environmentTimer: null,
   environmentRefreshTimer: null,
   communityTimer: null,
+  communityUpdatesTimer: null,
+  communityUpdateCursor: "",
+  communityNotificationCursor: "",
+  communityUpdateBusy: false,
+  communityUnreadCount: 0,
+  communitySeenEventIds: new Set(),
+  communityInfoOpen: false,
+  communityDirectoryOpen: false,
   communityRoom: null,
   communityOverview: null,
   communityPosts: [],
@@ -506,6 +514,7 @@ class VillageAudio {
     this.environmentGain = null;
     this.musicGain = null;
     this.animalGain = null;
+    this.notificationGain = null;
     this.environmentNodes = [];
     this.musicNodes = [];
     this.musicTimer = null;
@@ -543,13 +552,40 @@ class VillageAudio {
       this.environmentGain = this.context.createGain();
       this.musicGain = this.context.createGain();
       this.animalGain = this.context.createGain();
+      this.notificationGain = this.context.createGain();
       this.master.gain.value = 0;
+      this.notificationGain.gain.value = .16;
       this.environmentGain.connect(this.master);
       this.musicGain.connect(this.master);
       this.animalGain.connect(this.master);
+      this.notificationGain.connect(this.context.destination);
       this.master.connect(this.context.destination);
       this.noiseBuffer = this.createNoiseBuffer();
     }
+  }
+
+  async unlockNotifications() {
+    this.ensureContext();
+    if (this.context.state !== "running") await this.context.resume();
+  }
+
+  playChatDing() {
+    this.ensureContext();
+    if (this.context.state !== "running") return;
+    const now = this.context.currentTime;
+    [[740, 0], [988, .085]].forEach(([frequency, delay]) => {
+      const oscillator = this.context.createOscillator();
+      const gain = this.context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, now + delay);
+      gain.gain.setValueAtTime(.0001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(.55, now + delay + .012);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + delay + .16);
+      oscillator.connect(gain);
+      gain.connect(this.notificationGain);
+      oscillator.start(now + delay);
+      oscillator.stop(now + delay + .18);
+    });
   }
 
   async enable() {
@@ -1096,7 +1132,14 @@ async function api(path, options = {}) {
     headers: { "Content-Type": "application/json", ...(state.user?.guest ? { "X-Village-Guest": "1" } : {}), ...(options.headers || {}) }
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status}).`);
+    error.status = response.status;
+    error.code = data.code || "";
+    error.data = data;
+    error.moderation = data.moderation || null;
+    throw error;
+  }
   return data;
 }
 
@@ -1347,13 +1390,19 @@ async function submitSurvey(event) {
 }
 
 function routeForUser() {
-  if (!state.user) return showScreen("auth");
+  if (!state.user) {
+    stopCommunityUpdates();
+    return showScreen("auth");
+  }
   if (!state.user.surveyCompleted) {
+    stopCommunityUpdates();
     prepareSurveyForm(false);
     return showScreen("survey");
   }
   showScreen("app");
   hydrateApp();
+  if (state.user.guest) stopCommunityUpdates();
+  else startCommunityUpdates();
 }
 
 function renderAccountStatus() {
@@ -1398,7 +1447,9 @@ function renderBuildings() {
       <svg class="hotspot-outline" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><polygon points="${escapeHtml(outlinePoints(building))}"></polygon></svg>
       <span class="building-ground" aria-hidden="true"></span>
       <span class="building-icon" aria-hidden="true">${escapeHtml(building.icon)}</span>
+      ${building.type === "support" ? `<span class="community-hotspot-badge hidden" data-community-unread-badge aria-label="Unread Village messages"></span>` : ""}
     </button>`).join("");
+  renderCommunityBadges();
 }
 
 function applyIslandFocus(island) {
@@ -1437,10 +1488,11 @@ function resetMap() {
   $(".map-hint").innerHTML = `<span aria-hidden="true">↖</span> ${escapeHtml(t("selectIsland"))}`;
 }
 
-function openPanel({ title, eyebrow = "Village building", html }) {
+function openPanel({ title, eyebrow = "Village building", html, className = "" }) {
   $("#panel-title").textContent = title;
   $("#panel-eyebrow").textContent = eyebrow;
   $("#panel-content").innerHTML = html;
+  $("#panel").classList.toggle("community-workspace-panel", className === "community-workspace-panel");
   $("#panel").scrollTop = 0;
   $("#panel").classList.add("open");
   $("#panel").setAttribute("aria-hidden", "false");
@@ -1452,7 +1504,7 @@ function closePanel({ keepInterior = false } = {}) {
   clearInterval(state.communityTimer);
   state.communityTimer = null;
   state.communityRoom = null;
-  $("#panel").classList.remove("open");
+  $("#panel").classList.remove("open", "community-workspace-panel");
   $("#panel").setAttribute("aria-hidden", "true");
   $("#panel-scrim").classList.remove("open");
   if (!keepInterior) hideBuildingInterior();
@@ -1514,7 +1566,7 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
   ];
   const prepareOptions = [t("supportPrepareOne"), t("supportPrepareTwo"), t("supportPrepareThree")];
   const phoneContent = `<p class="panel-intro">${escapeHtml(t("supportIntroBody"))}</p>
-      <article class="community-launch"><div><small>${escapeHtml(t("communityTitle"))}</small><h3>${escapeHtml(t("communityIntro"))}</h3><p>${escapeHtml(t("communityPrivacy"))}</p></div><button type="button" class="primary-button" data-action="open-community">${escapeHtml(t("communityOpen"))} →</button></article>
+      <article class="community-launch"><div><small>${escapeHtml(t("communityTitle"))}</small><h3>${escapeHtml(t("communityIntro"))}</h3><p>${escapeHtml(t("communityPrivacy"))}</p></div><button type="button" class="primary-button community-launch-button" data-action="open-community">${escapeHtml(t("communityOpen"))} →<span class="community-launch-badge hidden" data-community-unread-badge aria-label="Unread Village messages"></span></button></article>
       <div class="card-list">${contacts.map((contact) => `<article class="info-card"><div><h3>${escapeHtml(contact.title)}</h3><p>${escapeHtml(contact.detail)}</p></div><a href="${escapeHtml(contact.href)}" target="${contact.href.startsWith("http") ? "_blank" : "_self"}" rel="noreferrer">${escapeHtml(contact.action)} →</a></article>`).join("")}</div>
       <h3>${escapeHtml(t("prepare"))}</h3><ul class="gentle-list">${prepareOptions.map((option) => `<li>${escapeHtml(option)}</li>`).join("")}</ul>`;
   openPanel({
@@ -1522,10 +1574,11 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
     eyebrow: t("supportEyebrow"),
     html: `<div class="support-shell"><div class="mori-stage support-character-stage">${guideCharacter("Support")}<div><h3>${escapeHtml(characterGreeting(GUIDE_CHARACTERS.Support.name))}</h3><p>${escapeHtml(t("supportGuideIntro"))}</p></div></div>${tab === "search" ? resourceSearchForm("Support") : phoneContent}<nav class="support-dock" aria-label="Support options"><button type="button" class="${tab === "phone" ? "active" : ""}" data-action="support-tab" data-support-tab="phone">${supportIcon("phone")}<span>${escapeHtml(t("supportContactTab"))}</span></button><button type="button" class="${tab === "search" ? "active" : ""}" data-action="support-tab" data-support-tab="search">${supportIcon("search")}<span>${escapeHtml(t("supportFindTab"))}</span></button></nav></div>`
   });
+  renderCommunityBadges();
 }
 
-function communityFriendChoices(data, field) {
-  return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("") || `<small>${escapeHtml(t("communityAddFriendFirst"))}</small>`;
+function communityFriendChoices(data, field, { disabled = false } = {}) {
+  return (data.directRooms || []).map((friend) => `<label class="friend-choice"><input type="checkbox" name="${field}" value="${escapeHtml(friend.user_id)}" ${disabled ? "disabled" : ""}> ${escapeHtml(friend.name)}</label>`).join("") || `<small>${escapeHtml(t("communityAddFriendFirst"))}</small>`;
 }
 
 function communityAvatarHtml(person = {}, { className = "", clickable = true } = {}) {
@@ -1566,22 +1619,23 @@ function communityCommentsHtml(post) {
   return comments ? `<div class="moment-comments">${comments}</div>` : "";
 }
 
-function communityPostsHtml(posts = []) {
+function communityPostsHtml(posts = [], { chatWritable = communityCanChatWrite() } = {}) {
+  const disabled = chatWritable ? "" : "disabled";
   return posts.map((post) => `<article class="community-post moment-post">
     <aside>${communityAvatarHtml(post)}</aside>
     <div class="moment-post-body">
       <header><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(post.userId)}"><strong>${escapeHtml(post.author)}</strong></button><time title="${escapeHtml(new Date(post.createdAt).toLocaleString())}">${escapeHtml(communityTime(post.createdAt))}</time></header>
       ${post.body ? `<p class="moment-text">${escapeHtml(post.body)}</p>` : ""}
       ${post.imageDataUrl ? `<button type="button" class="moment-photo" data-action="open-moment-photo" data-image-src="${escapeHtml(post.imageDataUrl)}"><img src="${escapeHtml(post.imageDataUrl)}" alt="Photo shared by ${escapeHtml(post.author)}"></button>` : ""}
-      <div class="moment-actions"><button type="button" data-action="focus-community-comment" data-post-id="${escapeHtml(post.id)}">Comment</button>${post.mine ? `<button type="button" data-action="delete-community-post" data-post-id="${escapeHtml(post.id)}">Delete</button>` : ""}</div>
+      <div class="moment-actions"><button type="button" ${disabled} ${chatWritable ? `data-action="focus-community-comment"` : `title="Comments are unavailable during your chat mute."`} data-post-id="${escapeHtml(post.id)}">Comment</button>${post.mine ? `<button type="button" data-action="delete-community-post" data-post-id="${escapeHtml(post.id)}">Delete</button>` : ""}</div>
       ${communityCommentsHtml(post)}
       <form class="moment-comment-form" data-community-comment-form data-post-id="${escapeHtml(post.id)}">
-        <input name="text" maxlength="1000" placeholder="Comment kindly…">
-        <label class="moment-comment-tool" title="Add an image"><span>+</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-comment-image data-post-id="${escapeHtml(post.id)}"></label>
-        <button type="button" class="moment-comment-tool" data-action="toggle-comment-stickers" data-post-id="${escapeHtml(post.id)}" title="Add a sticker">☺</button>
-        <button type="submit">Send</button>
+        <input name="text" ${disabled} maxlength="1000" placeholder="${escapeHtml(chatWritable ? "Comment kindly…" : "Comments are unavailable during your chat mute.")}">
+        <label class="moment-comment-tool" title="${escapeHtml(chatWritable ? "Add an image" : "Comments are unavailable during your chat mute.")}"><span>+</span><input type="file" ${disabled} accept="image/png,image/jpeg,image/webp,image/gif" data-community-comment-image data-post-id="${escapeHtml(post.id)}"></label>
+        <button type="button" ${disabled} class="moment-comment-tool" ${chatWritable ? `data-action="toggle-comment-stickers"` : ""} data-post-id="${escapeHtml(post.id)}" title="${escapeHtml(chatWritable ? "Add a sticker" : "Comments are unavailable during your chat mute.")}">☺</button>
+        <button type="submit" ${disabled}>Send</button>
         <div class="moment-comment-preview" data-comment-preview="${escapeHtml(post.id)}"></div>
-        <div class="moment-comment-sticker-tray hidden" data-comment-stickers="${escapeHtml(post.id)}">${communityStickerButtons({ action: "comment-custom-sticker", postId: post.id })}</div>
+        <div class="moment-comment-sticker-tray hidden" data-comment-stickers="${escapeHtml(post.id)}">${chatWritable ? communityStickerButtons({ action: "comment-custom-sticker", postId: post.id }) : ""}</div>
         <p class="form-error" role="alert"></p>
       </form>
     </div>
@@ -1600,23 +1654,23 @@ function communityNotificationsHtml(notifications = []) {
   return notifications.map((notification) => `<button type="button" class="community-notification ${notification.read ? "" : "unread"}" data-action="open-community-notification" data-notification-id="${escapeHtml(notification.id)}" data-notification-kind="${escapeHtml(notification.kind)}" data-notification-meta="${escapeHtml(JSON.stringify(notification.metadata || {}))}"><span class="notification-mark" aria-hidden="true"></span><div><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><time>${escapeHtml(communityTime(notification.createdAt))}</time></div></button>`).join("") || `<p class="community-empty">${escapeHtml(t("communityAllCaughtUp"))}</p>`;
 }
 
-function communityDocumentsHtml(documents = [], { compact = false } = {}) {
-  return documents.map((document) => `<article class="village-document-card ${compact ? "compact" : ""}"><span class="document-kind">${escapeHtml(String(document.kind || "doc").toUpperCase())}</span><button type="button" data-action="open-community-document" data-document-id="${escapeHtml(document.id)}"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(document.mine ? t("yours") : `${t("sharedBy")} ${document.ownerName || t("aFriend")}`)} · ${escapeHtml(communityTime(document.updatedAt))}</small></button>${document.mine ? `<button type="button" class="document-share-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}" title="${escapeHtml(t("shareToChat"))}">↗</button>` : ""}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("noVillageDocuments"))}</p>`;
+function communityDocumentsHtml(documents = [], { compact = false, chatWritable = communityCanChatWrite() } = {}) {
+  return documents.map((document) => `<article class="village-document-card ${compact ? "compact" : ""}"><span class="document-kind">${escapeHtml(String(document.kind || "doc").toUpperCase())}</span><button type="button" data-action="open-community-document" data-document-id="${escapeHtml(document.id)}"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(document.mine ? t("yours") : `${t("sharedBy")} ${document.ownerName || t("aFriend")}`)} · ${escapeHtml(communityTime(document.updatedAt))}</small></button>${document.mine ? `<button type="button" class="document-share-button" ${chatWritable ? `data-action="share-community-document"` : "disabled"} data-document-id="${escapeHtml(document.id)}" title="${escapeHtml(chatWritable ? t("shareToChat") : "Sharing to chat is unavailable during your mute.")}">↗</button>` : ""}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("noVillageDocuments"))}</p>`;
 }
 
 function communitySavedHtml(messages = []) {
   return messages.map((message) => `<article class="saved-community-item"><span>${escapeHtml(String(message.messageType || "text").toUpperCase())}</span><div><strong>${escapeHtml(message.author || t("communityTitle"))}</strong><p>${escapeHtml(message.body)}</p>${message.attachment ? `<a href="${escapeHtml(message.attachment.dataUrl)}" download="${escapeHtml(message.attachment.name)}">${escapeHtml(message.attachment.name)}</a>` : ""}</div><button type="button" data-action="unsave-community-message" data-message-id="${escapeHtml(message.id)}" title="${escapeHtml(t("savedFromChat"))}">×</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("savedFromChatEmpty"))}</p>`;
 }
 
-function communityMomentComposerHtml(data) {
-  if (!state.communityPostComposerOpen) return "";
+function communityMomentComposerHtml(data, { chatWritable = communityCanChatWrite(data) } = {}) {
+  if (!state.communityPostComposerOpen || !chatWritable) return "";
   return `<section class="moment-composer-sheet">
     <header><div><small>NEW MOMENT</small><strong>Share with your village friends</strong></div><button type="button" data-action="toggle-moment-composer" title="Close composer">×</button></header>
     <form id="community-post-form" class="stack-form">
       <label><span class="sr-only">Moment text</span><textarea name="text" maxlength="2000" rows="3" placeholder="What would you like friends to know?"></textarea></label>
       <label class="moment-photo-picker"><span>Choose a photo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-image></label>
       <div id="community-image-preview" class="community-image-preview" aria-live="polite"></div>
-      <details><summary>Audience · Friends</summary><strong>Only these friends (leave empty for all)</strong><div class="friend-choices">${communityFriendChoices(data, "allowedUserIds")}</div><strong>Hide from these friends</strong><div class="friend-choices">${communityFriendChoices(data, "deniedUserIds")}</div></details>
+      <details><summary>Audience · Friends</summary><strong>Only these friends (leave empty for all)</strong><div class="friend-choices">${communityFriendChoices(data, "allowedUserIds", { disabled: !chatWritable })}</div><strong>Hide from these friends</strong><div class="friend-choices">${communityFriendChoices(data, "deniedUserIds", { disabled: !chatWritable })}</div></details>
       <button class="primary-button" type="submit">Post Moment</button><p class="form-error" role="alert"></p>
     </form>
   </section>`;
@@ -1653,16 +1707,309 @@ function communitySelfHtml(data) {
   </section>`;
 }
 
+function moderationDurationLabel(sanction = {}) {
+  if (sanction.durationSeconds == null) return "Permanent";
+  const seconds = Math.max(0, Number(sanction.durationSeconds || 0));
+  const units = [
+    [86400, "day"],
+    [3600, "hour"],
+    [60, "minute"]
+  ];
+  for (const [size, label] of units) {
+    if (seconds >= size && seconds % size === 0) {
+      const value = seconds / size;
+      return `${value} ${label}${value === 1 ? "" : "s"}`;
+    }
+  }
+  return `${seconds} seconds`;
+}
+
+function moderationSanctionsHtml(moderation = {}, { compact = false } = {}) {
+  const sanctions = Array.isArray(moderation.sanctions) ? moderation.sanctions : [];
+  return sanctions.map((sanction) => {
+    const endsAt = sanction.endsAt
+      ? new Date(sanction.endsAt).toLocaleString()
+      : "No automatic end date";
+    return `<article class="moderation-sanction-card ${compact ? "compact" : ""}">
+      <div class="moderation-sanction-heading"><strong>${escapeHtml(sanction.label || sanction.type || "Community penalty")}</strong><span>${escapeHtml(moderationDurationLabel(sanction))}</span></div>
+      <dl><div><dt>Reason</dt><dd>${escapeHtml(sanction.reason || "No reason supplied")}</dd></div><div><dt>Duration</dt><dd>${escapeHtml(moderationDurationLabel(sanction))}</dd></div><div><dt>Ends</dt><dd>${escapeHtml(endsAt)}</dd></div></dl>
+    </article>`;
+  }).join("");
+}
+
+function communityCanChatWrite(data = state.communityOverview) {
+  return data?.moderation?.access?.chatWrite !== false;
+}
+
+function communityChatMuteMessage() {
+  return "This action is unavailable while your Community chat mute is active.";
+}
+
+function requireCommunityChatWrite(form = null) {
+  if (communityCanChatWrite()) return true;
+  const message = communityChatMuteMessage();
+  const status = form?.querySelector?.(".form-error");
+  if (status) status.textContent = message;
+  else toast(message);
+  return false;
+}
+
+const COMMUNITY_CHAT_WRITE_ACTIONS = new Set([
+  "connect-community",
+  "toggle-moment-composer",
+  "focus-community-comment",
+  "toggle-comment-stickers",
+  "comment-custom-sticker",
+  "send-sticker",
+  "send-custom-sticker",
+  "share-community-location",
+  "toggle-meeting-scheduler",
+  "share-community-document",
+  "share-community-document-room",
+  "mention-member"
+]);
+
+function communityModerationBanner(moderation = {}) {
+  if (!moderation.active) return "";
+  return `<aside class="moderation-banner" role="status"><strong>Account penalty active</strong><span>${escapeHtml(moderation.access?.community === false ? "Village Community access is suspended." : moderation.access?.chatWrite === false ? "You can read, but cannot post, invite, or use chat tools while muted." : "Some Village features are restricted.")}</span></aside>`;
+}
+
+function communityRestrictedByPenaltyHtml(data = {}) {
+  return `<section class="moderation-restricted-view">
+    <span class="moderation-lock" aria-hidden="true">!</span>
+    <h3>Village Community is temporarily unavailable</h3>
+    <p>Your Community data has not been deleted. Access returns automatically when the penalty ends or an administrator revokes it.</p>
+    ${moderationSanctionsHtml(data.moderation)}
+  </section>`;
+}
+
+function showCommunityPenaltyNotice(moderation = {}) {
+  if (!moderation.active || !Array.isArray(moderation.sanctions) || !moderation.sanctions.length) return;
+  let dialog = $("#community-penalty-dialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "community-penalty-dialog";
+    dialog.className = "moderation-dialog";
+    document.body.append(dialog);
+  }
+  dialog.innerHTML = `<div class="moderation-dialog-shell"><header><div><small>Village moderation notice</small><h2>Penalty reminder</h2></div><button type="button" class="moderation-dialog-close" aria-label="Close penalty reminder">×</button></header><p>This reminder appears each time you open Village Community while a penalty is active.</p><div class="moderation-dialog-list">${moderationSanctionsHtml(moderation)}</div><button type="button" class="primary-button moderation-dialog-confirm">I understand</button></div>`;
+  const close = () => {
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  };
+  dialog.querySelector(".moderation-dialog-close")?.addEventListener("click", close);
+  dialog.querySelector(".moderation-dialog-confirm")?.addEventListener("click", close);
+  if (!dialog.open && typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function communityAllRooms(data = state.communityOverview || {}) {
+  const direct = (data.directRooms || []).map((room) => ({ ...room, kind: "direct", joined: true }));
+  const groups = (data.groups || []).filter((room) => room.joined).map((room) => ({ ...room, kind: "group" }));
+  return [...direct, ...groups].sort((first, second) => (
+    Number(Boolean(second.pinned)) - Number(Boolean(first.pinned))
+    || String(second.latestMessageAt || "").localeCompare(String(first.latestMessageAt || ""))
+    || String(first.name || "").localeCompare(String(second.name || ""))
+  ));
+}
+
+function communityRoomPreview(room = {}) {
+  if (!room.latestMessageId) return room.kind === "group" ? (room.description || "Group conversation") : "Start a conversation";
+  if (room.latestMessageType === "file") return "Shared a file";
+  if (room.latestMessageType === "document") return "Shared a Village document";
+  if (room.latestMessageType === "meeting") return "Scheduled a meeting";
+  if (room.latestMessageType === "location") return "Shared a location";
+  if (room.latestMessageType === "sticker") return "Sent a sticker";
+  return String(room.latestMessageBody || "New message").replace(/\[\[sticker:[^\]]+\]\]/g, "Sent a sticker");
+}
+
+function communityUnreadBadge(count, className = "") {
+  const unread = Math.max(0, Number(count || 0));
+  return `<span class="community-unread-badge ${className} ${unread ? "" : "hidden"}" data-room-unread aria-label="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread || ""}</span>`;
+}
+
+function communityRailHtml(data, activeTab) {
+  const items = [
+    ["direct", t("communityPrivateTab"), "◉"],
+    ["groups", t("communityGroupsTab"), "♙"],
+    ["moments", t("communityMomentsTab"), "◎"],
+    ["inbox", t("communityRequestsTab"), "✉"],
+    ["self", t("communitySelfTab"), "♧"]
+  ];
+  const counts = data.notificationCounts || {};
+  return `<nav class="community-workspace-rail" aria-label="Village Community">
+    <div class="community-rail-avatar">${communityAvatarHtml({ userId: state.user?.id, name: data.displayName, avatarDataUrl: data.avatarDataUrl }, { clickable: false })}</div>
+    <div class="community-rail-actions">${items.map(([tab, label, icon]) => {
+      const count = tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0;
+      return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span aria-hidden="true">${icon}</span>${communityUnreadBadge(count, "rail-badge")}</button>`;
+    }).join("")}</div>
+    <button type="button" class="community-rail-exit" data-action="close-community-workspace" aria-label="Return to the village" title="Return to the village">⌂</button>
+  </nav>`;
+}
+
+function communityConversationSidebarHtml(data, activeRoomId = "") {
+  const rooms = communityAllRooms(data);
+  return `<aside class="community-conversation-sidebar" aria-label="Conversations">
+    <header><strong>Village</strong><span><button type="button" data-action="show-community-directory" aria-label="Find Village friends" title="Find friends">⌕</button><button type="button" data-action="community-tab" data-community-tab="inbox" aria-label="Requests and notices" title="Requests and notices">＋${communityUnreadBadge(data.notificationCounts?.requests, "request-badge")}</button></span></header>
+    <label class="community-conversation-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search conversations" data-community-conversation-search></label>
+    <div class="community-conversation-list">${rooms.map((room) => {
+      const preview = communityRoomPreview(room);
+      const avatar = room.kind === "direct"
+        ? communityAvatarHtml(room, { clickable: false, className: "conversation-avatar" })
+        : `<span class="community-avatar conversation-avatar group-avatar" aria-hidden="true">#</span>`;
+      return `<button type="button" class="community-conversation-row ${room.id === activeRoomId ? "active" : ""}" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}" data-conversation-search="${escapeHtml(`${room.name} ${preview}`.toLowerCase())}">
+        <span class="conversation-avatar-wrap">${avatar}${communityUnreadBadge(room.unreadCount, "conversation-avatar-badge")}</span>
+        <span class="conversation-copy"><span><strong>${escapeHtml(room.name)}</strong><time>${escapeHtml(room.latestMessageAt ? communityTime(room.latestMessageAt) : "")}</time></span><small>${room.alertsHidden ? `<i aria-label="Alerts hidden">⌁</i>` : ""}${escapeHtml(preview)}</small></span>
+      </button>`;
+    }).join("") || `<p class="community-empty">Join a group or add a friend to start chatting.</p>`}</div>
+  </aside>`;
+}
+
+function communityWorkspaceHtml(data, mainHtml, { activeTab = state.communityTab, activeRoomId = "", drawerHtml = "" } = {}) {
+  return `<div class="community-workspace tab-${escapeHtml(activeTab)} ${activeRoomId ? "has-active-room" : ""} ${state.communityInfoOpen ? "info-open" : ""} ${state.communityDirectoryOpen ? "directory-open" : ""}">
+    ${communityRailHtml(data, activeTab)}
+    ${communityConversationSidebarHtml(data, activeRoomId)}
+    <main class="community-workspace-main">${activeRoomId ? "" : communityModerationBanner(data.moderation)}${mainHtml}</main>
+    ${drawerHtml}
+  </div>`;
+}
+
+function communityMemberRole(member = {}) {
+  if (member.role === "owner" || member.isOwner) return "owner";
+  if (["admin", "moderator"].includes(member.role) || member.isGroupAdmin || member.isSiteAdmin) return "admin";
+  return "member";
+}
+
+function communityMemberRoleBadge(member = {}) {
+  const role = communityMemberRole(member);
+  if (role === "owner") return `<span class="community-member-role owner">Owner</span>`;
+  if (role === "admin") return `<span class="community-member-role admin">Admin</span>`;
+  return "";
+}
+
+function communityRoomCapabilities(room = {}) {
+  return {
+    currentUserRole: room.currentUserRole || room.myRole || "member",
+    canManageMembers: room.canManageMembers === true || room.canManageGroup === true || room.canModerateMembers === true,
+    canManageAdmins: room.canManageAdmins === true,
+    canEditGroup: room.canEditGroup === true || room.canManageGroup === true || room.canManageAnnouncements === true || room.canManageMembers === true,
+    canReviewJoinRequests: room.canReviewJoinRequests === true || room.canManageGroup === true || room.canManageMembers === true,
+    canManageJoinSettings: room.canManageJoinSettings === true || room.canManageMembers === true,
+    canTransferOwnership: room.systemManaged !== true && room.canTransferOwnership === true,
+    canDeleteGroup: room.systemManaged !== true && (room.canDeleteGroup === true || room.canDissolveGroup === true),
+    canMentionEveryone: room.canMentionEveryone === true
+  };
+}
+
+function communityCurrentRoomMute(data = {}) {
+  const member = (data.members || []).find((item) => item.userId === state.user?.id);
+  if (!member) return null;
+  const active = Boolean(member.isMuted ?? (member.mutedUntil && Date.parse(member.mutedUntil) > Date.now()));
+  return active ? { endsAt: member.mutedUntil || null, reason: member.muteReason || "Group chat moderation" } : null;
+}
+
+function communityRoomChatWritable(data = {}) {
+  return communityCanChatWrite() && !communityCurrentRoomMute(data);
+}
+
+function communityGroupManagementHtml(data) {
+  const room = data.room || {};
+  const capabilities = communityRoomCapabilities(room);
+  if (!capabilities.canEditGroup && !capabilities.canReviewJoinRequests && !capabilities.canDeleteGroup) return "";
+  const requests = Array.isArray(data.joinRequests) ? data.joinRequests : [];
+  const requestList = requests.map((request) => `<article class="community-join-request">
+    ${communityAvatarHtml(request, { clickable: false, className: "small" })}
+    <div><strong>${escapeHtml(request.displayName || "Village member")}</strong><small>${escapeHtml(request.createdAt ? `Requested ${communityTime(request.createdAt)}` : "Waiting for review")}</small></div>
+    <span><button type="button" data-action="review-community-join-request" data-request-id="${escapeHtml(request.id)}" data-request-status="approved">Approve</button><button type="button" class="danger" data-action="review-community-join-request" data-request-id="${escapeHtml(request.id)}" data-request-status="declined">Decline</button></span>
+  </article>`).join("");
+  const settings = capabilities.canEditGroup ? `<details class="community-group-settings">
+    <summary><span><strong>Group settings</strong><small>Name, announcement and joining rules</small></span><b>›</b></summary>
+    <form id="community-group-settings-form" class="stack-form">
+      <label>Group name<input name="name" maxlength="80" required value="${escapeHtml(room.name || "")}"></label>
+      <label>Description<textarea name="description" maxlength="240" rows="3">${escapeHtml(room.description || "")}</textarea></label>
+      <label>Group announcement<textarea name="announcement" maxlength="1200" rows="4" placeholder="Share an update with every member">${escapeHtml(room.announcement || "")}</textarea></label>
+      <label class="community-group-setting-toggle"><span><strong>Pin announcement</strong><small>Keep the notice above the conversation.</small></span><input type="checkbox" name="announcementPinned"${room.announcementPinned ? " checked" : ""}></label>
+      ${capabilities.canManageJoinSettings ? `<label class="community-group-setting-toggle"><span><strong>Approve join requests</strong><small>New members wait for an owner or admin.</small></span><input type="checkbox" name="joinApprovalRequired"${room.joinApprovalRequired ? " checked" : ""}></label>
+      <label class="community-group-setting-toggle"><span><strong>Review accepted invitations</strong><small>After an invited friend accepts, an owner or admin must approve their entry.</small></span><input type="checkbox" name="inviteConfirmationRequired"${room.inviteConfirmationRequired ? " checked" : ""}></label>` : `<p class="community-group-owner-note">Membership approval rules are read-only for your role.</p>`}
+      <button type="submit" class="primary-button">Save group settings</button><p class="form-error" role="alert"></p>
+    </form>
+  </details>` : "";
+  const approvals = capabilities.canReviewJoinRequests ? `<details class="community-join-requests"${requests.length ? " open" : ""}><summary><span><strong>Join requests</strong><small>${requests.length ? `${requests.length} waiting for review` : "No pending requests"}</small></span>${requests.length ? `<em>${requests.length}</em>` : ""}<b>›</b></summary><div>${requestList || `<p class="community-empty">New requests will appear here.</p>`}</div></details>` : "";
+  const dissolve = capabilities.canDeleteGroup ? `<button type="button" class="community-group-danger-action" data-action="dissolve-community-group" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><span><strong>Dissolve group</strong><small>Permanently close this group for every member.</small></span><b>›</b></button>` : "";
+  return `<section class="community-group-management" aria-label="Group management"><h3>Management</h3>${settings}${approvals}${dissolve}</section>`;
+}
+
+function communityRoomInfoHtml(data) {
+  const room = data.room || {};
+  const chatWritable = communityRoomChatWritable(data);
+  const directRoom = (state.communityOverview?.directRooms || []).find((item) => item.id === room.id);
+  const capabilities = communityRoomCapabilities(room);
+  const currentRoleLabel = capabilities.currentUserRole === "owner" ? "You are the owner" : capabilities.currentUserRole === "admin" ? "You are an admin" : "Group member";
+  return `<aside class="community-room-info" aria-label="Conversation details">
+    <header><strong>Chat details</strong><button type="button" data-action="toggle-community-info" aria-label="Close chat details">×</button></header>
+    ${room.kind === "group" ? `<section class="community-info-members"><header class="community-info-members-heading"><div><h3>${Number(data.members?.length || 0)} members</h3><small>${escapeHtml(room.systemManaged ? "System group · Village administrators can appoint group admins" : `${currentRoleLabel} · Only the owner can transfer ownership`)}</small></div></header>${groupMemberControls(data, { chatWritable })}</section>${communityGroupManagementHtml(data)}` : `<section class="community-info-person">${communityAvatarHtml(directRoom || { name: room.name }, { clickable: false, className: "large" })}<strong>${escapeHtml(room.name)}</strong></section>`}
+    <section class="community-info-settings">
+      <button type="button" class="community-info-switch" data-action="toggle-room-alerts" data-room-id="${escapeHtml(room.id)}" data-alerts-hidden="${String(!room.alertsHidden)}" role="switch" aria-checked="${String(Boolean(room.alertsHidden))}"><span><strong>Hide alerts</strong><small>Messages still show unread red dots.</small></span><i aria-hidden="true"></i></button>
+      <button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}"><span><strong>${room.pinned ? "Unpin conversation" : "Pin conversation"}</strong><small>Keep it near the top of your list.</small></span><b>›</b></button>
+      <button type="button" data-action="clear-community-history" data-room-id="${escapeHtml(room.id)}"><span><strong>Clear my chat history</strong><small>This affects only your view.</small></span><b>›</b></button>
+      ${room.kind === "group"
+        ? capabilities.currentUserRole === "owner" ? `<button type="button" class="community-info-disabled" disabled title="Transfer ownership before leaving"><span><strong>Leave group</strong><small>Transfer ownership before you leave.</small></span><b>›</b></button>` : `<button type="button" class="danger" data-action="leave-community-room" data-room-id="${escapeHtml(room.id)}"><span><strong>Leave group</strong></span><b>›</b></button>`
+        : `<button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>View Moments</strong></span><b>›</b></button><button type="button" class="danger" data-action="remove-community-friend" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>Remove friend</strong></span><b>›</b></button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>Block member</strong></span><b>›</b></button>`}
+    </section>
+  </aside>`;
+}
+
+function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
+  const room = data.room;
+  const roomMute = communityCurrentRoomMute(data);
+  const chatWritable = communityCanChatWrite() && !roomMute;
+  const disabled = chatWritable ? "" : "disabled";
+  const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" ${disabled} data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
+  const rawCustomStickers = communityStickerButtons();
+  const customStickers = chatWritable ? rawCustomStickers : rawCustomStickers.replaceAll("<button ", "<button disabled ");
+  const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
+  const announcement = room.kind === "group" && room.announcement ? `<aside class="community-group-announcement ${room.announcementPinned ? "pinned" : ""}"><span aria-hidden="true">${room.announcementPinned ? "◆" : "◇"}</span><div><strong>Group announcement${room.announcementPinned ? " · Pinned" : ""}</strong><p>${escapeHtml(room.announcement)}</p></div></aside>` : "";
+  return `<section class="community-chat wechat-chat">
+    <header class="community-chat-header"><button type="button" class="community-mobile-back" data-action="close-community-room" aria-label="Back to conversations">‹</button><div><strong>${escapeHtml(room.name)}</strong><small>${room.kind === "group" ? `${Number(data.members?.length || 0)} members` : "Private conversation"}</small></div><button type="button" data-action="toggle-community-info" aria-label="Conversation details" aria-expanded="${String(state.communityInfoOpen)}">•••</button></header>
+    ${room.systemManaged ? `<p class="community-chat-retention">Commons messages are kept for 12 hours.</p>` : ""}
+    ${announcement}
+    ${meetings ? `<section class="room-meeting-list"><header><strong>Meetings</strong></header>${meetings}</section>` : ""}
+    <div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div>
+    ${roomMute ? `<aside class="community-room-mute-banner" role="status"><strong>You are muted in this group</strong><span>${escapeHtml(roomMute.reason)}${roomMute.endsAt ? ` · Ends ${escapeHtml(new Date(roomMute.endsAt).toLocaleString())}` : ""}</span></aside>` : chatWritable ? "" : communityModerationBanner(state.communityOverview?.moderation)}
+    <div class="community-compose-shell ${chatWritable ? "" : "is-disabled"}">
+      <div class="community-compose-tools">
+        <label class="compose-tool" title="Attach a photo or document">＋<span class="sr-only">Attach file</span><input type="file" ${disabled} accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
+        <button type="button" ${disabled} class="compose-tool" data-action="share-community-location" title="Share current location">⌖</button>
+        <button type="button" ${disabled} class="compose-tool" data-action="create-community-document" title="Create a Village document">▤</button>
+        <button type="button" ${disabled} class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉</button>
+        <label class="compose-tool" title="Upload a custom sticker">☺<input type="file" ${disabled} accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>
+      </div>
+      <div id="community-attachment-preview" class="community-attachment-preview"></div>
+      <div class="sticker-picker" aria-label="Stickers">${stickerButtons}${customStickers}</div>
+      <form id="community-meeting-form" class="community-meeting-form hidden"><input name="title" ${disabled} maxlength="120" value="Village catch-up" required><label>Start time<input name="startsAt" ${disabled} type="datetime-local" required></label><label>Minutes<input name="durationMinutes" ${disabled} type="number" min="10" max="480" value="45" required></label><button type="submit" ${disabled} class="secondary-button">Schedule and invite this chat</button><p class="form-error"></p></form>
+      <form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(room.id)}"><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" ${disabled} maxlength="1000" rows="2" placeholder="${escapeHtml(chatWritable ? t("communityMessagePlaceholder") : "Chat is unavailable during your mute.")}"></textarea></label>${room.kind === "group" ? `<button type="button" ${disabled} class="community-everyone-button" data-action="mention-member" data-mention="@everyone" title="@everyone · Notify all group members" aria-label="Mention everyone in this group">@all</button>` : ""}<button type="submit" ${disabled} class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form>
+    </div>
+  </section>`;
+}
+
 function communityOverviewHtml(data, posts = state.communityPosts, activeTab = state.communityTab) {
-  if (!data.enabled) return `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p><form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
+  if (!data.enabled) {
+    state.communityOverview = data;
+    const optIn = `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p><form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
+    return communityWorkspaceHtml(data, optIn, { activeTab });
+  }
   state.communityOverview = data;
   state.communityPosts = posts;
   state.communityTab = activeTab;
+  const chatWritable = communityCanChatWrite(data);
+  const writeDisabled = chatWritable ? "" : "disabled";
+  state.communityUnreadCount = communityAllRooms(data).reduce((total, room) => total + Number(room.unreadCount || 0), 0)
+    + Number(data.notificationCounts?.moments || 0) + Number(data.notificationCounts?.requests || 0) + Number(data.notificationCounts?.meetings || 0);
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
   const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card"><span class="room-symbol">⌂</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("communityNoGroups"))}</p>`;
-  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) ? "disabled" : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("communitySuggestionsEmpty"))}</p>`;
+  const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) || !chatWritable ? `disabled title="${escapeHtml(!chatWritable ? communityChatMuteMessage() : t("communityPending"))}"` : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("communitySuggestionsEmpty"))}</p>`;
   const incoming = (data.incoming || []).map((request) => `<article class="community-person-card">${communityAvatarHtml(request)}<strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
-  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room">${communityAvatarHtml(room)}<button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small>${escapeHtml(room.email || t("communityOpenRoom"))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
+  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room">${communityAvatarHtml(room)}${communityUnreadBadge(room.unreadCount, "direct-room-badge")}<button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small>${room.alertsHidden ? "⌁ " : ""}${escapeHtml(communityRoomPreview(room))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
   const blocks = (data.blocks || []).map((person) => `<article class="community-person-card"><strong>${escapeHtml(person.display_name)}</strong><button type="button" class="text-button" data-action="unblock-community-user" data-user-id="${escapeHtml(person.user_id)}">Unblock</button></article>`).join("");
   const groupInvites = (data.groupInvites || []).map((invite) => `<article class="community-person-card"><div><strong>${escapeHtml(invite.room_name)}</strong><small>Invited by ${escapeHtml(invite.inviter_name)}</small><p>${escapeHtml(invite.description || "")}</p></div><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Accept</button><button type="button" class="text-button" data-action="decline-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Decline</button></div></article>`).join("");
   const momentProfile = state.communityPostsProfile || { userId: state.user?.id, displayName: data.displayName, avatarDataUrl: data.avatarDataUrl, coverImageDataUrl: data.coverImageDataUrl, momentTheme: data.preferences?.momentTheme || "light", mine: true };
@@ -1670,23 +2017,20 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   const moments = `<section class="moments-page ${momentProfile.momentTheme === "dark" ? "dark" : "light"}">
     <header class="moments-cover" style="background-image:url('${escapeHtml(momentCover)}')">
       <div class="moments-cover-shade"></div>
-      <div class="moments-cover-actions">${momentProfile.mine ? `<label class="moment-cover-edit" title="Change cover photo"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="24" height="20" rx="2"></rect><circle cx="11" cy="12" r="2"></circle><path d="m6 23 7-7 4 4 3-3 6 6"></path></svg><span class="sr-only">Change cover photo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label><button type="button" data-action="toggle-moment-composer" class="moment-camera-button" title="Create a Moment">${communityNavIcon("moments")}<span class="sr-only">Create a Moment</span></button>` : ""}</div>
+      <div class="moments-cover-actions">${momentProfile.mine ? `<label class="moment-cover-edit" title="Change cover photo"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="24" height="20" rx="2"></rect><circle cx="11" cy="12" r="2"></circle><path d="m6 23 7-7 4 4 3-3 6 6"></path></svg><span class="sr-only">Change cover photo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-cover></label>${chatWritable ? `<button type="button" data-action="toggle-moment-composer" class="moment-camera-button" title="Create a Moment">${communityNavIcon("moments")}<span class="sr-only">Create a Moment</span></button>` : ""}` : ""}</div>
       <div class="moments-identity"><div><strong>${escapeHtml(momentProfile.displayName || data.displayName)}</strong><small>${momentProfile.mine ? "Your Moments" : "Friend Moments"}</small></div>${communityAvatarHtml({ userId: momentProfile.userId, name: momentProfile.displayName, avatarDataUrl: momentProfile.avatarDataUrl }, { clickable: false, className: "moments-profile-avatar" })}</div>
     </header>
     ${!momentProfile.mine ? `<button type="button" class="text-button moments-back" data-action="open-own-moments">← Back to friend feed</button>` : ""}
-    ${momentProfile.mine ? communityMomentComposerHtml(data) : ""}
-    <div class="community-post-list">${communityPostsHtml(posts)}</div>
+    ${momentProfile.mine ? communityMomentComposerHtml(data, { chatWritable }) : ""}
+    <div class="community-post-list">${communityPostsHtml(posts, { chatWritable })}</div>
   </section>`;
-  const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>${escapeHtml(t("communityGroupsIntro"))}</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>${escapeHtml(t("communityGroupName"))}<input name="name" maxlength="40" required></label><label>${escapeHtml(t("communityDescription"))}<textarea name="description" maxlength="240"></textarea></label><strong>${escapeHtml(t("communityInviteFriends"))}</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds")}</div><button class="primary-button">${escapeHtml(t("communityCreateGroup"))}</button><p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
-  const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
+  const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>${escapeHtml(t("communityGroupsIntro"))}</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>${escapeHtml(t("communityGroupName"))}<input name="name" ${writeDisabled} maxlength="40" required></label><label>${escapeHtml(t("communityDescription"))}<textarea name="description" ${writeDisabled} maxlength="240"></textarea></label><strong>${escapeHtml(t("communityInviteFriends"))}</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds", { disabled: !chatWritable })}</div><button class="primary-button" ${writeDisabled}>${escapeHtml(t("communityCreateGroup"))}</button>${chatWritable ? "" : `<p class="community-write-restricted">${escapeHtml(communityChatMuteMessage())}</p>`}<p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
+  const direct = `<button type="button" class="mobile-directory-back" data-action="close-community-directory">‹ Conversations</button><section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
   const inbox = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityNotificationsTitle"))}</h3><p>${escapeHtml(t("communityNotificationsIntro"))}</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">${escapeHtml(t("communityMarkAllRead"))}</button></section><section><h3>${escapeHtml(t("communityFriendRequests"))}</h3><div class="community-grid">${incoming || `<p class="community-empty">${escapeHtml(t("communityNoFriendRequests"))}</p>`}</div></section><section><h3>${escapeHtml(t("communityGroupInvitations"))}</h3><div class="community-grid">${groupInvites || `<p class="community-empty">${escapeHtml(t("communityNoGroupInvitations"))}</p>`}</div></section>${blocks ? `<section><h3>${escapeHtml(t("communityBlockedUsers"))}</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
   const self = communitySelfHtml(data);
   const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : activeTab === "self" ? self : direct;
-  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", t("communitySelfTab")]];
-  const counts = data.notificationCounts || {};
-  const badgeFor = (tab) => Number(tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0);
   const showSearch = ["direct", "groups", "inbox"].includes(activeTab);
-  return `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
+  const mainHtml = `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
     ${activeTab === "moments" ? "" : `<header class="community-village-header">
       <div class="community-village-art"><img src="/assets/interior-village.jpg" alt=""><span></span></div>
       <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>${escapeHtml(t("communityCommons"))}</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
@@ -1695,8 +2039,8 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
     ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">${escapeHtml(t("communitySearchPeople"))}</label><input id="community-query" name="query" minlength="2" placeholder="${escapeHtml(t("communitySearchPlaceholder"))}" required><button class="secondary-button">${escapeHtml(t("search"))}</button></form><div id="community-search-results"></div></div>` : ""}
     <main class="community-tab-content">${tabContent}</main>
     <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
-    <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span>${badge ? `<b>${badge}</b>` : ""}</button>`; }).join("")}</nav>
   </div>`;
+  return communityWorkspaceHtml(data, mainHtml, { activeTab });
 }
 
 async function communityPanel() {
@@ -1705,11 +2049,20 @@ async function communityPanel() {
   state.communityRoom = null;
   state.communityPostImage = null;
   state.communityActiveProfileId = null;
-  openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
+  state.communityInfoOpen = false;
+  state.communityDirectoryOpen = false;
+  openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`, className: "community-workspace-panel" });
   try {
     const optional = (path, fallback) => api(path).catch(() => fallback);
-    const [data, feed, notifications, documents, stickers, saved] = await Promise.all([
-      api("/api/community"),
+    const data = await api("/api/community");
+    showCommunityPenaltyNotice(data.moderation);
+    state.communityOverview = data;
+    if (data.moderation?.access?.community === false) {
+      $("#panel").classList.remove("community-workspace-panel");
+      $("#panel-content").innerHTML = communityRestrictedByPenaltyHtml(data);
+      return;
+    }
+    const [feed, notifications, documents, stickers, saved] = await Promise.all([
       api("/api/community/posts"),
       optional("/api/community/notifications", { notifications: [] }),
       optional("/api/community/documents", { documents: [] }),
@@ -1727,6 +2080,7 @@ async function communityPanel() {
       renderHeaderAvatar();
     }
     $("#panel-content").innerHTML = communityOverviewHtml(data, state.communityPosts);
+    renderCommunityBadges();
   }
   catch (error) { $("#panel-content").innerHTML = `<p class="form-error" role="alert">${escapeHtml(error.message)}</p>`; }
 }
@@ -1756,80 +2110,273 @@ function communityMessagesHtml(messages = []) {
   }).join("");
 }
 
-function groupMemberControls(data) {
+function groupMemberControls(data, { chatWritable = communityCanChatWrite() } = {}) {
   if (data.room.kind !== "group") return "";
+  const room = data.room || {};
+  const capabilities = communityRoomCapabilities(room);
   const members = data.members || [];
   const memberIds = new Set(members.map((member) => member.userId));
-  const memberButtons = members.map((member) => {
+  const memberRows = members.map((member) => {
+    const role = communityMemberRole(member);
+    const mine = member.userId === state.user?.id;
     const mention = String(member.displayName || "member").trim().replace(/\s+/g, "_");
-    return `<button type="button" class="member-chip" data-action="mention-member" data-mention="@${escapeHtml(mention)}"><span>${escapeHtml(member.displayName)}</span>${member.role === "moderator" ? `<small>admin</small>` : ""}</button>`;
+    const canChangeAdmin = capabilities.canManageAdmins && !mine && role !== "owner" && !(room.systemManaged && member.isSiteAdmin);
+    const canModerate = capabilities.canManageMembers && !mine && role === "member";
+    const canTransfer = capabilities.canTransferOwnership && !mine;
+    const muted = Boolean(member.isMuted ?? (member.mutedUntil && Date.parse(member.mutedUntil) > Date.now()));
+    const menu = canChangeAdmin || canModerate || canTransfer ? `<details class="community-member-menu">
+      <summary aria-label="Manage ${escapeHtml(member.displayName)}">•••</summary>
+      <div role="menu">
+        ${canChangeAdmin ? role === "admin" ? `<button type="button" data-action="demote-group-admin" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Remove admin role</button>` : `<button type="button" data-action="promote-group-admin" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Appoint as admin</button>` : ""}
+        ${canModerate ? `<button type="button" data-action="mute-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">${muted ? "Change mute" : "Mute member…"}</button>${muted ? `<button type="button" data-action="unmute-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Unmute member</button>` : ""}<button type="button" class="danger" data-action="remove-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Remove from group</button>` : ""}
+        ${canTransfer ? `<button type="button" class="ownership-action" data-action="transfer-community-ownership" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Transfer ownership</button>` : ""}
+      </div>
+    </details>` : "";
+    const mute = muted ? `<span class="community-member-muted" title="${escapeHtml(member.muteReason || "Muted by a group administrator")}">Muted until ${escapeHtml(new Date(member.mutedUntil).toLocaleString())}</span>` : "";
+    return `<article class="community-member-row" data-community-member-id="${escapeHtml(member.userId)}">
+      <button type="button" class="community-member-profile" data-action="open-community-profile" data-user-id="${escapeHtml(member.userId)}">${communityAvatarHtml(member, { clickable: false, className: "small" })}<span><strong>${escapeHtml(member.displayName)}${mine ? " (You)" : ""}</strong><small>${role === "owner" ? "Group owner" : role === "admin" ? room.systemManaged && member.isSiteAdmin ? "Village administrator" : "Group administrator" : "Member"}</small>${mute}</span></button>
+      ${communityMemberRoleBadge(member)}
+      ${chatWritable && (!mine || capabilities.canMentionEveryone) ? `<button type="button" class="community-member-mention" data-action="mention-member" data-mention="@${escapeHtml(mention)}" aria-label="Mention ${escapeHtml(member.displayName)}">@</button>` : ""}
+      ${menu}
+    </article>`;
   }).join("");
   const eligibleFriends = (state.communityOverview?.directRooms || []).filter((friend) => !memberIds.has(friend.user_id));
   const invitationChoices = eligibleFriends.map((friend) => `<label class="friend-choice"><input type="checkbox" name="memberIds" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("");
-  return `<section class="group-members"><div class="community-section-heading"><h3>Members (${members.length})</h3><p>Click a name to mention them in your message.</p></div><div class="member-chips"><button type="button" class="member-chip everyone" data-action="mention-member" data-mention="@everyone"><span>@everyone</span></button>${memberButtons}</div><details class="group-invite"><summary>Invite more friends</summary>${invitationChoices ? `<form id="community-room-invite-form" class="stack-form"><div class="friend-choices">${invitationChoices}</div><button type="submit" class="secondary-button">Send group invitation</button><p class="form-error" role="alert"></p></form>` : `<p class="community-empty">All of your current friends are already members.</p>`}</details></section>`;
+  const invitation = chatWritable
+    ? `<details class="group-invite"><summary><span><strong>Invite friends</strong><small>${room.inviteConfirmationRequired ? "Accepted invitations also need admin approval" : "Friends choose whether to join"}</small></span><b>›</b></summary>${invitationChoices ? `<form id="community-room-invite-form" class="stack-form"><div class="friend-choices">${invitationChoices}</div><button type="submit" class="secondary-button">Send invitations</button><p class="form-error" role="alert"></p></form>` : `<p class="community-empty">All of your current friends are already members.</p>`}</details>`
+    : `<p class="community-write-restricted">Invitations are unavailable during your chat mute.</p>`;
+  return `<div class="group-members"><div class="community-member-list">${memberRows}</div>${invitation}</div>`;
+}
+
+function communityRoomManagementSignature(data = {}) {
+  const room = data.room || {};
+  return JSON.stringify({
+    room: [room.name, room.description, room.announcement, room.announcementPinned, room.joinApprovalRequired, room.inviteConfirmationRequired, room.currentUserRole, room.canManageMembers, room.canManageAdmins, room.canTransferOwnership, room.canDeleteGroup, room.canMentionEveryone],
+    members: (data.members || []).map((member) => [member.userId, communityMemberRole(member), member.isSiteAdmin, member.isMuted, member.mutedUntil, member.muteReason]),
+    requests: (data.joinRequests || []).map((request) => [request.id, request.status])
+  });
 }
 
 async function refreshCommunityRoom() {
   if (!state.communityRoom) return;
   try {
+    const previousSignature = communityRoomManagementSignature(state.communityRoom.data);
     const data = await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`);
+    data.joinRequests = state.communityRoom.data?.joinRequests || [];
+    if (state.communityInfoOpen && data.room?.kind === "group" && communityRoomCapabilities(data.room).canReviewJoinRequests) {
+      const pending = await api(`/api/community/rooms/${encodeURIComponent(data.room.id)}/join-requests`).catch(() => null);
+      if (pending) data.joinRequests = pending.requests || [];
+    }
     const list = $("#community-message-list");
-    if (list && state.communityRoom?.id === data.room.id) list.innerHTML = communityMessagesHtml(data.messages);
+    if (!list || state.communityRoom?.id !== data.room.id) return;
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 90;
+    state.communityRoom = { ...state.communityRoom, ...data.room, data };
+    if (previousSignature !== communityRoomManagementSignature(data)) {
+      renderOpenCommunityRoom();
+      if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
+      return;
+    }
+    list.innerHTML = communityMessagesHtml(data.messages);
+    if (nearBottom) list.scrollTop = list.scrollHeight;
+    if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
   } catch {}
+}
+
+function updateCommunityRoomSummary(roomId, updates = {}) {
+  if (!state.communityOverview) return;
+  const room = [...(state.communityOverview.directRooms || []), ...(state.communityOverview.groups || [])].find((item) => item.id === roomId);
+  if (room) Object.assign(room, updates);
+  const counts = state.communityOverview.notificationCounts;
+  if (counts) {
+    counts.direct = (state.communityOverview.directRooms || []).reduce((total, item) => total + Number(item.unreadCount || 0), 0);
+    counts.groups = (state.communityOverview.groups || []).reduce((total, item) => total + Number(item.unreadCount || 0), 0);
+    counts.total = counts.direct + counts.groups + Number(counts.moments || 0) + Number(counts.requests || 0) + Number(counts.meetings || 0);
+    state.communityOverview.notificationCount = counts.total;
+  }
+  state.communityUnreadCount = communityAllRooms(state.communityOverview).reduce((total, item) => total + Number(item.unreadCount || 0), 0)
+    + Number(counts?.moments || 0) + Number(counts?.requests || 0) + Number(counts?.meetings || 0);
+}
+
+async function markCommunityRoomRead(roomId) {
+  if (!roomId) return;
+  const readCursor = state.communityRoom?.id === roomId ? Number(state.communityRoom.data?.readCursor || 0) : 0;
+  const result = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/read`, { method: "POST", body: JSON.stringify({ cursor: readCursor }) }).catch(() => null);
+  if (!result) return;
+  if (state.communityRoom?.id === roomId && Number(result.readCursor || 0) < Number(state.communityRoom.data?.readCursor || 0)) return;
+  const unreadCount = Math.max(0, Number(result.unreadCount || 0));
+  if (state.communityRoom?.id === roomId && state.communityRoom.data) {
+    state.communityRoom.data.readCursor = Math.max(Number(state.communityRoom.data.readCursor || 0), Number(result.readCursor || 0));
+  }
+  updateCommunityRoomSummary(roomId, { unreadCount });
+  renderCommunityBadges();
+  const rowBadge = document.querySelector(`.community-conversation-row[data-room-id="${CSS.escape(roomId)}"] [data-room-unread]`);
+  rowBadge?.classList.toggle("hidden", unreadCount === 0);
+  if (rowBadge) {
+    rowBadge.textContent = unreadCount ? (unreadCount > 99 ? "99+" : String(unreadCount)) : "";
+    rowBadge.setAttribute("aria-label", `${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`);
+  }
+}
+
+function renderCommunityBadges() {
+  const unread = Math.max(0, Number(state.communityUnreadCount || 0));
+  $$("[data-community-unread-badge]").forEach((badge) => {
+    badge.classList.toggle("hidden", unread === 0);
+    badge.textContent = unread ? (unread > 99 ? "99+" : String(unread)) : "";
+  });
+  if (!state.communityOverview) return;
+  communityAllRooms(state.communityOverview).forEach((room) => {
+    const row = document.querySelector(`.community-conversation-row[data-room-id="${CSS.escape(room.id)}"]`);
+    if (!row) return;
+    const badge = row.querySelector("[data-room-unread]");
+    const count = Math.max(0, Number(room.unreadCount || 0));
+    if (badge) {
+      badge.classList.toggle("hidden", count === 0);
+      badge.textContent = count ? (count > 99 ? "99+" : String(count)) : "";
+      badge.setAttribute("aria-label", `${count} unread message${count === 1 ? "" : "s"}`);
+    }
+    const preview = row.querySelector(".conversation-copy small");
+    if (preview) preview.innerHTML = `${room.alertsHidden ? `<i aria-label="Alerts hidden">⌁</i>` : ""}${escapeHtml(communityRoomPreview(room))}`;
+    const time = row.querySelector("time");
+    if (time) time.textContent = room.latestMessageAt ? communityTime(room.latestMessageAt) : "";
+  });
+  const counts = state.communityOverview.notificationCounts || {};
+  [["direct", counts.direct], ["groups", counts.groups], ["moments", counts.moments], ["inbox", counts.requests]].forEach(([tab, count]) => {
+    const badge = document.querySelector(`.community-workspace-rail [data-community-tab="${tab}"] [data-room-unread]`);
+    if (!badge) return;
+    const value = Math.max(0, Number(count || 0));
+    badge.classList.toggle("hidden", value === 0);
+    badge.textContent = value ? (value > 99 ? "99+" : String(value)) : "";
+  });
+}
+
+function mergeCommunityRoomUpdates(rooms = []) {
+  if (!state.communityOverview) {
+    state.communityUnreadCount = rooms.reduce((total, room) => total + Number(room.unreadCount || 0), 0);
+    return;
+  }
+  rooms.forEach((summary) => updateCommunityRoomSummary(summary.roomId, {
+    alertsHidden: Boolean(summary.alertsHidden),
+    unreadCount: Number(summary.unreadCount || 0),
+    latestMessageId: summary.latestMessageId || "",
+    latestMessageBody: summary.latestMessageBody || "",
+    latestMessageType: summary.latestMessageType || "",
+    latestMessageAt: summary.latestMessageAt || ""
+  }));
+}
+
+async function pollCommunityUpdates() {
+  if (state.communityUpdateBusy || !state.user || state.user.guest) return;
+  state.communityUpdateBusy = true;
+  try {
+    const hadCursor = Boolean(state.communityUpdateCursor);
+    const hadNotificationCursor = Boolean(state.communityNotificationCursor);
+    const parameters = new URLSearchParams();
+    if (hadCursor) parameters.set("after", state.communityUpdateCursor);
+    if (hadNotificationCursor) parameters.set("notificationAfter", state.communityNotificationCursor);
+    const update = await api(`/api/community/updates${parameters.size ? `?${parameters}` : ""}`);
+    state.communityUpdateCursor = String(update.cursor || state.communityUpdateCursor || "");
+    state.communityNotificationCursor = String(update.notificationCursor || state.communityNotificationCursor || "");
+    mergeCommunityRoomUpdates(update.rooms || []);
+    if (state.communityOverview && update.notificationCounts) {
+      const counts = state.communityOverview.notificationCounts || (state.communityOverview.notificationCounts = {});
+      counts.moments = Number(update.notificationCounts.moments || 0);
+      counts.requests = Number(update.notificationCounts.requests || 0);
+      counts.meetings = Number(update.notificationCounts.meetings || 0);
+      counts.total = Number(counts.direct || 0) + Number(counts.groups || 0) + Number(update.notificationUnreadCount || 0);
+      state.communityOverview.notificationCount = counts.total;
+    }
+    state.communityUnreadCount = Number(update.unreadCount || 0) + Number(update.notificationUnreadCount || 0);
+    renderCommunityBadges();
+    if (hadCursor) {
+      const events = (update.events || []).filter((event) => {
+        if (!event?.id || state.communitySeenEventIds.has(event.id)) return false;
+        state.communitySeenEventIds.add(event.id);
+        return true;
+      });
+      if (state.communitySeenEventIds.size > 1000) state.communitySeenEventIds = new Set([...state.communitySeenEventIds].slice(-500));
+      events.filter((event) => !event.alertsHidden).forEach((event, index) => {
+        window.setTimeout(() => state.audio?.playChatDing(), Math.min(index, 5) * 190);
+      });
+      if (state.communityRoom?.id && events.some((event) => event.roomId === state.communityRoom.id)) await refreshCommunityRoom();
+    }
+    if (hadNotificationCursor && Array.isArray(update.notifications) && update.notifications.length) {
+      const existingIds = new Set((state.communityNotifications || []).map((item) => item.id));
+      const incoming = update.notifications.filter((item) => !existingIds.has(item.id));
+      state.communityNotifications = [...incoming.reverse(), ...(state.communityNotifications || [])].slice(0, 100);
+      incoming.filter((item) => item.kind === "meeting-invite").forEach((_, index) => {
+        window.setTimeout(() => state.audio?.playChatDing(), Math.min(index, 3) * 190);
+      });
+    }
+  } catch {}
+  finally { state.communityUpdateBusy = false; }
+}
+
+function startCommunityUpdates() {
+  if (!state.user || state.user.guest) return;
+  clearInterval(state.communityUpdatesTimer);
+  state.communityUpdatesTimer = null;
+  pollCommunityUpdates();
+  state.communityUpdatesTimer = setInterval(pollCommunityUpdates, 5000);
+}
+
+function stopCommunityUpdates() {
+  clearInterval(state.communityUpdatesTimer);
+  state.communityUpdatesTimer = null;
+  state.communityUpdateBusy = false;
+  state.communityUpdateCursor = "";
+  state.communityNotificationCursor = "";
+  state.communityUnreadCount = 0;
+  state.communitySeenEventIds = new Set();
+  renderCommunityBadges();
+}
+
+function renderOpenCommunityRoom() {
+  const current = state.communityRoom;
+  if (!current?.data || !state.communityOverview) return;
+  $("#panel-content").innerHTML = communityWorkspaceHtml(
+    state.communityOverview,
+    communityRoomWorkspaceMainHtml(current.data, current.meetingData),
+    {
+      activeTab: current.kind === "group" ? "groups" : "direct",
+      activeRoomId: current.id,
+      drawerHtml: communityRoomInfoHtml(current.data)
+    }
+  );
+  $("#panel").classList.add("community-workspace-panel");
+  const list = $("#community-message-list");
+  if (list) list.scrollTop = list.scrollHeight;
+  const localStart = new Date(Date.now() + 15 * 60_000);
+  localStart.setMinutes(localStart.getMinutes() - localStart.getTimezoneOffset());
+  const startsAt = $("#community-meeting-form input[name='startsAt']");
+  if (startsAt) startsAt.value = localStart.toISOString().slice(0, 16);
+  renderCommunityBadges();
 }
 
 async function openCommunityRoom(roomId, roomName) {
   clearInterval(state.communityTimer);
   state.communityAttachment = null;
   state.communityAttachmentPromise = null;
+  state.communityInfoOpen = false;
+  state.communityDirectoryOpen = false;
   const [data, meetingData] = await Promise.all([
     api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`),
     api(`/api/community/meetings?roomId=${encodeURIComponent(roomId)}`).catch(() => ({ meetings: [] }))
   ]);
-  state.communityRoom = { ...data.room, id: roomId, name: roomName || data.room.name };
-  const roomActions = `<div class="community-room-toolbar"><button type="button" class="text-button" data-action="pin-community-room" data-room-id="${escapeHtml(roomId)}" data-pinned="${String(!data.room.pinned)}">${data.room.pinned ? "Unpin" : "Pin"}</button><button type="button" class="text-button" data-action="clear-community-history" data-room-id="${escapeHtml(roomId)}">Clear my history</button>${data.room.kind === "group" ? `<button type="button" class="text-button danger" data-action="leave-community-room" data-room-id="${escapeHtml(roomId)}">Leave group</button>` : `<button type="button" class="text-button" data-action="open-community-profile" data-user-id="${escapeHtml(data.room.otherUserId || "")}">View Moments</button><button type="button" class="text-button danger" data-action="remove-community-friend" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Remove friend</button><button type="button" class="text-button danger" data-action="block-community-user" data-user-id="${escapeHtml(data.room.otherUserId || "")}">Block</button>`}</div>`;
-  const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
-  const customStickers = communityStickerButtons();
-  const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
+  if (data.room?.kind === "group" && communityRoomCapabilities(data.room).canReviewJoinRequests) {
+    const pending = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/join-requests`).catch(() => ({ requests: [] }));
+    data.joinRequests = pending.requests || [];
+  }
   openPanel({
     title: roomName || data.room.name,
     eyebrow: t("communityTitle"),
-    html: `<div class="community-chat">
-      <button type="button" class="text-button" data-action="open-community">← ${escapeHtml(t("communityTitle"))}</button>
-      ${roomActions}
-      ${data.room.systemManaged ? `<p class="privacy-note">This Commons room automatically deletes messages older than 12 hours.</p>` : `<p class="privacy-note">Clearing history hides earlier messages only for you.</p>`}
-      ${groupMemberControls(data)}
-      ${meetings ? `<section class="room-meeting-list"><header><strong>Meetings</strong></header>${meetings}</section>` : ""}
-      <div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div>
-      <div class="community-compose-tools">
-        <label class="compose-tool" title="Attach a photo or document">⌕<span class="sr-only">Attach file</span><input type="file" accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
-        <button type="button" class="compose-tool" data-action="share-community-location" title="Share current location">⌖<span class="sr-only">Share location</span></button>
-        <button type="button" class="compose-tool" data-action="create-community-document" title="Create a Village document">▤<span class="sr-only">Create document</span></button>
-        <button type="button" class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉<span class="sr-only">Schedule meeting</span></button>
-        <label class="compose-tool" title="Upload a custom sticker">☺<span class="sr-only">Upload sticker</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>
-      </div>
-      <div id="community-attachment-preview" class="community-attachment-preview"></div>
-      <div class="sticker-picker" aria-label="Stickers">${stickerButtons}${customStickers}</div>
-      <form id="community-meeting-form" class="community-meeting-form hidden">
-        <input name="title" maxlength="120" value="Village catch-up" required>
-        <label>Start time<input name="startsAt" type="datetime-local" required></label>
-        <label>Minutes<input name="durationMinutes" type="number" min="10" max="480" value="45" required></label>
-        <button type="submit" class="secondary-button">Schedule and invite this chat</button><p class="form-error"></p>
-      </form>
-      <form id="community-message-form" class="community-message-form">
-        <input type="hidden" name="roomId" value="${escapeHtml(roomId)}">
-        <label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" maxlength="1000" rows="2" placeholder="${escapeHtml(t("communityMessagePlaceholder"))}"></textarea></label>
-        <button type="submit" class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p>
-      </form>
-      <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
-    </div>`
+    html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`,
+    className: "community-workspace-panel"
   });
-  const localStart = new Date(Date.now() + 15 * 60_000);
-  localStart.setMinutes(localStart.getMinutes() - localStart.getTimezoneOffset());
-  const startsAt = $("#community-meeting-form input[name='startsAt']");
-  if (startsAt) startsAt.value = localStart.toISOString().slice(0, 16);
-  const readKinds = data.room.kind === "direct" ? ["direct-message", "document", "file", "meeting"] : ["group-message", "group-document", "meeting"];
-  api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ kinds: readKinds }) }).catch(() => {});
+  data.room.name = data.room.name || roomName;
+  updateCommunityRoomSummary(roomId, { name: data.room.name, description: data.room.description || "" });
+  state.communityRoom = { ...data.room, id: roomId, name: data.room.name, data, meetingData };
+  renderOpenCommunityRoom();
+  await markCommunityRoomRead(roomId);
   state.communityTimer = setInterval(refreshCommunityRoom, 5000);
 }
 
@@ -1846,6 +2393,7 @@ async function submitCommunitySettings(event) {
 async function submitCommunityMessage(event) {
   event.preventDefault();
   const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
   const message = new FormData(form).get("message");
   try {
     if (state.communityAttachmentPromise) await state.communityAttachmentPromise;
@@ -1866,7 +2414,7 @@ async function submitCommunitySearch(event) {
   try {
     const data = await api(`/api/community/search?q=${encodeURIComponent(query)}`);
     $("#community-search-results").innerHTML = (data.people || []).map((person) => {
-      const action = person.relationship === "friend" ? `<button type="button" class="secondary-button" data-action="open-friend-chat" data-user-id="${escapeHtml(person.user_id)}">Open chat</button>` : person.relationship === "outgoing" ? `<button type="button" class="secondary-button" disabled>Request sent</button>` : person.relationship === "incoming" ? `<button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(person.connection_id || "")}">Accept request</button>` : `<button type="button" class="secondary-button" data-action="connect-community" data-user-id="${escapeHtml(person.user_id)}">Add friend</button>`;
+      const action = person.relationship === "friend" ? `<button type="button" class="secondary-button" data-action="open-friend-chat" data-user-id="${escapeHtml(person.user_id)}">Open chat</button>` : person.relationship === "outgoing" ? `<button type="button" class="secondary-button" disabled>Request sent</button>` : person.relationship === "incoming" ? `<button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(person.connection_id || "")}">Accept request</button>` : communityCanChatWrite() ? `<button type="button" class="secondary-button" data-action="connect-community" data-user-id="${escapeHtml(person.user_id)}">Add friend</button>` : `<button type="button" class="secondary-button" disabled title="${escapeHtml(communityChatMuteMessage())}">Add friend</button>`;
       return `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.user_id)}"><strong>${escapeHtml(person.display_name)}</strong></button><small>${escapeHtml(person.email)}</small></div>${action}</article>`;
     }).join("") || `<p class="community-empty">No community member matched that name or email.</p>`;
   } catch (error) { $("#community-search-results").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
@@ -1874,7 +2422,9 @@ async function submitCommunitySearch(event) {
 
 async function submitCommunityGroup(event) {
   event.preventDefault();
-  const form = event.target; const data = new FormData(form);
+  const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
+  const data = new FormData(form);
   try { await api("/api/community/groups", { method: "POST", body: JSON.stringify({ name: data.get("name"), description: data.get("description"), memberIds: data.getAll("memberIds") }) }); state.communityTab = "groups"; toast("Group created. Invitations were sent to selected friends."); await communityPanel(); }
   catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
@@ -1882,6 +2432,7 @@ async function submitCommunityGroup(event) {
 async function submitCommunityRoomInvite(event) {
   event.preventDefault();
   const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
   const memberIds = new FormData(form).getAll("memberIds");
   try {
     const result = await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/invite`, { method: "POST", body: JSON.stringify({ memberIds }) });
@@ -1890,9 +2441,145 @@ async function submitCommunityRoomInvite(event) {
   } catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
 
+async function submitCommunityGroupSettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  const room = state.communityRoom;
+  if (!room?.id || room.kind !== "group") return;
+  const data = new FormData(form);
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  form.querySelector(".form-error").textContent = "";
+  try {
+    const payload = {
+      name: data.get("name"),
+      description: data.get("description"),
+      announcement: data.get("announcement"),
+      announcementPinned: data.get("announcementPinned") === "on"
+    };
+    if (form.elements.namedItem("joinApprovalRequired")) payload.joinApprovalRequired = data.get("joinApprovalRequired") === "on";
+    if (form.elements.namedItem("inviteConfirmationRequired")) payload.inviteConfirmationRequired = data.get("inviteConfirmationRequired") === "on";
+    await api(`/api/community/rooms/${encodeURIComponent(room.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    updateCommunityRoomSummary(room.id, { name: String(data.get("name") || room.name), description: String(data.get("description") || "") });
+    toast("Group settings saved.");
+    await openCommunityRoom(room.id, String(data.get("name") || room.name));
+    state.communityInfoOpen = true;
+    renderOpenCommunityRoom();
+  } catch (error) {
+    form.querySelector(".form-error").textContent = error.message;
+  } finally { button.disabled = false; }
+}
+
+async function updateCommunityGroupAdmin(element, role) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  const message = role === "admin"
+    ? `Appoint ${name} as a group administrator? They will be able to manage ordinary members and group settings.`
+    : `Remove ${name}'s group administrator role? They will remain a member.`;
+  if (!confirm(message)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) });
+  toast(role === "admin" ? `${name} is now a group administrator.` : `${name} is now a regular member.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function transferCommunityGroupOwnership(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  if (!confirm(`Transfer ownership of “${room.name}” to ${name}? You will become a group administrator. Only the new owner can transfer or dissolve the group.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/ownership`, { method: "POST", body: JSON.stringify({ userId }) });
+  toast(`${name} is now the group owner.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function muteCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  const durationInput = prompt(`Mute ${name} for how many hours?`, "24");
+  if (durationInput === null) return;
+  const hours = Number(durationInput);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 8760) return toast("Enter a duration between 0 and 8,760 hours.");
+  const reason = prompt("Reason shown to group administrators:", "Group chat moderation");
+  if (reason === null) return;
+  if (!String(reason).trim()) return toast("Add a reason before muting this member.");
+  if (!confirm(`Mute ${name} for ${hours} hour${hours === 1 ? "" : "s"}? They can still read the group.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ durationSeconds: Math.round(hours * 3600), muteReason: String(reason).trim() }) });
+  toast(`${name} has been muted in this group.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function unmuteCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId || !confirm(`Unmute ${name} now?`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ mutedUntil: null }) });
+  toast(`${name} can send group messages again.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function removeCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId || !confirm(`Remove ${name} from “${room.name}”? They will lose access to future group messages.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+  toast(`${name} was removed from the group.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function reviewCommunityJoinRequest(element) {
+  const room = state.communityRoom;
+  const requestId = element.dataset.requestId;
+  const status = element.dataset.requestStatus;
+  if (!room?.id || !requestId || !["approved", "declined"].includes(status)) return;
+  if (status === "declined" && !confirm("Decline this request to join the group?")) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/join-requests/${encodeURIComponent(requestId)}`, { method: "PATCH", body: JSON.stringify({ status }) });
+  toast(status === "approved" ? "Join request approved." : "Join request declined.");
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function dissolveCommunityGroup(element) {
+  const room = state.communityRoom;
+  if (!room?.id || room.systemManaged) return;
+  const roomName = element.dataset.roomName || room.name;
+  const confirmation = prompt(`This permanently deletes the group and its chat history for every member. Type “${roomName}” to continue:`);
+  if (confirmation === null) return;
+  if (confirmation !== roomName) return toast("Group name did not match. Nothing was deleted.");
+  if (!confirm(`Final confirmation: permanently dissolve “${roomName}”? This cannot be undone.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}`, { method: "DELETE" });
+  state.communityRoom = null;
+  state.communityInfoOpen = false;
+  state.communityTab = "groups";
+  toast("Group dissolved.");
+  return communityPanel();
+}
+
 async function submitCommunityPost(event) {
   event.preventDefault();
-  const form = event.target; const data = new FormData(form);
+  const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
+  const data = new FormData(form);
   try { if (state.communityPostImagePromise) await state.communityPostImagePromise; await api("/api/community/posts", { method: "POST", body: JSON.stringify({ text: data.get("text"), imageDataUrl: state.communityPostImage, allowedUserIds: data.getAll("allowedUserIds"), deniedUserIds: data.getAll("deniedUserIds") }) }); state.communityPostImage = null; state.communityPostImagePromise = null; state.communityPostComposerOpen = false; state.communityTab = "moments"; await communityPanel(); state.communityTab = "moments"; $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "moments"); }
   catch (error) { form.querySelector(".form-error").textContent = error.message; }
 }
@@ -2001,6 +2688,7 @@ async function saveCustomSticker(imageDataUrl, name = "Saved sticker") {
 async function submitCommunityComment(event) {
   event.preventDefault();
   const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
   const postId = form.dataset.postId;
   try {
     if (state.communityCommentImagePromises.has(postId)) await state.communityCommentImagePromises.get(postId);
@@ -2053,6 +2741,7 @@ async function refreshCommunityMoments(userId = state.communityActiveProfileId) 
 async function submitCommunityMeeting(event) {
   event.preventDefault();
   const form = event.target;
+  if (!requireCommunityChatWrite(form)) return;
   const data = new FormData(form);
   try {
     const result = await api("/api/community/meetings", { method: "POST", body: JSON.stringify({ roomId: state.communityRoom.id, title: data.get("title"), startsAt: new Date(data.get("startsAt")).toISOString(), durationMinutes: Number(data.get("durationMinutes")), settings: { waitingRoom: true, recordingAllowed: true, captionsEnabled: true } }) });
@@ -2064,6 +2753,7 @@ async function submitCommunityMeeting(event) {
 
 function communityDocumentEditorHtml(document = null, { kind = "doc", roomId = "", responses = [] } = {}) {
   const selectedKind = document?.kind || kind;
+  const chatWritable = communityCanChatWrite();
   const content = document?.content || {};
   const questions = Array.isArray(content.questions) ? content.questions : [];
   const backAction = roomId ? `<button type="button" class="text-button" data-action="return-community-room">← Back to chat</button>` : `<button type="button" class="text-button" data-action="community-tab" data-community-tab="self">← Back to Self</button>`;
@@ -2081,7 +2771,7 @@ function communityDocumentEditorHtml(document = null, { kind = "doc", roomId = "
       <label>Title<input name="title" maxlength="120" value="${escapeHtml(document?.title || "")}" required></label>
       <label>${selectedKind === "form" ? "Introduction" : "Content"}<textarea name="body" rows="10" placeholder="${selectedKind === "pdf" ? "Write the printable document…" : selectedKind === "form" ? "Tell people what this form is for…" : "Write together in the village…"}">${escapeHtml(content.body || "")}</textarea></label>
       ${selectedKind === "form" ? `<label>Questions · one per line<textarea name="questions" rows="7" required placeholder="What would you like to ask?">${escapeHtml(questions.join("\n"))}</textarea></label>` : ""}
-      <div class="village-document-editor-actions"><button type="submit" class="primary-button">${document ? "Save changes" : `Create ${selectedKind.toUpperCase()}`}</button>${document ? `<button type="button" class="secondary-button" data-action="share-community-document" data-document-id="${escapeHtml(document.id)}">Share</button><button type="button" class="text-button danger" data-action="delete-community-document" data-document-id="${escapeHtml(document.id)}">Delete</button>` : ""}${selectedKind === "pdf" && document ? `<button type="button" class="secondary-button" data-action="print-community-document" data-document-id="${escapeHtml(document.id)}">Print or save PDF</button>` : ""}</div>
+      <div class="village-document-editor-actions"><button type="submit" class="primary-button">${document ? "Save changes" : `Create ${selectedKind.toUpperCase()}`}</button>${document ? `<button type="button" class="secondary-button" ${chatWritable ? `data-action="share-community-document"` : "disabled"} data-document-id="${escapeHtml(document.id)}" title="${escapeHtml(chatWritable ? "Share" : communityChatMuteMessage())}">Share</button><button type="button" class="text-button danger" data-action="delete-community-document" data-document-id="${escapeHtml(document.id)}">Delete</button>` : ""}${selectedKind === "pdf" && document ? `<button type="button" class="secondary-button" data-action="print-community-document" data-document-id="${escapeHtml(document.id)}">Print or save PDF</button>` : ""}</div>
       <p class="form-error"></p>
     </form>
     ${selectedKind === "form" && document ? `<section class="village-form-responses"><h3>Responses</h3>${responseList || `<p class="community-empty">No responses yet.</p>`}</section>` : ""}
@@ -2126,6 +2816,7 @@ async function submitCommunityDocument(event) {
   const status = form.querySelector(".form-error");
   const payload = communityDocumentPayload(form);
   const documentId = String(new FormData(form).get("documentId") || "");
+  if (!documentId && state.communityDocumentRoomId && !requireCommunityChatWrite(form)) return;
   try {
     const result = await api(documentId ? `/api/community/documents/${encodeURIComponent(documentId)}` : "/api/community/documents", { method: documentId ? "PATCH" : "POST", body: JSON.stringify(payload) });
     const document = result.document;
@@ -2153,6 +2844,7 @@ async function submitCommunityFormResponse(event) {
 }
 
 async function shareCommunityDocument(documentId) {
+  if (!requireCommunityChatWrite()) return;
   const rooms = [
     ...(state.communityOverview?.directRooms || []).map((room) => ({ id: room.id, name: room.name, type: "Private" })),
     ...(state.communityOverview?.groups || []).filter((room) => room.joined).map((room) => ({ id: room.id, name: room.name, type: "Group" }))
@@ -2176,16 +2868,20 @@ function printCommunityDocument(document) {
 }
 
 async function markCommunityKindsRead(kinds, tab) {
-  await api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ kinds }) }).catch(() => {});
+  const result = await api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ kinds }) }).catch(() => null);
+  if (!result) return;
   const readKinds = new Set(kinds);
   state.communityNotifications = (state.communityNotifications || []).map((notification) => (
     readKinds.has(notification.kind) ? { ...notification, read: true } : notification
   ));
   const counts = state.communityOverview?.notificationCounts;
   if (counts && tab) {
-    counts.total = Math.max(0, Number(counts.total || 0) - Number(counts[tab] || 0));
-    counts[tab] = 0;
+    const countKey = tab === "inbox" ? "requests" : tab;
+    counts.total = Math.max(0, Number(counts.total || 0) - Number(counts[countKey] || 0));
+    counts[countKey] = 0;
     state.communityOverview.notificationCount = counts.total;
+    state.communityUnreadCount = counts.total;
+    renderCommunityBadges();
   }
 }
 
@@ -2216,16 +2912,72 @@ function showMomentPhoto(source) {
 async function communityAction(element, action) {
   try {
     if (action === "open-community") return communityPanel();
+    if (!communityCanChatWrite() && (
+      COMMUNITY_CHAT_WRITE_ACTIONS.has(action)
+      || (action === "create-community-document" && Boolean(state.communityRoom?.id))
+      || (action === "create-community-document-kind" && Boolean(state.communityDocumentRoomId))
+    )) return requireCommunityChatWrite();
     if (action === "community-tab") {
       const tab = element.dataset.communityTab || "direct";
       if (tab === "moments") return openCommunityProfile(state.user?.id);
       state.communityTab = tab;
-      const kinds = tab === "direct" ? ["direct-message", "document", "file"] : tab === "groups" ? ["group-message", "group-document"] : tab === "inbox" ? ["request", "group-invite"] : [];
+      state.communityDirectoryOpen = false;
+      const kinds = tab === "inbox" ? ["request", "group-invite", "meeting-invite"] : [];
       if (kinds.length) await markCommunityKindsRead(kinds, tab);
+      clearInterval(state.communityTimer);
+      state.communityTimer = null;
+      state.communityRoom = null;
+      state.communityInfoOpen = false;
       $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab);
       $("#panel").scrollTop = 0;
       return;
     }
+    if (action === "close-community-workspace") return closePanel();
+    if (action === "show-community-directory") {
+      state.communityTab = "direct";
+      state.communityDirectoryOpen = true;
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "direct");
+      return;
+    }
+    if (action === "close-community-directory") {
+      state.communityDirectoryOpen = false;
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "direct");
+      return;
+    }
+    if (action === "close-community-room") {
+      clearInterval(state.communityTimer);
+      state.communityTimer = null;
+      state.communityRoom = null;
+      state.communityInfoOpen = false;
+      $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, state.communityTab);
+      renderCommunityBadges();
+      return;
+    }
+    if (action === "toggle-community-info") {
+      state.communityInfoOpen = !state.communityInfoOpen;
+      if (state.communityRoom) renderOpenCommunityRoom();
+      return;
+    }
+    if (action === "toggle-room-alerts") {
+      const alertsHidden = element.dataset.alertsHidden === "true";
+      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/preferences`, { method: "PATCH", body: JSON.stringify({ alertsHidden }) });
+      updateCommunityRoomSummary(element.dataset.roomId, { alertsHidden });
+      if (state.communityRoom?.id === element.dataset.roomId) {
+        state.communityRoom.alertsHidden = alertsHidden;
+        state.communityRoom.data.room.alertsHidden = alertsHidden;
+        renderOpenCommunityRoom();
+      }
+      toast(alertsHidden ? "Message sounds hidden for this chat. Unread dots stay on." : "Message sounds turned on for this chat.");
+      return;
+    }
+    if (action === "promote-group-admin") return await updateCommunityGroupAdmin(element, "admin");
+    if (action === "demote-group-admin") return await updateCommunityGroupAdmin(element, "member");
+    if (action === "transfer-community-ownership") return await transferCommunityGroupOwnership(element);
+    if (action === "mute-community-member") return await muteCommunityGroupMember(element);
+    if (action === "unmute-community-member") return await unmuteCommunityGroupMember(element);
+    if (action === "remove-community-member") return await removeCommunityGroupMember(element);
+    if (action === "review-community-join-request") return await reviewCommunityJoinRequest(element);
+    if (action === "dissolve-community-group") return await dissolveCommunityGroup(element);
     if (action === "support-tab") return supportPanel(element.dataset.supportTab, state.supportIsland);
     if (action === "send-sticker") { await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message: `[[sticker:${element.dataset.sticker}]]` }) }); return refreshCommunityRoom(); }
     if (action === "send-custom-sticker") {
@@ -2324,14 +3076,20 @@ async function communityAction(element, action) {
     if (action === "mark-community-read") {
       await api("/api/community/notifications/read", { method: "POST", body: "{}" });
       state.communityNotifications = state.communityNotifications.map((item) => ({ ...item, read: true }));
-      state.communityOverview.notificationCount = 0;
-      state.communityOverview.notificationCounts = { direct: 0, groups: 0, moments: 0, requests: 0, meetings: 0, total: 0 };
+      const counts = state.communityOverview.notificationCounts || {};
+      counts.moments = 0;
+      counts.requests = 0;
+      counts.meetings = 0;
+      counts.total = Number(counts.direct || 0) + Number(counts.groups || 0);
+      state.communityOverview.notificationCount = counts.total;
       $("#panel-content").innerHTML = communityOverviewHtml(state.communityOverview, state.communityPosts, "inbox");
+      renderCommunityBadges();
       return;
     }
     if (action === "open-community-notification") {
       const metadata = JSON.parse(element.dataset.notificationMeta || "{}");
       await api("/api/community/notifications/read", { method: "POST", body: JSON.stringify({ ids: [element.dataset.notificationId] }) });
+      if (metadata.meetingId) return state.meetingRuntime.open(metadata.meetingId, metadata.roomId ? { id: metadata.roomId, name: "Village meeting" } : null);
       if (metadata.roomId) {
         const room = [...(state.communityOverview.directRooms || []), ...(state.communityOverview.groups || [])].find((item) => item.id === metadata.roomId);
         return openCommunityRoom(metadata.roomId, room?.name || "Village chat");
@@ -2345,7 +3103,11 @@ async function communityAction(element, action) {
       if (room) return openCommunityRoom(room.id, room.name);
     }
     if (action === "join-community-room") {
-      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
+      const result = await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
+      if (result.joined === false || result.pending || result.status === "pending" || result.request?.status === "pending") {
+        toast("Join request sent. A group owner or administrator will review it.");
+        return communityPanel();
+      }
       return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
     }
     if (action === "open-community-room") return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
@@ -3091,7 +3853,7 @@ function adminFunctionsPanel() {
     ["admin-manage-users", "U", "Administrator access", "Add registered administrators or remove existing access."],
     ["admin-keyword-controls", "#", "Primary keyword controls", "Block terms from Primary Keywords and the Error sheet record."],
     ["admin-community-blocklist", "✱", "Community restricted words", "Share and edit chat masking rules across all administrators."],
-    ["admin-community-reports", "!", "Community reports", "Review member reports and mark them reviewed or dismissed."]
+    ["admin-community-reports", "!", "Reports & penalties", "Review reports, issue time-limited penalties, and revoke active penalties."]
   ];
   openPanel({
     title: "Administrator Functions",
@@ -3156,18 +3918,98 @@ async function submitCommunityBlocklist(event) {
   } catch (error) { status.textContent = error.message; }
 }
 
+function adminSanctionFormHtml(report) {
+  if (report.status === "dismissed") {
+    return `<p class="moderation-admin-note">This report was dismissed. Reopen it before issuing a penalty.</p>`;
+  }
+  if (!report.reportedUserId || report.reportedIsAdmin) {
+    return `<p class="moderation-admin-note">${escapeHtml(report.reportedIsAdmin ? "Administrator accounts cannot be penalized through this tool." : "The reported account is no longer available.")}</p>`;
+  }
+  return `<details class="moderation-admin-action">
+    <summary>Issue a penalty</summary>
+    <form data-admin-sanction-form data-report-id="${escapeHtml(report.id)}" data-target-name="${escapeHtml(report.reportedName || report.reportedEmail || "this member")}">
+      <label>Penalty type<select name="type" required><option value="chat_mute">Chat mute</option><option value="community_ban">Community suspension</option><option value="site_blacklist">Site blacklist</option></select></label>
+      <label>Duration<select name="durationSeconds" required><option value="3600">1 hour</option><option value="86400">1 day</option><option value="259200">3 days</option><option value="604800">7 days</option><option value="864000">10 days</option><option value="2592000">30 days</option><option value="permanent">Permanent</option></select></label>
+      <label>Reason<textarea name="reason" rows="3" maxlength="1000" required>${escapeHtml(report.reason || "")}</textarea></label>
+      <button type="submit" class="danger-button">Issue penalty</button><p class="form-error" role="status"></p>
+    </form>
+  </details>`;
+}
+
 function adminCommunityReportsHtml(reports = []) {
-  return reports.map((report) => `<article class="admin-report-row"><div><small>${escapeHtml(report.status)} · ${escapeHtml(new Date(report.createdAt).toLocaleString())}</small><strong>${escapeHtml(report.reportedName || "Unknown member")}</strong><p>${escapeHtml(report.reason)}</p>${report.messageBody ? `<blockquote>${escapeHtml(report.messageBody)}</blockquote>` : ""}<span>Reported by ${escapeHtml(report.reporterName || "member")}</span></div>${report.status === "open" ? `<div class="community-actions"><button type="button" class="secondary-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="reviewed">Reviewed</button><button type="button" class="text-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="dismissed">Dismiss</button></div>` : ""}</article>`).join("") || `<p class="record-empty">There are no community reports.</p>`;
+  return reports.map((report) => {
+    const sanctions = (report.sanctions || []).map((sanction) => `<div class="moderation-admin-existing"><span><strong>${escapeHtml(sanction.label || sanction.type)}</strong> · ${escapeHtml(sanction.active ? sanction.endsAt ? `active until ${new Date(sanction.endsAt).toLocaleString()}` : "active · permanent (until revoked)" : sanction.revokedAt ? "revoked" : "expired")}</span>${sanction.active ? `<button type="button" class="text-button danger" data-action="revoke-community-sanction" data-sanction-id="${escapeHtml(sanction.id)}">Revoke</button>` : ""}</div>`).join("");
+    return `<article class="admin-report-row moderation-report-row">
+      <div><small>${escapeHtml(report.status)} · ${escapeHtml(new Date(report.createdAt).toLocaleString())}</small><strong>${escapeHtml(report.reportedName || "Unknown member")}</strong>${report.reportedEmail ? `<span>${escapeHtml(report.reportedEmail)}</span>` : ""}<p>${escapeHtml(report.reason)}</p>${report.messageBody ? `<blockquote>${escapeHtml(report.messageBody)}</blockquote>` : ""}<span>Reported by ${escapeHtml(report.reporterName || "member")}</span></div>
+      ${sanctions ? `<div class="moderation-admin-existing-list">${sanctions}</div>` : ""}
+      <div class="community-actions">${report.status === "open" ? `<button type="button" class="secondary-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="reviewed">Mark reviewed</button><button type="button" class="text-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="dismissed">Dismiss</button>` : report.status === "dismissed" ? `<button type="button" class="secondary-button" data-action="review-community-report" data-report-id="${escapeHtml(report.id)}" data-report-status="open">Reopen for review</button>` : ""}</div>
+      ${adminSanctionFormHtml(report)}
+    </article>`;
+  }).join("") || `<p class="record-empty">There are no community reports.</p>`;
+}
+
+function adminSanctionsHtml(sanctions = []) {
+  const active = sanctions.filter((sanction) => sanction.active);
+  return active.map((sanction) => `<article class="moderation-active-row"><div><strong>${escapeHtml(sanction.targetName || "Unknown member")}</strong><span>${escapeHtml(sanction.targetEmail || "")}</span><small>${escapeHtml(sanction.label || sanction.type)} · ${escapeHtml(sanction.endsAt ? `ends ${new Date(sanction.endsAt).toLocaleString()}` : "permanent")}</small><p>${escapeHtml(sanction.reason)}</p></div><button type="button" class="text-button danger" data-action="revoke-community-sanction" data-sanction-id="${escapeHtml(sanction.id)}">Revoke</button></article>`).join("") || `<p class="record-empty">There are no active penalties.</p>`;
 }
 
 async function adminCommunityReportsPanel() {
   if (!state.user?.isAdmin) return toast("Administrator access is required.");
-  openPanel({ title: "Community reports", eyebrow: "Shared administrator controls", html: `<div id="community-report-list"><p class="record-empty">Loading reports…</p></div>` });
+  openPanel({ title: "Reports & penalties", eyebrow: "Shared administrator controls", html: `<section class="moderation-admin-section"><h3>Active penalties</h3><div id="community-sanction-list"><p class="record-empty">Loading penalties…</p></div></section><section class="moderation-admin-section"><h3>Member reports</h3><div id="community-report-list"><p class="record-empty">Loading reports…</p></div></section>` });
   try {
-    const data = await api("/api/admin/community-reports");
+    const [data, sanctionData] = await Promise.all([
+      api("/api/admin/community-reports"),
+      api("/api/admin/community-sanctions")
+    ]);
     state.communityReports = data.reports || [];
+    state.communitySanctions = sanctionData.sanctions || [];
+    $("#community-sanction-list").innerHTML = adminSanctionsHtml(state.communitySanctions);
     $("#community-report-list").innerHTML = adminCommunityReportsHtml(state.communityReports);
   } catch (error) { $("#community-report-list").innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`; }
+}
+
+async function submitAdminCommunitySanction(event) {
+  event.preventDefault();
+  const form = event.target;
+  const status = form.querySelector(".form-error");
+  const data = new FormData(form);
+  const duration = data.get("durationSeconds");
+  const type = String(data.get("type") || "");
+  const typeLabel = type === "site_blacklist" ? "site blacklist" : type === "community_ban" ? "Community suspension" : "chat mute";
+  const durationLabel = duration === "permanent" ? "permanently" : `for ${moderationDurationLabel({ durationSeconds: Number(duration) })}`;
+  const warning = type === "site_blacklist"
+    ? `Blacklist ${form.dataset.targetName} ${durationLabel}? This will immediately sign the member out and prevent Village website login. Their account data will not be deleted.`
+    : `Issue a ${typeLabel} to ${form.dataset.targetName} ${durationLabel}?`;
+  if (!confirm(warning)) return;
+  if (type === "site_blacklist" && !confirm(`Final confirmation: blacklist ${form.dataset.targetName} now and revoke every active session?`)) return;
+  status.textContent = "Issuing penalty…";
+  form.querySelector("button[type='submit']").disabled = true;
+  try {
+    await api(`/api/admin/community-reports/${encodeURIComponent(form.dataset.reportId)}/sanctions`, {
+      method: "POST",
+      body: JSON.stringify({
+        type,
+        reason: data.get("reason"),
+        permanent: duration === "permanent",
+        durationSeconds: duration === "permanent" ? null : Number(duration)
+      })
+    });
+    toast("Penalty issued and the member was notified.");
+    await adminCommunityReportsPanel();
+  } catch (error) {
+    status.textContent = error.message;
+    form.querySelector("button[type='submit']").disabled = false;
+  }
+}
+
+async function revokeCommunitySanction(sanctionId) {
+  const reason = prompt("Why is this penalty being revoked?", "Penalty revoked after administrator review");
+  if (reason === null) return;
+  try {
+    await api(`/api/admin/community-sanctions/${encodeURIComponent(sanctionId)}/revoke`, { method: "PATCH", body: JSON.stringify({ reason }) });
+    toast("Penalty revoked.");
+    await adminCommunityReportsPanel();
+  } catch (error) { toast(error.message); }
 }
 
 function announcementLabels() {
@@ -4106,6 +4948,7 @@ async function logout() {
   clearTimeout(state.environmentRefreshTimer);
   state.ecosystem?.destroy();
   state.audio?.context?.suspend().catch(() => {});
+  stopCommunityUpdates();
   closePanel();
   showScreen("auth");
   $("#auth-form").reset();
@@ -4122,8 +4965,8 @@ async function submitFeedback(event) {
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     status.classList.toggle("form-success", Boolean(data.sync?.synced));
     status.textContent = data.sync?.synced
-      ? "Feedback saved to your account and User data sheet. Thank you."
-      : `Feedback saved to your account, but the User data sheet could not be updated${data.sync?.reason ? `: ${data.sync.reason}` : "."}`;
+      ? "Feedback saved to your account and Feedback sheet. Thank you."
+      : `Feedback saved to your account, but the Feedback sheet could not be updated${data.sync?.reason ? `: ${data.sync.reason}` : "."}`;
   } catch (error) {
     status.textContent = error.message;
   }
@@ -4163,6 +5006,7 @@ document.addEventListener("click", (event) => {
     api(`/api/admin/community-reports/${encodeURIComponent(actionElement.dataset.reportId)}`, { method: "PATCH", body: JSON.stringify({ status: actionElement.dataset.reportStatus }) })
       .then(() => adminCommunityReportsPanel()).catch((error) => toast(error.message));
   }
+  if (action === "revoke-community-sanction") revokeCommunitySanction(actionElement.dataset.sanctionId);
   if (action === "open-announcements") announcementsPanel();
   if (action === "select-announcement") { state.selectedAnnouncementId = actionElement.dataset.announcementId; $("#panel-content").innerHTML = renderAnnouncements(); }
   if (action === "save-announcement") submitAnnouncementForm(actionElement.closest("form"));
@@ -4200,7 +5044,9 @@ document.addEventListener("click", (event) => {
   if (action === "refresh-environment") loadEnvironment(true);
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
   if ([
-    "open-community", "community-tab", "support-tab", "send-sticker", "send-custom-sticker", "save-custom-sticker", "delete-custom-sticker",
+    "open-community", "community-tab", "close-community-workspace", "close-community-room", "show-community-directory", "close-community-directory", "toggle-community-info", "toggle-room-alerts",
+    "promote-group-admin", "demote-group-admin", "transfer-community-ownership", "mute-community-member", "unmute-community-member", "remove-community-member", "review-community-join-request", "dissolve-community-group",
+    "support-tab", "send-sticker", "send-custom-sticker", "save-custom-sticker", "delete-custom-sticker",
     "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection",
     "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room",
     "clear-community-history", "leave-community-room", "remove-community-friend", "block-community-user", "unblock-community-user",
@@ -4216,6 +5062,11 @@ document.addEventListener("click", (event) => {
 document.addEventListener("input", (event) => {
   const volume = event.target.closest("[data-volume]");
   if (volume) updateVolume(volume);
+  const conversationSearch = event.target.closest("[data-community-conversation-search]");
+  if (conversationSearch) {
+    const query = String(conversationSearch.value || "").trim().toLowerCase();
+    $$(".community-conversation-row").forEach((row) => row.classList.toggle("hidden", Boolean(query) && !String(row.dataset.conversationSearch || "").includes(query)));
+  }
 });
 
 document.addEventListener("change", (event) => {
@@ -4249,11 +5100,13 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "admin-add-form") submitAdminAdd(event);
   if (event.target.id === "primary-keyword-blocklist-form") submitPrimaryKeywordBlocklist(event);
   if (event.target.id === "community-blocklist-form") submitCommunityBlocklist(event);
+  if (event.target.matches("[data-admin-sanction-form]")) submitAdminCommunitySanction(event);
   if (event.target.id === "community-settings-form") submitCommunitySettings(event);
   if (event.target.id === "community-message-form") submitCommunityMessage(event);
   if (event.target.id === "community-search-form") submitCommunitySearch(event);
   if (event.target.id === "community-group-form") submitCommunityGroup(event);
   if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
+  if (event.target.id === "community-group-settings-form") submitCommunityGroupSettings(event);
   if (event.target.id === "community-post-form") submitCommunityPost(event);
   if (event.target.matches("[data-community-comment-form]")) submitCommunityComment(event);
   if (event.target.id === "community-privacy-form") submitCommunityPrivacy(event);
@@ -4263,6 +5116,10 @@ document.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanel(); });
+document.addEventListener("pointerdown", () => {
+  if (state.audio?.context?.state === "running") return;
+  state.audio?.unlockNotifications().catch(() => {});
+}, { passive: true });
 $("#calm-toggle").addEventListener("click", toggleCalm);
 $("#original-survey-link").href = config.survey.url.replace("?embedded=true", "");
 
@@ -4282,8 +5139,25 @@ $("#environment-status")?.addEventListener("click", () => {
   setAuthMode("register");
   await hydrateLocalMusic();
   applySettings();
-  state.meetingRuntime = new VillageMeetingRuntime({ api, getUser: () => state.user, toast, onClose: () => {} });
-  state.documentRuntime = new VillageDocumentStudio({ api, getUser: () => state.user, toast, onClose: () => {} });
+  state.meetingRuntime = new VillageMeetingRuntime({
+    api,
+    getUser: () => state.user,
+    canChatWrite: () => communityCanChatWrite(),
+    getLanguage: () => state.settings.language || "en",
+    toast,
+    suspendVoiceControl: () => {
+      const shouldResume = Boolean(state.settings.voiceControl);
+      stopVoiceCommand();
+      return shouldResume;
+    },
+    resumeVoiceControl: (shouldResume) => {
+      if (shouldResume && state.settings.voiceControl) {
+        setTimeout(() => startVoiceCommand({ continuous: true, announce: false }), 450);
+      }
+    },
+    onClose: () => {}
+  });
+  state.documentRuntime = new VillageDocumentStudio({ api, getUser: () => state.user, canChatWrite: () => communityCanChatWrite(), toast, onClose: () => {} });
   try {
     const { user } = await api("/api/auth/me");
     state.user = user;
