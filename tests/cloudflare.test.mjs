@@ -45,7 +45,7 @@ async function applyAccountSchema(database) {
 
 async function applyCommunitySchema(database) {
   await applyAccountSchema(database);
-  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql", "0013_meeting_collaboration.sql"]) {
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql", "0013_meeting_collaboration.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql", "0018_meeting_participant_removals.sql"]) {
     database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
 }
@@ -80,6 +80,11 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0011_community_workspace.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0012_document_studio.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0013_meeting_collaboration.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0014_community_moderation.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0015_chat_alerts_unread.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0016_meeting_invitations.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0017_stable_event_cursors.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0018_meeting_participant_removals.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
   assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
@@ -92,7 +97,15 @@ test("community migration creates durable chat tables and starter groups", async
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_document_collaborators'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'meeting_chat_messages'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'meeting_chat_reactions'").get().count, 1);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "13");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'meeting_invitations'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_sanctions'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_moderation_audit'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'community_event_sequences'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('chat_room_preferences') WHERE name IN ('alerts_hidden', 'last_read_cursor')").get().count, 2);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('chat_messages') WHERE name = 'message_cursor'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('meeting_signals') WHERE name = 'signal_cursor'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('meeting_participants') WHERE name IN ('removed_at', 'removed_by', 'restored_at', 'restored_by')").get().count, 4);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "18");
   database.close();
 });
 
@@ -155,6 +168,170 @@ test("Cloudflare voice command parser returns a structured research intent", asy
     globalThis.fetch = originalFetch;
     database.close();
   }
+});
+
+test("administrators can issue, enforce, disclose, and revoke report-linked Community penalties", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const register = async (name, email) => {
+    const response = await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password: "safe-password" })
+    }), env, ctx);
+    const payload = await response.json();
+    return { user: payload.user, cookie: response.headers.get("set-cookie").split(";")[0] };
+  };
+  const request = async (member, path, { method = "GET", payload } = {}) => {
+    const response = await worker.fetch(new Request(`https://village.example${path}`, {
+      method,
+      headers: { ...(payload === undefined ? {} : { "Content-Type": "application/json" }), Cookie: member.cookie },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) })
+    }), env, ctx);
+    return { response, data: await response.json() };
+  };
+  const owner = await register("Village Owner", "yanyanweiyue@gmail.com");
+  const target = await register("Reported Member", "reported-member@example.com");
+  const reporter = await register("Reporter", "reporter@example.com");
+  for (const member of [owner, target, reporter]) {
+    assert.equal((await request(member, "/api/community/settings", { method: "POST", payload: { enabled: true, displayName: member.user.name } })).response.status, 200);
+    assert.equal((await request(member, "/api/community/rooms/group-general/join", { method: "POST", payload: {} })).response.status, 200);
+  }
+  const sent = await request(target, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "Reported message" } });
+  assert.equal(sent.response.status, 201);
+  const reported = await request(reporter, `/api/community/messages/${sent.data.message.id}/report`, { method: "POST", payload: { reason: "Repeated harassment" } });
+  assert.equal(reported.response.status, 201);
+
+  const reports = await request(owner, "/api/admin/community-reports");
+  assert.equal(reports.data.reports[0].reportedUserId, target.user.id);
+  assert.equal(reports.data.reports[0].messageBody, "Reported message");
+  const reportId = reports.data.reports[0].id;
+  const muted = await request(owner, `/api/admin/community-reports/${reportId}/sanctions`, {
+    method: "POST",
+    payload: { type: "chat_mute", reason: "Repeated harassment", durationSeconds: 864000 }
+  });
+  assert.equal(muted.response.status, 201);
+  assert.equal(muted.data.sanction.durationSeconds, 864000);
+
+  const overview = await request(target, "/api/community");
+  assert.equal(overview.response.status, 200);
+  assert.equal(overview.data.moderation.access.community, true);
+  assert.equal(overview.data.moderation.access.chatWrite, false);
+  assert.equal(overview.data.moderation.sanctions[0].reason, "Repeated harassment");
+  assert.ok(overview.data.moderation.sanctions[0].endsAt);
+  assert.equal((await request(target, "/api/community/rooms/group-general/messages")).response.status, 200);
+  const blockedMessage = await request(target, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "Blocked" } });
+  assert.equal(blockedMessage.response.status, 403);
+  assert.equal(blockedMessage.data.code, "COMMUNITY_SANCTION");
+  for (const path of [
+    "/api/community/connect",
+    "/api/community/groups",
+    "/api/community/posts",
+    "/api/community/posts/missing/comments",
+    "/api/community/rooms/group-general/invite",
+    "/api/community/meetings",
+    "/api/community/meetings/missing/invitations",
+    "/api/community/meetings/missing/messages",
+    "/api/community/meetings/missing/polls",
+    "/api/community/meetings/missing/whiteboard",
+    "/api/community/meeting-messages/missing/reactions",
+    "/api/community/documents/missing/comments",
+    "/api/community/documents/missing/share"
+  ]) {
+    const blockedWrite = await request(target, path, { method: "POST", payload: {} });
+    assert.equal(blockedWrite.response.status, 403, path);
+    assert.equal(blockedWrite.data.code, "COMMUNITY_SANCTION", path);
+  }
+
+  const revoked = await request(owner, `/api/admin/community-sanctions/${muted.data.sanction.id}/revoke`, { method: "PATCH", payload: { reason: "Appeal accepted" } });
+  assert.equal(revoked.response.status, 200);
+  assert.equal((await request(target, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "Allowed again" } })).response.status, 201);
+
+  const suspended = await request(owner, `/api/admin/community-reports/${reportId}/sanctions`, {
+    method: "POST",
+    payload: { type: "community_ban", reason: "Community safety review", durationSeconds: 259200 }
+  });
+  assert.equal(suspended.response.status, 201);
+  const restrictedOverview = await request(target, "/api/community");
+  assert.equal(restrictedOverview.response.status, 200);
+  assert.equal(restrictedOverview.data.restricted, true);
+  assert.equal(restrictedOverview.data.moderation.access.community, false);
+  assert.equal(restrictedOverview.data.moderation.sanctions[0].reason, "Community safety review");
+  assert.equal((await request(target, "/api/community/posts")).response.status, 403);
+
+  const blacklisted = await request(owner, `/api/admin/community-reports/${reportId}/sanctions`, {
+    method: "POST",
+    payload: { type: "site_blacklist", reason: "Severe safety violation", permanent: true }
+  });
+  assert.equal(blacklisted.response.status, 201);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM users WHERE id = ?").get(target.user.id).count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_profiles WHERE user_id = ?").get(target.user.id).count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE user_id = ?").get(target.user.id).count >= 1, true);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?").get(target.user.id).count, 0);
+  assert.equal((await request(target, "/api/auth/me")).response.status, 401);
+  const login = await worker.fetch(new Request("https://village.example/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: target.user.email, password: "safe-password" })
+  }), env, ctx);
+  assert.equal(login.status, 403);
+  const loginData = await login.json();
+  assert.equal(loginData.code, "COMMUNITY_SANCTION");
+  assert.equal(loginData.moderation.access.site, false);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_moderation_audit WHERE target_user_id = ?").get(target.user.id).count, 4);
+  database.close();
+});
+
+test("moderation endpoints reject non-admins, self-penalties, and penalties against administrators", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const register = async (name, email) => {
+    const response = await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password: "safe-password" })
+    }), env, ctx);
+    const payload = await response.json();
+    return { user: payload.user, cookie: response.headers.get("set-cookie").split(";")[0] };
+  };
+  const owner = await register("Village Owner", "yanyanweiyue@gmail.com");
+  const secondAdmin = await register("Second Admin", "second-admin@example.com");
+  const member = await register("Member", "guard-member@example.com");
+  database.prepare("UPDATE users SET is_admin = 1 WHERE id = ?").run(secondAdmin.user.id);
+  const now = new Date().toISOString();
+  database.prepare(`
+    INSERT INTO community_reports (id, reporter_id, reported_user_id, reason, message_snapshot, status, created_at)
+    VALUES
+      ('report-owner', ?, ?, 'Owner report', '', 'open', ?),
+      ('report-admin', ?, ?, 'Admin report', '', 'open', ?),
+      ('report-dismissed', ?, ?, 'Dismissed report', '', 'dismissed', ?)
+  `).run(member.user.id, owner.user.id, now, member.user.id, secondAdmin.user.id, now, owner.user.id, member.user.id, now);
+  const penalty = { type: "chat_mute", reason: "Test penalty", durationSeconds: 3600 };
+  const post = async (actor, reportId) => worker.fetch(new Request(`https://village.example/api/admin/community-reports/${reportId}/sanctions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: actor.cookie },
+    body: JSON.stringify(penalty)
+  }), env, ctx);
+  assert.equal((await post(member, "report-owner")).status, 403);
+  assert.equal((await post(owner, "report-owner")).status, 403);
+  assert.equal((await post(owner, "report-admin")).status, 403);
+  assert.equal((await post(owner, "report-dismissed")).status, 409);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_sanctions").get().count, 0);
+  const reopened = await worker.fetch(new Request("https://village.example/api/admin/community-reports/report-dismissed", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Cookie: owner.cookie },
+    body: JSON.stringify({ status: "open" })
+  }), env, ctx);
+  assert.equal(reopened.status, 200);
+  assert.deepEqual(
+    { ...database.prepare("SELECT status, reviewed_by, reviewed_at, resolution_note FROM community_reports WHERE id = 'report-dismissed'").get() },
+    { status: "open", reviewed_by: null, reviewed_at: null, resolution_note: "" }
+  );
+  assert.equal((await post(owner, "report-dismissed")).status, 201);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM community_sanctions").get().count, 1);
+  database.close();
 });
 
 test("Cloudflare Waffles guide chat answers site questions without recommending resources", async () => {
@@ -395,7 +572,7 @@ test("designated administrator can publish announcements and grant administrator
   database.close();
 });
 
-test("Cloudflare feedback waits for and verifies the User data sheet update", async () => {
+test("Cloudflare feedback routes free text to Feedback and profile data to User data", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
   for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
@@ -421,20 +598,21 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
   try {
     const response = await worker.fetch(new Request("https://village.example/api/feedback", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ feedback: "The island guide was helpful." })
-    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync" }), ctx);
+    }), cloudflareEnv(database, { USER_SHEET_WEBHOOK_URL: "https://sheet.example/sync", FEEDBACK_SHEET_WEBHOOK_URL: "https://feedback.example/sync" }), ctx);
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.sync.synced, true);
     assert.equal(result.sync.row, 7);
-    assert.equal(sheetPayload.action, "upsert-user");
-    assert.equal(sheetPayload.webhookSecret, "test-sheet-webhook-secret");
-    assert.equal(sheetPayload.spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
-    assert.equal(sheetPayload.sheetGid, "1080069851");
-    assert.match(sheetPayload["Unique User ID"], /^[a-f0-9]{24}$/);
-    assert.equal(sheetPayload.Email, "feedback@example.com");
-    assert.equal(sheetPayload.Username, "Feedback User");
-    assert.equal(sheetPayload.Password, "Not stored — secure hash only");
-    assert.equal("feedback" in sheetPayload, false);
+    assert.equal(feedbackPayloads[0].action, "record-feedback");
+    assert.equal(feedbackPayloads[0].webhookSecret, "test-sheet-webhook-secret");
+    assert.equal(feedbackPayloads[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackPayloads[0].sheetGid, "0");
+    assert.match(feedbackPayloads[0]["Unique User ID (if applicable)"], /^[a-f0-9]{24}$/);
+    assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
+    assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
+    assert.equal(feedbackPayloads[0].Feedback, "The island guide was helpful.");
+    assert.equal(feedbackPayloads[0]["Star(1-5)"], "");
+    assert.equal(feedbackPayloads[0]["Helpful / Nonhelpful"], "");
 
     const likeResponse = await worker.fetch(new Request("https://village.example/api/resources/like", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ resource: { name: "Saved Resource", url: "https://example.com/saved", description: "Helpful listing.", topic: "Support", score: 31 }, liked: true })
@@ -474,17 +652,17 @@ test("Cloudflare feedback waits for and verifies the User data sheet update", as
     assert.equal(errorPayloads[1]["Full Input"], "Find respite support");
     assert.equal(errorPayloads[1]["Confirmed Keywords"], "caregiver");
     assert.match(errorPayloads[1].Reason, /Rating: 2\/5/);
-    assert.equal(feedbackPayloads.length, 1);
-    assert.equal(feedbackPayloads[0].action, "record-feedback");
-    assert.equal(feedbackPayloads[0].webhookSecret, "test-sheet-webhook-secret");
-    assert.equal(feedbackPayloads[0].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
-    assert.equal(feedbackPayloads[0].sheetGid, "0");
-    assert.equal(feedbackPayloads[0]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
-    assert.equal(feedbackPayloads[0]["Email (if applicable)"], "feedback@example.com");
-    assert.equal(feedbackPayloads[0]["Username (if applicable)"], "Feedback User");
-    assert.equal(feedbackPayloads[0].Feedback, "The result was too broad.");
-    assert.equal(feedbackPayloads[0]["Star(1-5)"], 2);
-    assert.equal(feedbackPayloads[0]["Helpful / Nonhelpful"], "Nonhelpful");
+    assert.equal(feedbackPayloads.length, 2);
+    assert.equal(feedbackPayloads[1].action, "record-feedback");
+    assert.equal(feedbackPayloads[1].webhookSecret, "test-sheet-webhook-secret");
+    assert.equal(feedbackPayloads[1].spreadsheetId, "1tRZvYsPy0kw9T18oRpRc16BE7OGDzG0o4CobAl-lJ7U");
+    assert.equal(feedbackPayloads[1].sheetGid, "0");
+    assert.equal(feedbackPayloads[1]["Unique User ID (if applicable)"], (await register.clone().json()).user.id);
+    assert.equal(feedbackPayloads[1]["Email (if applicable)"], "feedback@example.com");
+    assert.equal(feedbackPayloads[1]["Username (if applicable)"], "Feedback User");
+    assert.equal(feedbackPayloads[1].Feedback, "The result was too broad.");
+    assert.equal(feedbackPayloads[1]["Star(1-5)"], 2);
+    assert.equal(feedbackPayloads[1]["Helpful / Nonhelpful"], "Nonhelpful");
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -629,9 +807,103 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
   database.close();
 });
 
+test("chat alert preferences keep unread cursors isolated and do not swallow concurrent messages", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const request = async (member, path, { method = "GET", payload } = {}) => {
+    const response = await worker.fetch(new Request(`https://village.example${path}`, {
+      method,
+      headers: {
+        ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(member?.cookie ? { Cookie: member.cookie } : {})
+      },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) })
+    }), env, ctx);
+    return { response, data: await response.json() };
+  };
+  const register = async (name, email) => {
+    const response = await worker.fetch(new Request("https://village.example/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password: "safe-password" })
+    }), env, ctx);
+    const data = await response.json();
+    const member = { user: data.user, cookie: response.headers.get("set-cookie").split(";")[0] };
+    assert.equal((await request(member, "/api/community/settings", {
+      method: "POST",
+      payload: { enabled: true, displayName: name, notificationsEnabled: true }
+    })).response.status, 200);
+    return member;
+  };
+  const alex = await register("Alex", "chat-alert-alex@example.com");
+  const sam = await register("Sam", "chat-alert-sam@example.com");
+  const outsider = await register("Outsider", "chat-alert-outsider@example.com");
+  for (const member of [alex, sam]) {
+    assert.equal((await request(member, "/api/community/rooms/group-general/join", { method: "POST", payload: {} })).response.status, 200);
+  }
+
+  const baseline = await request(sam, "/api/community/updates");
+  assert.equal(baseline.data.events.length, 0);
+  const first = await request(alex, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "first" } });
+  assert.equal(first.response.status, 201);
+  const firstUpdate = await request(sam, `/api/community/updates?after=${baseline.data.cursor}&notificationAfter=${baseline.data.notificationCursor}`);
+  assert.equal(firstUpdate.data.events.length, 1);
+  assert.equal(firstUpdate.data.events[0].alertsHidden, false);
+  assert.equal(firstUpdate.data.unreadCount, 1);
+
+  const hidden = await request(sam, "/api/community/rooms/group-general/preferences", { method: "PATCH", payload: { alertsHidden: true } });
+  assert.equal(hidden.response.status, 200);
+  assert.equal(hidden.data.alertsHidden, true);
+  const rendered = await request(sam, "/api/community/rooms/group-general/messages");
+  assert.equal(rendered.data.messages.length, 1);
+  assert.ok(rendered.data.readCursor > 0);
+
+  const concurrent = await request(alex, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "arrived after render" } });
+  assert.equal(concurrent.response.status, 201);
+  const readRenderedOnly = await request(sam, "/api/community/rooms/group-general/read", { method: "POST", payload: { cursor: rendered.data.readCursor } });
+  assert.equal(readRenderedOnly.response.status, 200);
+  assert.equal(readRenderedOnly.data.unreadCount, 1);
+  const afterConcurrent = await request(sam, "/api/community");
+  const general = afterConcurrent.data.groups.find((room) => room.id === "group-general");
+  assert.equal(general.unreadCount, 1);
+  assert.equal(general.alertsHidden, true);
+  const hiddenUpdate = await request(sam, `/api/community/updates?after=${firstUpdate.data.cursor}&notificationAfter=${firstUpdate.data.notificationCursor}`);
+  assert.equal(hiddenUpdate.data.events.length, 1);
+  assert.equal(hiddenUpdate.data.events[0].alertsHidden, true);
+
+  const latestRendered = await request(sam, "/api/community/rooms/group-general/messages");
+  await request(sam, "/api/community/rooms/group-general/read", { method: "POST", payload: { cursor: latestRendered.data.readCursor } });
+  assert.equal((await request(sam, "/api/community")).data.groups.find((room) => room.id === "group-general").unreadCount, 0);
+
+  await request(sam, "/api/community/settings", {
+    method: "POST",
+    payload: { enabled: true, displayName: "Sam", notificationsEnabled: false }
+  });
+  await request(alex, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "unread survives global notification setting" } });
+  assert.equal((await request(sam, "/api/community")).data.groups.find((room) => room.id === "group-general").unreadCount, 1);
+
+  const beforeCleanup = await request(sam, "/api/community/rooms/group-general/messages");
+  await request(sam, "/api/community/rooms/group-general/read", { method: "POST", payload: { cursor: beforeCleanup.data.readCursor } });
+  const cursorBeforeCleanup = database.prepare("SELECT value FROM community_event_sequences WHERE stream = 'chat_messages'").get().value;
+  database.prepare("DELETE FROM chat_messages").run();
+  const afterCleanupMessage = await request(alex, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "visible after cleanup" } });
+  assert.equal(afterCleanupMessage.response.status, 201);
+  const cursorAfterCleanup = database.prepare("SELECT message_cursor FROM chat_messages WHERE id = ?").get(afterCleanupMessage.data.message.id).message_cursor;
+  assert.ok(cursorAfterCleanup > cursorBeforeCleanup);
+  const postCleanupUpdate = await request(sam, `/api/community/updates?after=${cursorBeforeCleanup}`);
+  assert.equal(postCleanupUpdate.data.events.length, 1);
+  assert.equal(postCleanupUpdate.data.events[0].id, afterCleanupMessage.data.message.id);
+  assert.equal((await request(sam, "/api/community")).data.groups.find((room) => room.id === "group-general").unreadCount, 1);
+
+  assert.equal((await request(outsider, "/api/community/rooms/group-general/preferences", { method: "PATCH", payload: { alertsHidden: true } })).response.status, 403);
+  assert.equal((await request(outsider, "/api/community/rooms/group-general/read", { method: "POST", payload: { cursor: 999999 } })).response.status, 403);
+  database.close();
+});
+
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql", "0011_community_workspace.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql", "0011_community_workspace.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -943,8 +1215,41 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   assert.equal(meeting.response.status, 201);
   const meetingId = meeting.data.meeting.id;
   assert.equal((await request(sam, `/api/community/meetings?roomId=${encodeURIComponent(samRoomId)}`)).data.meetings[0].id, meetingId);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/invitations`, {
+    method: "POST",
+    payload: { recipientIds: [lee.user.id] }
+  })).response.status, 403);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/messages`)).response.status, 403);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/whiteboard`)).response.status, 403);
   assert.equal((await request(owner, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
   assert.equal((await request(sam, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
+  const memberCountBeforeMeetingInvite = database.prepare("SELECT COUNT(*) AS count FROM chat_members").get().count;
+  const connectionCountBeforeMeetingInvite = database.prepare("SELECT COUNT(*) AS count FROM chat_connections").get().count;
+  const invitationCandidates = await request(owner, `/api/community/meetings/${meetingId}/invitations`);
+  assert.deepEqual(invitationCandidates.data.friends.map((friend) => friend.userId), [lee.user.id]);
+  const invitedLee = await request(owner, `/api/community/meetings/${meetingId}/invitations`, {
+    method: "POST",
+    payload: { recipientIds: [lee.user.id] }
+  });
+  assert.equal(invitedLee.response.status, 200);
+  assert.equal(invitedLee.data.invited, 1);
+  await flushPending();
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_members").get().count, memberCountBeforeMeetingInvite);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_connections").get().count, connectionCountBeforeMeetingInvite);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_members WHERE room_id = ? AND user_id = ?").get(samRoomId, lee.user.id).count, 0);
+  const leeInvitation = database.prepare("SELECT * FROM meeting_invitations WHERE meeting_id = ? AND recipient_id = ?").get(meetingId, lee.user.id);
+  assert.equal(leeInvitation.status, "pending");
+  const invitationNotification = database.prepare("SELECT metadata_json FROM community_notifications WHERE user_id = ? AND kind = 'meeting-invite' ORDER BY created_at DESC LIMIT 1").get(lee.user.id);
+  assert.deepEqual(Object.keys(JSON.parse(invitationNotification.metadata_json)).sort(), ["invitationId", "meetingId"]);
+  assert.equal(JSON.parse(invitationNotification.metadata_json).meetingId, meetingId);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}/messages`)).response.status, 403);
+  assert.equal((await request(lee, `/api/community/rooms/${samRoomId}/messages`)).response.status, 403);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal(database.prepare("SELECT status FROM meeting_invitations WHERE id = ?").get(leeInvitation.id).status, "accepted");
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}/messages`)).response.status, 200);
   assert.equal((await request(sam, `/api/community/meetings/${meetingId}/state`, { method: "PATCH", payload: { raisedHand: true } })).data.participant.raisedHand, true);
   assert.equal((await request(sam, `/api/community/meetings/${meetingId}/whiteboard`, { method: "POST", payload: { event: { type: "line", points: [[1, 2], [3, 4]] } } })).response.status, 201);
   const poll = await request(owner, `/api/community/meetings/${meetingId}/polls`, {
@@ -966,12 +1271,34 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   });
   assert.equal(privateMessage.response.status, 201);
   assert.equal((await request(owner, `/api/community/meeting-messages/${privateMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } })).response.status, 200);
+  assert.equal((await request(lee, `/api/community/meeting-messages/${privateMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } })).response.status, 404);
   const meetingMessages = await request(owner, `/api/community/meetings/${meetingId}/messages`);
   assert.equal(meetingMessages.data.messages.length, 2);
   assert.equal(meetingMessages.data.messages[1].replyTo.body, "Welcome to the meeting.");
+  const publicReplyToPrivate = await request(owner, `/api/community/meetings/${meetingId}/messages`, {
+    method: "POST",
+    payload: { message: "Public follow-up", audience: "everyone", replyToId: privateMessage.data.message.id }
+  });
+  assert.equal(publicReplyToPrivate.response.status, 201);
+  const ownerReplyView = await request(owner, `/api/community/meetings/${meetingId}/messages`);
+  assert.equal(ownerReplyView.data.messages.at(-1).replyTo.body, "Private note");
+  const unrelatedReplyView = await request(lee, `/api/community/meetings/${meetingId}/messages`);
+  assert.equal(unrelatedReplyView.data.messages.at(-1).body, "Public follow-up");
+  assert.equal(unrelatedReplyView.data.messages.at(-1).replyToId, null);
+  assert.equal(unrelatedReplyView.data.messages.at(-1).replyTo, null);
+  assert.equal(JSON.stringify(unrelatedReplyView.data).includes("Private note"), false);
   assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "offer", payload: { sdp: "test" } } })).response.status, 201);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "offer", payload: {} } })).response.status, 400);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "candidate", payload: [] } })).response.status, 400);
   const signals = await request(sam, `/api/community/meetings/${meetingId}/signals?after=`);
   assert.equal(signals.data.signals[0].payload.sdp, "test");
+  const signalCursorBeforeCleanup = signals.data.signals[0].cursor;
+  database.prepare("DELETE FROM meeting_signals").run();
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/signals`, { method: "POST", payload: { recipientId: sam.user.id, kind: "candidate", payload: { candidate: "after-cleanup" } } })).response.status, 201);
+  const signalsAfterCleanup = await request(sam, `/api/community/meetings/${meetingId}/signals?cursor=${signalCursorBeforeCleanup}`);
+  assert.equal(signalsAfterCleanup.data.signals.length, 1);
+  assert.equal(signalsAfterCleanup.data.signals[0].payload.candidate, "after-cleanup");
+  assert.ok(signalsAfterCleanup.data.signals[0].cursor > signalCursorBeforeCleanup);
   const meetingState = await request(owner, `/api/community/meetings/${meetingId}`);
   assert.equal(meetingState.data.participants.find((participant) => participant.userId === sam.user.id).raisedHand, true);
   assert.equal(meetingState.data.polls[0].status, "active");
@@ -979,6 +1306,83 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   assert.equal(meetingState.data.polls[0].votes[1], 1);
   assert.equal(meetingState.data.polls[0].voters[0].displayName, "Sam");
   assert.equal((await request(owner, `/api/community/polls/${poll.data.poll.id}/end`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/state`, {
+    method: "PATCH",
+    payload: { userId: lee.user.id, remove: true }
+  })).response.status, 403);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/state`, {
+    method: "PATCH",
+    payload: { userId: sam.user.id, remove: true }
+  })).response.status, 200);
+  const removedSam = database.prepare(`
+    SELECT left_at, removed_at, removed_by, restored_at, restored_by
+    FROM meeting_participants WHERE meeting_id = ? AND user_id = ?
+  `).get(meetingId, sam.user.id);
+  assert.ok(removedSam.left_at);
+  assert.ok(removedSam.removed_at);
+  assert.equal(removedSam.removed_by, owner.user.id);
+  assert.equal(removedSam.restored_at, null);
+  assert.equal(removedSam.restored_by, null);
+  for (const [path, options] of [
+    [`/api/community/meetings/${meetingId}`, {}],
+    [`/api/community/meetings/${meetingId}/signals`, {}],
+    [`/api/community/meetings/${meetingId}/translate`, { method: "POST", payload: { text: "hello", targetLanguage: "es" } }],
+    [`/api/community/meetings/${meetingId}/state`, { method: "PATCH", payload: { raisedHand: true } }],
+    [`/api/community/meetings/${meetingId}/whiteboard`, {}],
+    [`/api/community/meetings/${meetingId}/messages`, {}],
+    [`/api/community/meetings/${meetingId}/polls`, { method: "POST", payload: { question: "Blocked?", options: ["Yes", "No"] } }],
+    [`/api/community/meetings/${meetingId}/invitations`, {}],
+    [`/api/community/meeting-messages/${meetingMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } }],
+    [`/api/community/polls/${poll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } }]
+  ]) {
+    assert.equal((await request(sam, path, options)).response.status, 403, path);
+  }
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 403);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/state`, {
+    method: "PATCH",
+    payload: { userId: sam.user.id, restore: true }
+  })).response.status, 403);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/state`, {
+    method: "PATCH",
+    payload: { userId: sam.user.id, restore: true }
+  })).response.status, 200);
+  const restoredSam = database.prepare(`
+    SELECT left_at, removed_at, removed_by, restored_at, restored_by
+    FROM meeting_participants WHERE meeting_id = ? AND user_id = ?
+  `).get(meetingId, sam.user.id);
+  assert.ok(restoredSam.left_at);
+  assert.ok(restoredSam.removed_at);
+  assert.equal(restoredSam.removed_by, owner.user.id);
+  assert.ok(restoredSam.restored_at);
+  assert.equal(restoredSam.restored_by, owner.user.id);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/messages`)).response.status, 403);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(sam, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/invitations`, {
+    method: "DELETE",
+    payload: { invitationId: leeInvitation.id }
+  })).response.status, 200);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}`)).response.status, 404);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/invitations`, {
+    method: "POST",
+    payload: { recipientIds: [lee.user.id] }
+  })).response.status, 200);
+  assert.equal((await request(owner, `/api/community/blocks/${lee.user.id}`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}`)).response.status, 404);
+  assert.equal((await request(lee, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 404);
+  assert.equal((await request(owner, `/api/community/meetings/${meetingId}/end`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal(database.prepare("SELECT status FROM meeting_invitations WHERE id = ?").get(leeInvitation.id).status, "ended");
+  for (const [path, options] of [
+    [`/api/community/meetings/${meetingId}`, {}],
+    [`/api/community/meetings/${meetingId}/signals`, {}],
+    [`/api/community/meetings/${meetingId}/whiteboard`, {}],
+    [`/api/community/meetings/${meetingId}/messages`, {}],
+    [`/api/community/meeting-messages/${meetingMessage.data.message.id}/reactions`, { method: "POST", payload: { emoji: "👍" } }],
+    [`/api/community/polls/${poll.data.poll.id}/vote`, { method: "POST", payload: { optionIndex: 0 } }]
+  ]) {
+    assert.equal((await request(owner, path, options)).response.status, 404, path);
+  }
   await flushPending();
   database.close();
 });

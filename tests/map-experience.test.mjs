@@ -230,7 +230,42 @@ test("Village Community includes Moments, Self, shared files, documents, and liv
   assert.match(meeting, /data-meeting-action="sidebar-participants"/);
   assert.match(meeting, /data-meeting-action="sidebar-chat"/);
   assert.match(meeting, /classList\.toggle\("camera-off", cameraOff\)/);
+  assert.match(app, /if \(metadata\.meetingId\) return state\.meetingRuntime\.open\(metadata\.meetingId,/);
   for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
+});
+
+test("Community chat uses a responsive WeChat-style workspace with per-room sound and unread controls", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  ]);
+  for (const marker of [
+    "communityWorkspaceHtml",
+    "communityConversationSidebarHtml",
+    "communityRoomInfoHtml",
+    "toggle-room-alerts",
+    "/preferences",
+    "/read",
+    "readCursor",
+    "pollCommunityUpdates",
+    "playChatDing",
+    "community-hotspot-badge",
+    "data-community-unread-badge"
+  ]) assert.match(app, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const selector of [
+    ".side-panel.community-workspace-panel",
+    ".community-workspace-rail",
+    ".community-conversation-sidebar",
+    ".community-room-info",
+    ".community-unread-badge",
+    ".wechat-chat"
+  ]) assert.match(css, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.community-workspace\.has-active-room/);
+  assert.match(app, /events\.filter\(\(event\) => !event\.alertsHidden\)/);
+  assert.match(app, /notificationGain\.connect\(this\.context\.destination\)/);
+  assert.match(css, /\.wechat-chat > \.community-message-list \{ grid-row: 4; \}/);
+  assert.match(css, /#meeting-chat-list \{ grid-row: 5; min-height: 0; \}/);
+  assert.match(css, /\.meeting-caption-options > div \{ position: fixed;/);
 });
 
 test("live meetings expose raised hands, a collaborative whiteboard, floating polls, and meeting-only chat", async () => {
@@ -245,9 +280,12 @@ test("live meetings expose raised hands, a collaborative whiteboard, floating po
     "meeting-live-poll",
     "poll-start",
     "meeting-chat-targets",
+    "meeting-friend-invite",
+    "meeting-invite-form",
+    "/invitations",
     "/api/community/meetings/${encodeURIComponent(this.meeting.id)}/messages"
   ]) assert.match(meeting, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  for (const marker of [".meeting-hand-badge", ".meeting-board-workspace", ".meeting-live-poll", ".meeting-chat-targets"]) {
+  for (const marker of [".meeting-hand-badge", ".meeting-board-workspace", ".meeting-live-poll", ".meeting-chat-targets", ".meeting-friend-invite"]) {
     assert.match(styles, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 });

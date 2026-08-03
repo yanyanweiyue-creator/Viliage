@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: cloudflare-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -56,6 +56,67 @@ jobs:
           FEEDBACK_SHEET_WEBHOOK_URL: ${{ secrets.FEEDBACK_SHEET_WEBHOOK_URL }}
           USER_COUNT_SHEET_WEBHOOK_URL: ${{ secrets.USER_COUNT_SHEET_WEBHOOK_URL }}
           PASSWORD_EMAIL_WEBHOOK_URL: ${{ secrets.PASSWORD_EMAIL_WEBHOOK_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Configure optional Meeting relay
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$CLOUDFLARE_TURN_KEY_ID" || -n "$CLOUDFLARE_TURN_API_TOKEN" ]]; then
+            test -n "$CLOUDFLARE_TURN_KEY_ID"
+            test -n "$CLOUDFLARE_TURN_API_TOKEN"
+          fi
+
+          if [[ -n "$MEETING_ICE_SERVERS_JSON" ]]; then
+          node --input-type=module <<'NODE'
+          const servers = JSON.parse(process.env.MEETING_ICE_SERVERS_JSON);
+          if (!Array.isArray(servers)) throw new Error("MEETING_ICE_SERVERS_JSON must be an array.");
+          const urls = servers.flatMap((server) => Array.isArray(server?.urls) ? server.urls : [server?.urls]);
+          if (!urls.some((url) => /^turns?:/i.test(String(url || "")))) {
+            throw new Error("MEETING_ICE_SERVERS_JSON must contain a turn: or turns: URL.");
+          }
+          NODE
+          fi
+
+          if [[ -n "$CLOUDFLARE_TURN_KEY_ID" || -n "$MEETING_ICE_SERVERS_JSON" ]]; then
+          node --input-type=module <<'NODE' | npx wrangler@4 secret bulk
+          const values = {};
+          if (process.env.CLOUDFLARE_TURN_KEY_ID) {
+            values.CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID;
+            values.CLOUDFLARE_TURN_API_TOKEN = process.env.CLOUDFLARE_TURN_API_TOKEN;
+          }
+          if (process.env.MEETING_ICE_SERVERS_JSON) {
+            values.MEETING_ICE_SERVERS_JSON = process.env.MEETING_ICE_SERVERS_JSON;
+          }
+          process.stdout.write(JSON.stringify(values));
+          NODE
+          fi
+
+          npx wrangler@4 secret list --format=json > meeting-secret-list.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const secrets = JSON.parse(readFileSync("meeting-secret-list.json", "utf8"));
+          const names = new Set(secrets.map((secret) => secret.name));
+          const cloudflareTurn = names.has("CLOUDFLARE_TURN_KEY_ID")
+            && names.has("CLOUDFLARE_TURN_API_TOKEN");
+          const customTurn = names.has("MEETING_ICE_SERVERS_JSON");
+          if (cloudflareTurn || customTurn) {
+            console.log("Meeting relay configuration is present.");
+          } else {
+            console.log(
+              "::warning title=Meeting relay not configured::"
+              + "Meeting will use STUN only. Add both Cloudflare TURN secrets "
+              + "or MEETING_ICE_SERVERS_JSON for restrictive networks."
+            );
+          }
+          NODE
+        env:
+          CI: "true"
+          CLOUDFLARE_TURN_KEY_ID: ${{ secrets.CLOUDFLARE_TURN_KEY_ID }}
+          CLOUDFLARE_TURN_API_TOKEN: ${{ secrets.CLOUDFLARE_TURN_API_TOKEN }}
+          MEETING_ICE_SERVERS_JSON: ${{ secrets.MEETING_ICE_SERVERS_JSON }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
