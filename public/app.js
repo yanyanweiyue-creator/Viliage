@@ -1945,7 +1945,7 @@ function communityRoomInfoHtml(data) {
   const directRoom = (state.communityOverview?.directRooms || []).find((item) => item.id === room.id);
   const capabilities = communityRoomCapabilities(room);
   const currentRoleLabel = capabilities.currentUserRole === "owner" ? "You are the owner" : capabilities.currentUserRole === "admin" ? "You are an admin" : "Group member";
-  return `<aside class="community-room-info" aria-label="Conversation details">
+  return `<aside class="community-room-info community-panel-room-info" aria-label="Conversation details">
     <header><strong>Chat details</strong><button type="button" data-action="toggle-community-info" aria-label="Close chat details">×</button></header>
     ${room.kind === "group" ? `<section class="community-info-members"><header class="community-info-members-heading"><div><h3>${Number(data.members?.length || 0)} members</h3><small>${escapeHtml(room.systemManaged ? "System group · Village administrators can appoint group admins" : `${currentRoleLabel} · Only the owner can transfer ownership`)}</small></div></header>${groupMemberControls(data, { chatWritable })}</section>${communityGroupManagementHtml(data)}` : `<section class="community-info-person">${communityAvatarHtml(directRoom || { name: room.name }, { clickable: false, className: "large" })}<strong>${escapeHtml(room.name)}</strong></section>`}
     <section class="community-info-settings">
@@ -1969,14 +1969,15 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
   const customStickers = chatWritable ? rawCustomStickers : rawCustomStickers.replaceAll("<button ", "<button disabled ");
   const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
   const announcement = room.kind === "group" && room.announcement ? `<aside class="community-group-announcement ${room.announcementPinned ? "pinned" : ""}"><span aria-hidden="true">${room.announcementPinned ? "◆" : "◇"}</span><div><strong>Group announcement${room.announcementPinned ? " · Pinned" : ""}</strong><p>${escapeHtml(room.announcement)}</p></div></aside>` : "";
-  return `<section class="community-chat wechat-chat">
-    <header class="community-chat-header"><button type="button" class="community-mobile-back" data-action="close-community-room" aria-label="Back to conversations">‹</button><div><strong>${escapeHtml(room.name)}</strong><small>${room.kind === "group" ? `${Number(data.members?.length || 0)} members` : "Private conversation"}</small></div><button type="button" data-action="toggle-community-info" aria-label="Conversation details" aria-expanded="${String(state.communityInfoOpen)}">•••</button></header>
-    ${room.systemManaged ? `<p class="community-chat-retention">Commons messages are kept for 12 hours.</p>` : ""}
+  return `<section class="community-chat community-panel-chat">
+    <nav class="community-panel-chat-nav" aria-label="Conversation navigation"><button type="button" class="text-button" data-action="close-community-room">← ${escapeHtml(t("communityTitle"))}</button><button type="button" class="text-button" data-action="toggle-community-info" aria-label="Conversation details" aria-expanded="${String(state.communityInfoOpen)}">Chat details ···</button></nav>
+    <p class="community-panel-room-meta">${escapeHtml(room.kind === "group" ? `${Number(data.members?.length || 0)} members` : "Private conversation")}</p>
+    ${room.systemManaged ? `<p class="privacy-note community-panel-retention">Commons messages are kept for 12 hours.</p>` : `<p class="privacy-note community-panel-retention">Clearing history hides earlier messages only for you.</p>`}
     ${announcement}
     ${meetings ? `<section class="room-meeting-list"><header><strong>Meetings</strong></header>${meetings}</section>` : ""}
     <div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div>
     ${roomMute ? `<aside class="community-room-mute-banner" role="status"><strong>You are muted in this group</strong><span>${escapeHtml(roomMute.reason)}${roomMute.endsAt ? ` · Ends ${escapeHtml(new Date(roomMute.endsAt).toLocaleString())}` : ""}</span></aside>` : chatWritable ? "" : communityModerationBanner(state.communityOverview?.moderation)}
-    <div class="community-compose-shell ${chatWritable ? "" : "is-disabled"}">
+    <div class="community-panel-compose ${chatWritable ? "" : "is-disabled"}">
       <div class="community-compose-tools">
         <label class="compose-tool" title="Attach a photo or document">＋<span class="sr-only">Attach file</span><input type="file" ${disabled} accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
         <button type="button" ${disabled} class="compose-tool" data-action="share-community-location" title="Share current location">⌖</button>
@@ -1989,6 +1990,7 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
       <form id="community-meeting-form" class="community-meeting-form hidden"><input name="title" ${disabled} maxlength="120" value="Village catch-up" required><label>Start time<input name="startsAt" ${disabled} type="datetime-local" required></label><label>Minutes<input name="durationMinutes" ${disabled} type="number" min="10" max="480" value="45" required></label><button type="submit" ${disabled} class="secondary-button">Schedule and invite this chat</button><p class="form-error"></p></form>
       <form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(room.id)}"><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" ${disabled} maxlength="1000" rows="2" placeholder="${escapeHtml(chatWritable ? t("communityMessagePlaceholder") : "Chat is unavailable during your mute.")}"></textarea></label>${room.kind === "group" ? `<button type="button" ${disabled} class="community-everyone-button" data-action="mention-member" data-mention="@everyone" title="@everyone · Notify all group members" aria-label="Mention everyone in this group">@all</button>` : ""}<button type="submit" ${disabled} class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form>
     </div>
+    <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
   </section>`;
 }
 
@@ -2175,17 +2177,19 @@ async function refreshCommunityRoom() {
       const pending = await api(`/api/community/rooms/${encodeURIComponent(data.room.id)}/join-requests`).catch(() => null);
       if (pending) data.joinRequests = pending.requests || [];
     }
+    if (state.communityRoom?.id !== data.room.id) return;
     const list = $("#community-message-list");
-    if (!list || state.communityRoom?.id !== data.room.id) return;
-    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 90;
+    const nearBottom = list ? list.scrollHeight - list.scrollTop - list.clientHeight < 90 : false;
     state.communityRoom = { ...state.communityRoom, ...data.room, data };
     if (previousSignature !== communityRoomManagementSignature(data)) {
       renderOpenCommunityRoom();
       if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
       return;
     }
-    list.innerHTML = communityMessagesHtml(data.messages);
-    if (nearBottom) list.scrollTop = list.scrollHeight;
+    if (list) {
+      list.innerHTML = communityMessagesHtml(data.messages);
+      if (nearBottom) list.scrollTop = list.scrollHeight;
+    }
     if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
   } catch {}
 }
@@ -2347,16 +2351,10 @@ function stopCommunityUpdates() {
 function renderOpenCommunityRoom() {
   const current = state.communityRoom;
   if (!current?.data || !state.communityOverview) return;
-  $("#panel-content").innerHTML = communityWorkspaceHtml(
-    state.communityOverview,
-    communityRoomWorkspaceMainHtml(current.data, current.meetingData),
-    {
-      activeTab: current.kind === "group" ? "groups" : "direct",
-      activeRoomId: current.id,
-      drawerHtml: communityRoomInfoHtml(current.data)
-    }
-  );
-  $("#panel").classList.add("community-workspace-panel");
+  $("#panel").classList.remove("community-workspace-panel");
+  $("#panel-title").textContent = current.name || current.data.room?.name || t("communityTitle");
+  $("#panel-eyebrow").textContent = t("communityTitle");
+  $("#panel-content").innerHTML = `<div class="community-panel-room-shell">${state.communityInfoOpen ? communityRoomInfoHtml(current.data) : communityRoomWorkspaceMainHtml(current.data, current.meetingData)}</div>`;
   const list = $("#community-message-list");
   if (list) list.scrollTop = list.scrollHeight;
   const localStart = new Date(Date.now() + 15 * 60_000);
@@ -2383,10 +2381,10 @@ async function openCommunityRoom(roomId, roomName) {
   openPanel({
     title: roomName || data.room.name,
     eyebrow: t("communityTitle"),
-    html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`,
-    className: "community-workspace-panel"
+    html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`
   });
-  data.room.name = data.room.name || roomName;
+  data.room.name = data.room.kind === "direct" ? (roomName || data.room.name) : (data.room.name || roomName);
+  state.communityTab = data.room.kind === "group" ? "groups" : "direct";
   updateCommunityRoomSummary(roomId, { name: data.room.name, description: data.room.description || "" });
   state.communityRoom = { ...data.room, id: roomId, name: data.room.name, data, meetingData };
   renderOpenCommunityRoom();

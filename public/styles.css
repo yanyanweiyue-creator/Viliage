@@ -2581,3 +2581,85 @@ body.building-mode:has(.community-workspace-panel.open) .panel-scrim { display: 
   .wechat-chat .community-message { max-width: 92%; }
   .wechat-chat .community-message-list { padding-inline: .7rem; }
 }
+
+/* Village Community rooms stay inside the original Village side panel. */
+.community-panel-room-shell { min-width: 0; }
+.community-panel-chat { display: grid; gap: .8rem; color: var(--ink); }
+.community-panel-chat-nav { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-bottom: .7rem; border-bottom: 1px solid var(--line); }
+.community-panel-chat-nav button { padding: .2rem 0; }
+.community-panel-room-meta { margin: -.35rem 0 0; color: var(--muted); font-size: .72rem; }
+.community-panel-retention { margin: 0; padding: .65rem .75rem; border-radius: .6rem; background: #f3f6f4; }
+.community-panel-chat .community-group-announcement { max-height: none; padding: .75rem; border: 1px solid #ded29f; border-left: 3px solid #dfb94d; border-radius: .65rem; background: #fff9e5; color: var(--ink); }
+.community-panel-chat .community-group-announcement.pinned { background: #fff5cf; }
+.community-panel-chat .community-group-announcement strong { color: #7b6119; }
+.community-panel-chat .community-group-announcement p { color: #596b64; }
+.community-panel-chat .community-message-list { min-width: 0; }
+.community-panel-chat .community-room-mute-banner { margin: 0; padding: .65rem .75rem; border: 1px solid #dfc29e; border-radius: .6rem; background: #fff5e8; color: #784a20; }
+.community-panel-chat .community-room-mute-banner span { color: #80664e; }
+.community-panel-compose { display: grid; gap: .6rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.community-panel-compose.is-disabled { opacity: .72; }
+.community-panel-compose .community-message-form { grid-template-columns: minmax(0, 1fr) auto auto; }
+.community-panel-compose .community-message-form label { min-width: 0; }
+.community-panel-compose .community-message-form textarea { width: 100%; }
+.community-panel-compose .community-everyone-button { align-self: stretch; min-width: 3.2rem; padding: .45rem; border: 1px solid #c7d5cd; border-radius: .45rem; background: white; color: #315f50; cursor: pointer; font-weight: 800; }
+.community-panel-compose .community-everyone-button:hover { border-color: #47735d; color: #21483c; }
+
+.community-panel-room-info { position: static; width: 100%; height: auto; overflow: visible; border: 0; background: transparent; color: var(--ink); box-shadow: none; transform: none; transition: none; }
+.community-panel-room-info > header { position: static; min-height: auto; padding: 0 0 .8rem; border-bottom: 1px solid var(--line); background: transparent; }
+.community-panel-room-info > header button { background: var(--sage-soft); color: var(--ink); }
+.community-panel-room-info .community-info-person,
+.community-panel-room-info .community-info-members,
+.community-panel-room-info .community-group-management { border-color: var(--line); }
+.community-panel-room-info .community-info-members-heading { padding-inline: 0; }
+.community-panel-room-info .community-info-members-heading small,
+.community-panel-room-info .community-member-profile small,
+.community-panel-room-info .community-info-settings > button small,
+.community-panel-room-info .community-group-settings > summary small,
+.community-panel-room-info .community-join-requests > summary small,
+.community-panel-room-info .community-info-members .group-invite > summary small { color: var(--muted); }
+.community-panel-room-info .community-member-row { padding-inline: 0; border-color: var(--line); }
+.community-panel-room-info .community-member-row:hover { background: #f3f7f4; }
+.community-panel-room-info .community-member-profile { color: var(--ink); }
+.community-panel-room-info .community-member-profile .community-member-muted { color: #9b3535; }
+.community-panel-room-info .community-member-role { border-color: #b7c8bf; color: #50675d; }
+.community-panel-room-info .community-member-role.owner { border-color: #d6bd68; background: #fff5d5; color: #785e13; }
+.community-panel-room-info .community-member-role.admin { border-color: #85b99a; background: #e6f4ea; color: #236544; }
+.community-panel-room-info .community-member-mention { background: var(--sage-soft); color: var(--sage-dark); }
+.community-panel-room-info .community-member-mention:hover { background: #cde6d7; color: #184b35; }
+.community-panel-room-info .community-member-menu > summary { color: #66776f; }
+.community-panel-room-info .community-member-menu[open] > summary { background: #e4ece7; color: var(--ink); }
+.community-panel-room-info .community-member-menu > div { border-color: #cbd8d1; background: white; box-shadow: 0 .8rem 1.5rem rgba(33,61,51,.18); }
+.community-panel-room-info .community-member-menu > div button { border-color: var(--line); color: var(--ink); }
+.community-panel-room-info .community-member-menu > div button:hover { background: #f0f5f2; }
+.community-panel-room-info .community-member-menu > div button.danger { color: #9b3535 !important; }
+.community-panel-room-info .community-member-menu > div button.ownership-action { color: #7b6119; }
+.community-panel-room-info .community-info-members .group-invite,
+.community-panel-room-info .community-group-settings,
+.community-panel-room-info .community-join-requests { border-color: var(--line); }
+.community-panel-room-info .community-info-members .friend-choice { border-color: var(--line); background: white; color: var(--ink); }
+.community-panel-room-info .community-group-management > h3 { padding-left: 0; color: var(--muted); }
+.community-panel-room-info .community-group-settings > summary,
+.community-panel-room-info .community-join-requests > summary,
+.community-panel-room-info .community-info-members .group-invite > summary { padding-inline: 0; }
+.community-panel-room-info .community-group-settings > form,
+.community-panel-room-info .community-info-members .group-invite form { padding-inline: 0; }
+.community-panel-room-info .community-group-settings label { color: var(--ink); }
+.community-panel-room-info .community-group-settings input,
+.community-panel-room-info .community-group-settings textarea { border-color: #c7d5cd; background: white; color: var(--ink); }
+.community-panel-room-info .community-group-setting-toggle small { color: var(--muted); }
+.community-panel-room-info .community-group-owner-note { background: #fff9e5; color: #6f6241; }
+.community-panel-room-info .community-join-request { padding-inline: 0; border-color: var(--line); }
+.community-panel-room-info .community-join-request small { color: var(--muted); }
+.community-panel-room-info .community-join-request > span button.danger { background: #fff0ed; color: #9b3535 !important; }
+.community-panel-room-info .community-group-danger-action { padding-inline: 0; border-color: var(--line); color: #9b3535; }
+.community-panel-room-info .community-info-settings > button { padding-inline: 0; border-color: var(--line); color: var(--ink); }
+.community-panel-room-info .community-info-settings > button.danger strong { color: #9b3535; }
+.community-panel-room-info .community-info-switch i { background: #aebbb4; }
+
+@media (max-width: 520px) {
+  .community-panel-chat-nav { align-items: flex-start; flex-direction: column; }
+  .community-panel-compose .community-message-form { grid-template-columns: minmax(0, 1fr) auto; }
+  .community-panel-compose .community-message-form label { grid-column: 1 / -1; }
+  .community-panel-room-info .community-member-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .community-panel-room-info .community-member-role { grid-column: 2; }
+}
