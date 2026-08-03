@@ -81,7 +81,7 @@ test("group management actions use scoped room APIs and refresh authority after 
   assert.match(settings, /form\.elements\.namedItem\("inviteConfirmationRequired"\)/);
 });
 
-test("group administration uses the dark WeChat-style details drawer at desktop and mobile widths", async () => {
+test("group administration remains available in the original light Village side panel at desktop and mobile widths", async () => {
   const [, css] = await sources();
   for (const className of [
     "community-member-row",
@@ -93,6 +93,7 @@ test("group administration uses the dark WeChat-style details drawer at desktop 
     "community-group-announcement",
     "community-room-mute-banner"
   ]) assert.match(css, new RegExp(`\\.${className}`));
-  assert.match(css, /\.community-room-info\s*\{[\s\S]*?width:\s*min\(23rem, 88vw\)/);
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.community-room-info/);
+  assert.match(css, /\.community-panel-room-info\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/);
+  assert.match(css, /\.community-panel-room-info \.community-group-settings input,[\s\S]*?background:\s*white/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.community-panel-room-info \.community-member-row/);
 });
