@@ -234,7 +234,7 @@ test("Village Community includes Moments, Self, shared files, documents, and liv
   for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
 });
 
-test("Community overview keeps the original Village page while chat rooms use the workspace", async () => {
+test("Community overview and chat rooms both stay inside the original Village side panel", async () => {
   const [app, css] = await Promise.all([
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")
@@ -248,6 +248,9 @@ test("Community overview keeps the original Village page while chat rooms use th
   const roomStart = app.indexOf("async function openCommunityRoom");
   const roomEnd = app.indexOf("\nasync function submitCommunitySettings", roomStart);
   const room = app.slice(roomStart, roomEnd);
+  const renderStart = app.indexOf("function renderOpenCommunityRoom");
+  const renderEnd = app.indexOf("\nasync function openCommunityRoom", renderStart);
+  const renderRoom = app.slice(renderStart, renderEnd);
   const badgesStart = app.indexOf("function renderCommunityBadges");
   const badgesEnd = app.indexOf("\nfunction mergeCommunityRoomUpdates", badgesStart);
   const badges = app.slice(badgesStart, badgesEnd);
@@ -263,23 +266,30 @@ test("Community overview keeps the original Village page while chat rooms use th
   assert.match(overview, /return mainHtml;/);
   assert.doesNotMatch(overview, /return communityWorkspaceHtml/);
   assert.doesNotMatch(panel, /className: "community-workspace-panel"/);
-  assert.match(room, /className: "community-workspace-panel"/);
+  assert.doesNotMatch(room, /className: "community-workspace-panel"/);
   assert.match(room, /renderOpenCommunityRoom\(\)/);
+  assert.match(room, /data\.room\.kind === "direct" \? \(roomName \|\| data\.room\.name\)/);
+  assert.match(renderRoom, /classList\.remove\("community-workspace-panel"\)/);
+  assert.match(renderRoom, /community-panel-room-shell/);
+  assert.match(renderRoom, /communityRoomInfoHtml/);
+  assert.match(renderRoom, /communityRoomWorkspaceMainHtml/);
+  assert.doesNotMatch(renderRoom, /communityWorkspaceHtml\(/);
   assert.match(badges, /data-overview-room-id/);
   assert.match(badges, /\.community-dock \[data-community-tab-badge/);
   assert.match(css, /\.overview-room-avatar \{ position: relative; \}/);
   assert.match(css, /\.community-dock b\.hidden \{ display: none; \}/);
 });
 
-test("Community chat rooms use a responsive WeChat-style workspace with per-room sound and unread controls", async () => {
+test("Community chat rooms use a responsive original side-panel layout with per-room sound and unread controls", async () => {
   const [app, css] = await Promise.all([
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")
   ]);
   for (const marker of [
-    "communityWorkspaceHtml",
-    "communityConversationSidebarHtml",
+    "communityRoomWorkspaceMainHtml",
     "communityRoomInfoHtml",
+    "community-panel-room-shell",
+    "community-panel-chat",
     "toggle-room-alerts",
     "/preferences",
     "/read",
@@ -290,17 +300,20 @@ test("Community chat rooms use a responsive WeChat-style workspace with per-room
     "data-community-unread-badge"
   ]) assert.match(app, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   for (const selector of [
-    ".side-panel.community-workspace-panel",
-    ".community-workspace-rail",
-    ".community-conversation-sidebar",
-    ".community-room-info",
+    ".community-panel-room-shell",
+    ".community-panel-chat",
+    ".community-panel-room-info",
+    ".community-panel-compose",
     ".community-unread-badge",
-    ".wechat-chat"
+    ".community-panel-chat-nav"
   ]) assert.match(css, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.community-workspace\.has-active-room/);
+  const chat = app.slice(app.indexOf("function communityRoomWorkspaceMainHtml"), app.indexOf("\nfunction communityOverviewHtml"));
+  assert.match(chat, /community-chat community-panel-chat/);
+  assert.doesNotMatch(chat, /community-chat wechat-chat/);
+  assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.community-panel-compose \.community-message-form/);
   assert.match(app, /events\.filter\(\(event\) => !event\.alertsHidden\)/);
   assert.match(app, /notificationGain\.connect\(this\.context\.destination\)/);
-  assert.match(css, /\.wechat-chat > \.community-message-list \{ grid-row: 5; \}/);
+  assert.match(css, /\.community-panel-room-info \{ position: static; width: 100%;/);
   assert.match(css, /#meeting-chat-list \{ grid-row: 5; min-height: 0; \}/);
   assert.match(css, /\.meeting-caption-options > div \{ position: fixed;/);
 });
