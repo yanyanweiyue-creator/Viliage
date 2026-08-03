@@ -93,7 +93,7 @@ test("production reset removes account-owned state and preserves shared defaults
     database.prepare("SELECT COUNT(*) AS count FROM app_meta WHERE key = 'userXcountXmetrics:keep'").get().count,
     1
   );
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "18");
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "19");
 
   database.close();
 });

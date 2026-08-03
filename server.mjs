@@ -158,9 +158,9 @@ function defaultCommunity() {
   return {
     profiles: {},
     rooms: [
-      { id: "group-general", kind: "group", name: "Village Commons", description: "A welcoming place for everyday questions, encouragement, and shared experiences.", createdAt },
-      { id: "group-school", kind: "group", name: "School & IEP Circle", description: "Share school-navigation experiences and preparation ideas.", createdAt },
-      { id: "group-recreation", kind: "group", name: "Inclusive Recreation", description: "Exchange ideas for calm, accessible, and inclusive activities.", createdAt }
+      { id: "group-general", kind: "group", name: "Village Commons", description: "A welcoming place for everyday questions, encouragement, and shared experiences.", systemManaged: true, createdAt },
+      { id: "group-school", kind: "group", name: "School & IEP Circle", description: "Share school-navigation experiences and preparation ideas.", systemManaged: true, createdAt },
+      { id: "group-recreation", kind: "group", name: "Inclusive Recreation", description: "Exchange ideas for calm, accessible, and inclusive activities.", systemManaged: true, createdAt }
     ],
     members: [],
     messages: [],
@@ -170,6 +170,7 @@ function defaultCommunity() {
     posts: [],
     postComments: [],
     groupInvites: [],
+    joinRequests: [],
     stickers: [],
     savedMessages: [],
     reports: [],
@@ -209,7 +210,16 @@ async function loadCommunity() {
       ...base,
       ...saved,
       profiles: saved.profiles || {},
-      rooms: Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms,
+      rooms: (Array.isArray(saved.rooms) && saved.rooms.length ? saved.rooms : base.rooms).map((room) => ({
+        ...room,
+        systemManaged: room.systemManaged ?? ["group-general", "group-school", "group-recreation"].includes(room.id),
+        announcement: room.announcement || "",
+        announcementPinned: Boolean(room.announcementPinned),
+        announcementUpdatedAt: room.announcementUpdatedAt || null,
+        announcementUpdatedBy: room.announcementUpdatedBy || null,
+        joinApprovalRequired: room.joinApprovalRequired ?? Boolean(room.createdBy),
+        inviteConfirmationRequired: room.inviteConfirmationRequired ?? false
+      })),
       members: saved.members || [],
       messages: saved.messages || [],
       connections: saved.connections || [],
@@ -218,6 +228,7 @@ async function loadCommunity() {
       posts: saved.posts || [],
       postComments: saved.postComments || [],
       groupInvites: saved.groupInvites || [],
+      joinRequests: saved.joinRequests || [],
       stickers: saved.stickers || [],
       savedMessages: saved.savedMessages || [],
       reports: saved.reports || [],
@@ -352,12 +363,60 @@ function localModerationFailure(res, moderation, message = "This action is unava
 
 function cleanupLocalSystemHistory(community) {
   const cutoff = Date.now() - 12 * 60 * 60 * 1000;
-  const systemIds = new Set(community.rooms.filter((room) => room.kind === "group" && !room.createdBy).map((room) => room.id));
+  const systemIds = new Set(community.rooms.filter((room) => room.kind === "group" && room.systemManaged).map((room) => room.id));
   community.messages = community.messages.filter((message) => !systemIds.has(message.roomId) || new Date(message.createdAt).getTime() >= cutoff);
 }
 
 function localRoomPreference(community, roomId, userId) {
   return community.roomPreferences[`${roomId}:${userId}`] || {};
+}
+
+function localChatRoomOwnerId(room) {
+  return room?.kind === "group" && !room.systemManaged ? room.createdBy || null : null;
+}
+
+function localEffectiveChatRoomRole(room, membership, siteAdministrator = false) {
+  if (!membership) return null;
+  if (localChatRoomOwnerId(room) === membership.userId) return "owner";
+  if (membership.role === "moderator" || (room?.systemManaged && siteAdministrator)) return "admin";
+  return "member";
+}
+
+function localChatRoomManagement(room, membership, user) {
+  const ownerId = localChatRoomOwnerId(room);
+  const currentUserRole = localEffectiveChatRoomRole(room, membership, Boolean(user?.isAdmin));
+  const canManageAdmins = Boolean(membership) && room?.kind === "group"
+    && (room.systemManaged ? Boolean(user?.isAdmin) : ownerId === user?.id);
+  const canManageMembers = room?.kind === "group" && ["owner", "admin"].includes(currentUserRole);
+  return {
+    ownerId,
+    currentUserRole,
+    myRole: currentUserRole,
+    canManageAdmins,
+    canManageMembers,
+    canTransferOwnership: Boolean(ownerId && ownerId === user?.id),
+    canDissolveGroup: Boolean(ownerId && ownerId === user?.id),
+    canDeleteGroup: Boolean(ownerId && ownerId === user?.id),
+    canManageAnnouncements: canManageMembers,
+    canManageJoinSettings: canManageMembers,
+    canMentionEveryone: Boolean(membership) && room?.kind === "group"
+  };
+}
+
+function normalizedLocalRoomMute(input = {}, now = Date.now()) {
+  if (input.mutedUntil === null || Number(input.durationSeconds) === 0) return { mutedUntil: null, muteReason: "" };
+  let endTime;
+  if (input.durationSeconds !== undefined) {
+    const durationSeconds = Number(input.durationSeconds);
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 60 || durationSeconds > 365 * 86400) throw new Error("Choose a mute duration between one minute and one year.");
+    endTime = now + Math.round(durationSeconds * 1000);
+  } else {
+    endTime = Date.parse(String(input.mutedUntil || ""));
+    if (!Number.isFinite(endTime) || endTime <= now || endTime > now + 365 * 86400000) throw new Error("Choose a future mute end time within one year.");
+  }
+  const muteReason = String(input.muteReason || "").replace(/\s+/gu, " ").trim().slice(0, 500);
+  if (!muteReason) throw new Error("Add a reason for the mute.");
+  return { mutedUntil: new Date(endTime).toISOString(), muteReason };
 }
 
 function safeImageDataUrl(value) {
@@ -599,14 +658,14 @@ function localChatRoomSummaries(community, userId) {
 async function localCommunityOverview(user, community) {
   const users = await loadUsers();
   const ownProfile = community.profiles[user.id];
-  const groups = community.rooms.filter((room) => room.kind === "group" && (!room.createdBy || community.members.some((member) => member.roomId === room.id && member.userId === user.id))).map((room) => ({
+  const groups = community.rooms.filter((room) => room.kind === "group" && (room.systemManaged || community.members.some((member) => member.roomId === room.id && member.userId === user.id))).map((room) => ({
     id: room.id,
     name: room.name,
     description: room.description,
     member_count: community.members.filter((member) => member.roomId === room.id).length,
     joined: community.members.some((member) => member.roomId === room.id && member.userId === user.id),
     created_by: room.createdBy || null,
-    system_managed: room.createdBy ? 0 : 1,
+    system_managed: room.systemManaged ? 1 : 0,
     pinned: Boolean(localRoomPreference(community, room.id, user.id).pinnedAt)
   })).sort((a, b) => Number(b.pinned) - Number(a.pinned));
   if (!ownProfile?.enabled) return { enabled: false, displayName: ownProfile?.displayName || safeDisplayName(user.name), avatarDataUrl: user.avatarDataUrl || "", groups, recommendations: [], incoming: [], outgoing: [], directRooms: [] };
@@ -2035,7 +2094,21 @@ async function handleApi(req, res, url) {
     if (!community.profiles[user.id]?.enabled) return sendError(res, 403, "Join the community before creating a group.");
     const memberIds = [...new Set((Array.isArray(input.memberIds) ? input.memberIds : []).map(String))].filter((id) => id && id !== user.id).slice(0, 30);
     if (memberIds.some((memberId) => !localFriends(community, user.id, memberId) || localBlocked(community, user.id, memberId))) return sendError(res, 403, "Groups can include accepted, unblocked friends only.");
-    const room = { id: `group-${randomBytes(12).toString("hex")}`, kind: "group", name: safeDisplayName(input.name, "New group"), description: String(input.description || "").trim().slice(0, 240), createdBy: user.id, createdAt: new Date().toISOString() };
+    const room = {
+      id: `group-${randomBytes(12).toString("hex")}`,
+      kind: "group",
+      name: safeDisplayName(input.name, "New group"),
+      description: String(input.description || "").trim().slice(0, 240),
+      createdBy: user.id,
+      systemManaged: false,
+      announcement: "",
+      announcementPinned: false,
+      announcementUpdatedAt: null,
+      announcementUpdatedBy: null,
+      joinApprovalRequired: true,
+      inviteConfirmationRequired: false,
+      createdAt: new Date().toISOString()
+    };
     if (containsBlockedLanguage(`${room.name} ${room.description}`)) return sendError(res, 400, "Please use respectful language for the group name and description.");
     community.rooms.push(room);
     community.members.push({ roomId: room.id, userId: user.id, role: "moderator", joinedAt: room.createdAt });
@@ -2053,14 +2126,25 @@ async function handleApi(req, res, url) {
     invite.status = groupInviteMatch[2] === "accept" ? "accepted" : "declined";
     invite.updatedAt = new Date().toISOString();
     if (groupInviteMatch[2] === "accept") {
-      if (!community.members.some((member) => member.roomId === invite.roomId && member.userId === user.id)) community.members.push({ roomId: invite.roomId, userId: user.id, role: "member", joinedAt: invite.updatedAt });
-      ensureLocalChatMessageCursors(community);
-      const readCursor = Math.max(0, ...community.messages.filter((message) => message.roomId === invite.roomId).map((message) => Number(message.cursor || 0)));
-      const preferenceKey = `${invite.roomId}:${user.id}`;
-      community.roomPreferences[preferenceKey] = { ...community.roomPreferences[preferenceKey], lastReadAt: invite.updatedAt, lastReadCursor: readCursor };
+      const room = community.rooms.find((item) => item.id === invite.roomId && item.kind === "group");
+      if (!room) return sendError(res, 404, "This group no longer exists.");
+      if (room.inviteConfirmationRequired) {
+        const existingRequest = community.joinRequests.find((item) => item.roomId === room.id && item.userId === user.id);
+        const request = { id: randomBytes(12).toString("hex"), roomId: room.id, userId: user.id, status: "pending", reviewedBy: null, createdAt: existingRequest?.createdAt || invite.updatedAt, updatedAt: invite.updatedAt };
+        if (existingRequest) Object.assign(existingRequest, request);
+        else community.joinRequests.push(request);
+      } else {
+        if (!community.members.some((member) => member.roomId === invite.roomId && member.userId === user.id)) community.members.push({ roomId: invite.roomId, userId: user.id, role: "member", joinedAt: invite.updatedAt });
+        ensureLocalChatMessageCursors(community);
+        const readCursor = Math.max(0, ...community.messages.filter((message) => message.roomId === invite.roomId).map((message) => Number(message.cursor || 0)));
+        const preferenceKey = `${invite.roomId}:${user.id}`;
+        community.roomPreferences[preferenceKey] = { ...community.roomPreferences[preferenceKey], lastReadAt: invite.updatedAt, lastReadCursor: readCursor };
+      }
     }
     await saveCommunity(community);
-    return sendJson(res, 200, { ok: true, roomId: groupInviteMatch[2] === "accept" ? invite.roomId : null });
+    const invitedRoom = community.rooms.find((item) => item.id === invite.roomId);
+    const pendingApproval = groupInviteMatch[2] === "accept" && Boolean(invitedRoom?.inviteConfirmationRequired);
+    return sendJson(res, pendingApproval ? 202 : 200, { ok: true, roomId: groupInviteMatch[2] === "accept" && !pendingApproval ? invite.roomId : null, pendingApproval });
   }
 
   if (url.pathname === "/api/community/posts") {
@@ -3318,6 +3402,197 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
+  const roomJoinRequestReviewMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/join-requests\/([^/]+)$/);
+  if (req.method === "PATCH" && roomJoinRequestReviewMatch) {
+    const roomId = decodeURIComponent(roomJoinRequestReviewMatch[1]);
+    const requestId = decodeURIComponent(roomJoinRequestReviewMatch[2]);
+    const community = await loadCommunity();
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (room.kind !== "group") return sendError(res, 403, "Join requests are available in group chats only.");
+    const actorMembership = community.members.find((item) => item.roomId === roomId && item.userId === user.id);
+    if (!localChatRoomManagement(room, actorMembership, user).canManageMembers) return sendError(res, 403, "A group administrator must review join requests.");
+    const joinRequest = community.joinRequests.find((item) => item.id === requestId && item.roomId === roomId && item.status === "pending");
+    if (!joinRequest) return sendError(res, 404, "Pending join request not found.");
+    const input = await readJsonBody(req);
+    const status = String(input.status || "").toLowerCase();
+    if (!["approved", "declined"].includes(status)) return sendError(res, 400, "Approve or decline this join request.");
+    const at = new Date().toISOString();
+    Object.assign(joinRequest, { status, reviewedBy: user.id, updatedAt: at });
+    if (status === "approved" && !community.members.some((item) => item.roomId === roomId && item.userId === joinRequest.userId)) {
+      community.members.push({ roomId, userId: joinRequest.userId, role: "member", joinedAt: at });
+      ensureLocalChatMessageCursors(community);
+      const readCursor = Math.max(0, ...community.messages.filter((message) => message.roomId === roomId).map((message) => Number(message.cursor || 0)));
+      community.roomPreferences[`${roomId}:${joinRequest.userId}`] = { ...community.roomPreferences[`${roomId}:${joinRequest.userId}`], lastReadAt: at, lastReadCursor: readCursor };
+    }
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, request: { id: requestId, userId: joinRequest.userId, status, updatedAt: at } });
+  }
+
+  const roomJoinRequestsMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/join-requests$/);
+  if (roomJoinRequestsMatch && ["GET", "POST"].includes(req.method)) {
+    const roomId = decodeURIComponent(roomJoinRequestsMatch[1]);
+    const community = await loadCommunity();
+    if (!community.profiles[user.id]?.enabled) return sendError(res, 403, "Join the community before using groups.");
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (room.kind !== "group") return sendError(res, 403, "Join requests are available in group chats only.");
+    const actorMembership = community.members.find((item) => item.roomId === roomId && item.userId === user.id);
+    if (req.method === "GET") {
+      if (!localChatRoomManagement(room, actorMembership, user).canManageMembers) return sendError(res, 403, "A group administrator must review join requests.");
+      const users = await loadUsers();
+      const requests = community.joinRequests.filter((item) => item.roomId === roomId && item.status === "pending").map((item) => {
+        const account = users.find((candidate) => candidate.id === item.userId);
+        return { id: item.id, userId: item.userId, displayName: community.profiles[item.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", createdAt: item.createdAt, updatedAt: item.updatedAt, status: item.status };
+      }).sort((first, second) => first.createdAt.localeCompare(second.createdAt) || first.id.localeCompare(second.id));
+      return sendJson(res, 200, { requests });
+    }
+    if (actorMembership) return sendJson(res, 200, { ok: true, joined: true, roomId });
+    if (!room.joinApprovalRequired && !room.systemManaged) return sendError(res, 403, "Member-created groups require an invitation.");
+    const at = new Date().toISOString();
+    if (!room.joinApprovalRequired) {
+      community.members.push({ roomId, userId: user.id, role: "member", joinedAt: at });
+      ensureLocalChatMessageCursors(community);
+      const readCursor = Math.max(0, ...community.messages.filter((message) => message.roomId === roomId).map((message) => Number(message.cursor || 0)));
+      community.roomPreferences[`${roomId}:${user.id}`] = { ...community.roomPreferences[`${roomId}:${user.id}`], lastReadAt: at, lastReadCursor: readCursor };
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, joined: true, roomId });
+    }
+    const existing = community.joinRequests.find((item) => item.roomId === roomId && item.userId === user.id);
+    const joinRequest = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, status: "pending", reviewedBy: null, createdAt: existing?.createdAt || at, updatedAt: at };
+    if (existing) Object.assign(existing, joinRequest);
+    else community.joinRequests.push(joinRequest);
+    await saveCommunity(community);
+    return sendJson(res, 202, { ok: true, joined: false, request: { id: joinRequest.id, userId: user.id, status: "pending", createdAt: joinRequest.createdAt } });
+  }
+
+  const roomMemberManagementMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/members\/([^/]+)$/);
+  if (roomMemberManagementMatch && ["PATCH", "DELETE"].includes(req.method)) {
+    const roomId = decodeURIComponent(roomMemberManagementMatch[1]);
+    const targetUserId = decodeURIComponent(roomMemberManagementMatch[2]);
+    const [community, users] = await Promise.all([loadCommunity(), loadUsers()]);
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (room.kind !== "group") return sendError(res, 403, "Member management is available in group chats only.");
+    const actorMembership = community.members.find((item) => item.roomId === roomId && item.userId === user.id);
+    const permissions = localChatRoomManagement(room, actorMembership, user);
+    if (!permissions.canManageMembers) return sendError(res, 403, "A group administrator must manage members.");
+    if (targetUserId === user.id) return sendError(res, 409, "Use the group settings to leave or transfer ownership instead.");
+    const targetMembership = community.members.find((item) => item.roomId === roomId && item.userId === targetUserId);
+    if (!targetMembership) return sendError(res, 404, "Choose a current group member.");
+    const targetAccount = users.find((item) => item.id === targetUserId);
+    const targetRole = localEffectiveChatRoomRole(room, targetMembership, Boolean(targetAccount?.isAdmin));
+    if (req.method === "DELETE") {
+      if (targetRole !== "member") return sendError(res, 409, "Demote this administrator before removing them.");
+      community.members = community.members.filter((item) => !(item.roomId === roomId && item.userId === targetUserId));
+      const at = new Date().toISOString();
+      const meetingIds = new Set(community.meetings.filter((meeting) => meeting.roomId === roomId && !["ended", "cancelled"].includes(meeting.status)).map((meeting) => meeting.id));
+      community.meetingParticipants.filter((item) => meetingIds.has(item.meetingId) && item.userId === targetUserId && !item.restoredAt).forEach((item) => Object.assign(item, { leftAt: item.leftAt || at, removedAt: item.removedAt || at, removedBy: user.id }));
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, removedUserId: targetUserId });
+    }
+    const input = await readJsonBody(req);
+    const changesRole = Object.hasOwn(input, "role");
+    const changesMute = Object.hasOwn(input, "mutedUntil") || Object.hasOwn(input, "durationSeconds") || Object.hasOwn(input, "muteReason");
+    if (changesRole && changesMute) return sendError(res, 400, "Change a member role and mute status separately.");
+    if (changesRole) {
+      if (!permissions.canManageAdmins) return sendError(res, 403, "Only the group owner can manage administrators.");
+      if (targetRole === "owner") return sendError(res, 409, "Transfer ownership before changing the owner's role.");
+      const role = String(input.role || "").toLowerCase();
+      if (!["admin", "member"].includes(role)) return sendError(res, 400, "Choose the admin or member role.");
+      if (room.systemManaged && targetAccount?.isAdmin && role === "member") return sendError(res, 409, "A site administrator is always an administrator in system groups.");
+      targetMembership.role = role === "admin" ? "moderator" : "member";
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, member: { userId: targetUserId, role, mutedUntil: targetMembership.mutedUntil || null, muteReason: targetMembership.muteReason || "" } });
+    }
+    if (!changesMute) return sendError(res, 400, "Choose a role or mute setting to update.");
+    if (targetRole !== "member") return sendError(res, 409, "Administrators cannot mute the owner or another administrator.");
+    let mute;
+    try { mute = normalizedLocalRoomMute(input); } catch (error) { return sendError(res, 400, error.message); }
+    Object.assign(targetMembership, { mutedUntil: mute.mutedUntil, muteReason: mute.muteReason, mutedBy: mute.mutedUntil ? user.id : null });
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, member: { userId: targetUserId, role: "member", mutedUntil: mute.mutedUntil, muteReason: mute.muteReason } });
+  }
+
+  const roomOwnershipMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/ownership$/);
+  if (req.method === "POST" && roomOwnershipMatch) {
+    const roomId = decodeURIComponent(roomOwnershipMatch[1]);
+    const community = await loadCommunity();
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (room.kind !== "group" || room.systemManaged || !room.createdBy) return sendError(res, 403, "System and private chats do not have transferable ownership.");
+    const actorMembership = community.members.find((item) => item.roomId === roomId && item.userId === user.id);
+    if (!actorMembership || room.createdBy !== user.id) return sendError(res, 403, "Only the group owner can transfer ownership.");
+    const targetUserId = String((await readJsonBody(req)).userId || "").trim();
+    if (!targetUserId || targetUserId === user.id) return sendError(res, 400, "Choose another current group member.");
+    const targetMembership = community.members.find((item) => item.roomId === roomId && item.userId === targetUserId);
+    if (!targetMembership) return sendError(res, 404, "Ownership can be transferred only to a current group member.");
+    room.createdBy = targetUserId;
+    actorMembership.role = "moderator";
+    targetMembership.role = "moderator";
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, room: { id: roomId, ownerId: targetUserId }, previousOwner: { userId: user.id, role: "admin" }, owner: { userId: targetUserId, role: "owner" } });
+  }
+
+  const roomSettingsMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)$/);
+  if (roomSettingsMatch && ["PATCH", "DELETE"].includes(req.method)) {
+    const roomId = decodeURIComponent(roomSettingsMatch[1]);
+    const community = await loadCommunity();
+    const room = community.rooms.find((item) => item.id === roomId);
+    if (!room) return sendError(res, 404, "Chat room not found.");
+    if (room.kind !== "group") return sendError(res, 403, "Group settings are unavailable in private chats.");
+    const actorMembership = community.members.find((item) => item.roomId === roomId && item.userId === user.id);
+    const permissions = localChatRoomManagement(room, actorMembership, user);
+    if (req.method === "DELETE") {
+      if (!permissions.canDissolveGroup) return sendError(res, 403, "Only the owner can dissolve a member-created group.");
+      const meetingIds = new Set(community.meetings.filter((meeting) => meeting.roomId === roomId).map((meeting) => meeting.id));
+      const pollIds = new Set(community.polls.filter((poll) => meetingIds.has(poll.meetingId)).map((poll) => poll.id));
+      const meetingMessageIds = new Set(community.meetingMessages.filter((message) => meetingIds.has(message.meetingId)).map((message) => message.id));
+      community.rooms = community.rooms.filter((item) => item.id !== roomId);
+      community.members = community.members.filter((item) => item.roomId !== roomId);
+      community.messages = community.messages.filter((item) => item.roomId !== roomId);
+      community.groupInvites = community.groupInvites.filter((item) => item.roomId !== roomId);
+      community.joinRequests = community.joinRequests.filter((item) => item.roomId !== roomId);
+      community.documentShares = community.documentShares.filter((item) => item.roomId !== roomId);
+      community.meetings = community.meetings.filter((item) => item.roomId !== roomId);
+      community.meetingInvitations = community.meetingInvitations.filter((item) => !meetingIds.has(item.meetingId));
+      community.meetingParticipants = community.meetingParticipants.filter((item) => !meetingIds.has(item.meetingId));
+      community.meetingSignals = community.meetingSignals.filter((item) => !meetingIds.has(item.meetingId));
+      community.whiteboardEvents = community.whiteboardEvents.filter((item) => !meetingIds.has(item.meetingId));
+      community.polls = community.polls.filter((item) => !meetingIds.has(item.meetingId));
+      community.pollVotes = community.pollVotes.filter((item) => !pollIds.has(item.pollId));
+      community.meetingMessages = community.meetingMessages.filter((item) => !meetingIds.has(item.meetingId));
+      community.meetingReactions = community.meetingReactions.filter((item) => !meetingMessageIds.has(item.messageId));
+      community.notifications = community.notifications.filter((item) => item.metadata?.roomId !== roomId);
+      Object.keys(community.roomPreferences).filter((key) => key.startsWith(`${roomId}:`)).forEach((key) => delete community.roomPreferences[key]);
+      await saveCommunity(community);
+      return sendJson(res, 200, { ok: true, dissolvedRoomId: roomId });
+    }
+    const input = await readJsonBody(req);
+    const dailyFields = ["name", "description", "announcement", "announcementPinned"].filter((field) => Object.hasOwn(input, field));
+    const joinFields = ["joinApprovalRequired", "inviteConfirmationRequired"].filter((field) => Object.hasOwn(input, field));
+    if ((dailyFields.length || joinFields.length) && !permissions.canManageMembers) return sendError(res, 403, "A group administrator must update group settings.");
+    if (!dailyFields.length && !joinFields.length) return sendError(res, 400, "Choose a group setting to update.");
+    const name = Object.hasOwn(input, "name") ? safeDisplayName(input.name, "Group") : room.name;
+    const description = Object.hasOwn(input, "description") ? String(input.description || "").trim().slice(0, 240) : room.description;
+    const announcement = Object.hasOwn(input, "announcement") ? String(input.announcement || "").replace(/\r\n?/g, "\n").trim().slice(0, 2000) : room.announcement || "";
+    if (containsBlockedLanguage(`${name} ${description} ${announcement}`)) return sendError(res, 400, "Please use respectful language in group details.");
+    Object.assign(room, { name, description, announcement });
+    if (Object.hasOwn(input, "announcementPinned")) room.announcementPinned = Boolean(input.announcementPinned);
+    if (Object.hasOwn(input, "joinApprovalRequired")) room.joinApprovalRequired = Boolean(input.joinApprovalRequired);
+    if (Object.hasOwn(input, "inviteConfirmationRequired")) room.inviteConfirmationRequired = Boolean(input.inviteConfirmationRequired);
+    if (Object.hasOwn(input, "announcement") || Object.hasOwn(input, "announcementPinned")) {
+      room.announcementUpdatedAt = new Date().toISOString();
+      room.announcementUpdatedBy = user.id;
+    }
+    if (Object.hasOwn(input, "announcement") || Object.hasOwn(input, "announcementPinned")) {
+      const notificationBody = Object.hasOwn(input, "announcement") ? announcement || "The group announcement was cleared." : `The group announcement was ${room.announcementPinned ? "pinned" : "unpinned"}.`;
+      notifyLocalRoom(community, roomId, user.id, "group-announcement", room.name, notificationBody, { roomId, announcement, pinned: Boolean(room.announcementPinned) });
+    }
+    await saveCommunity(community);
+    return sendJson(res, 200, { ok: true, room: { id: roomId, name: room.name } });
+  }
+
   const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history|invite|preferences|read))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
@@ -3329,15 +3604,24 @@ async function handleApi(req, res, url) {
     if (!room) return sendError(res, 404, "Chat room not found.");
     if (req.method === "POST" && operation === "join") {
       if (room.kind !== "group") return sendError(res, 403, "Private conversations cannot be joined directly.");
-      if (room.createdBy) return sendError(res, 403, "Member-created groups require an invitation.");
       const at = new Date().toISOString();
-      if (!community.members.some((member) => member.roomId === roomId && member.userId === user.id)) community.members.push({ roomId, userId: user.id, joinedAt: at });
+      if (community.members.some((member) => member.roomId === roomId && member.userId === user.id)) return sendJson(res, 200, { ok: true, joined: true, roomId });
+      if (room.joinApprovalRequired) {
+        const existing = community.joinRequests.find((item) => item.roomId === roomId && item.userId === user.id);
+        const joinRequest = { id: randomBytes(12).toString("hex"), roomId, userId: user.id, status: "pending", reviewedBy: null, createdAt: existing?.createdAt || at, updatedAt: at };
+        if (existing) Object.assign(existing, joinRequest);
+        else community.joinRequests.push(joinRequest);
+        await saveCommunity(community);
+        return sendJson(res, 202, { ok: true, joined: false, request: { id: joinRequest.id, userId: user.id, status: "pending", createdAt: joinRequest.createdAt } });
+      }
+      if (!room.systemManaged) return sendError(res, 403, "Member-created groups require an invitation.");
+      community.members.push({ roomId, userId: user.id, role: "member", joinedAt: at });
       const key = `${roomId}:${user.id}`;
       ensureLocalChatMessageCursors(community);
       const readCursor = Math.max(0, ...community.messages.filter((message) => message.roomId === roomId).map((message) => Number(message.cursor || 0)));
       community.roomPreferences[key] = { ...community.roomPreferences[key], lastReadAt: at, lastReadCursor: readCursor };
       await saveCommunity(community);
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, joined: true, roomId });
     }
     const membership = community.members.find((member) => member.roomId === roomId && member.userId === user.id);
     if (!membership) return sendError(res, 403, "Join this room before reading or sending messages.");
@@ -3354,14 +3638,15 @@ async function handleApi(req, res, url) {
         const existingInvite = community.groupInvites.find((invite) => invite.roomId === roomId && invite.recipientId === memberId);
         if (existingInvite) Object.assign(existingInvite, { inviterId: user.id, status: "pending", updatedAt: now });
         else community.groupInvites.push({ id: randomBytes(12).toString("hex"), roomId, inviterId: user.id, recipientId: memberId, status: "pending", createdAt: now, updatedAt: now });
-        localNotification(community, memberId, "group-invite", "Village group invitation", `${community.profiles[user.id]?.displayName || user.name} invited you to ${room.name}`, { roomId, inviterId: user.id });
+        localNotification(community, memberId, "group-invite", "Village group invitation", `${community.profiles[user.id]?.displayName || user.name} invited you to ${room.name}`, { roomId, inviterId: user.id, adminConfirmationAfterAccept: Boolean(room.inviteConfirmationRequired) });
         invited += 1;
       }
       await saveCommunity(community);
-      return sendJson(res, 200, { ok: true, invited });
+      return sendJson(res, 200, { ok: true, invited, confirmationRequired: true, adminConfirmationAfterAccept: Boolean(room.inviteConfirmationRequired) });
     }
     if (req.method === "POST" && operation === "leave") {
       if (room.kind !== "group") return sendError(res, 400, "Use Remove friend to close a private conversation.");
+      if (!room.systemManaged && room.createdBy === user.id) return sendError(res, 409, "Transfer group ownership before leaving.");
       community.members = community.members.filter((member) => !(member.roomId === roomId && member.userId === user.id));
       await saveCommunity(community);
       return sendJson(res, 200, { ok: true });
@@ -3421,17 +3706,37 @@ async function handleApi(req, res, url) {
       const otherUserId = room.kind === "direct" ? community.members.find((member) => member.roomId === roomId && member.userId !== user.id)?.userId || null : null;
       const members = room.kind === "group" ? community.members.filter((member) => member.roomId === roomId).map((member) => {
         const account = users.find((candidate) => candidate.id === member.userId);
-        return { userId: member.userId, displayName: community.profiles[member.userId]?.displayName || account?.name || "Village member", avatarDataUrl: account?.avatarDataUrl || "", role: member.role || "member" };
-      }).sort((a, b) => Number(b.role === "moderator") - Number(a.role === "moderator") || a.displayName.localeCompare(b.displayName)) : [];
+        return {
+          userId: member.userId,
+          displayName: community.profiles[member.userId]?.displayName || account?.name || "Village member",
+          avatarDataUrl: account?.avatarDataUrl || "",
+          role: localEffectiveChatRoomRole(room, member, Boolean(account?.isAdmin)),
+          isSiteAdmin: Boolean(account?.isAdmin),
+          mutedUntil: member.mutedUntil || null,
+          muteReason: member.muteReason || "",
+          isMuted: Boolean(member.mutedUntil && Date.parse(member.mutedUntil) > Date.now())
+        };
+      }).sort((a, b) => Number(b.role === "owner") - Number(a.role === "owner") || Number(b.role === "admin") - Number(a.role === "admin") || a.displayName.localeCompare(b.displayName)) : [];
       const summary = localChatRoomSummaries(community, user.id).find((item) => item.roomId === roomId);
       const readCursor = Math.max(Number(preference.lastReadCursor || 0), ...messages.map((message) => Number(message.cursor || 0)));
+      const management = localChatRoomManagement(room, membership, user);
+      const announcementAuthorAccount = users.find((candidate) => candidate.id === room.announcementUpdatedBy);
       return sendJson(res, 200, {
         room: {
           id: room.id,
           name: room.name,
+          description: room.description || "",
           kind: room.kind,
-          systemManaged: room.kind === "group" && !room.createdBy,
+          systemManaged: Boolean(room.systemManaged),
           createdBy: room.createdBy || null,
+          ...management,
+          announcement: room.announcement || "",
+          announcementPinned: Boolean(room.announcementPinned),
+          announcementUpdatedAt: room.announcementUpdatedAt || null,
+          announcementUpdatedBy: room.announcementUpdatedBy || null,
+          announcementAuthor: community.profiles[room.announcementUpdatedBy]?.displayName || announcementAuthorAccount?.name || "",
+          joinApprovalRequired: Boolean(room.joinApprovalRequired),
+          inviteConfirmationRequired: Boolean(room.inviteConfirmationRequired),
           pinned: Boolean(preference.pinnedAt),
           alertsHidden: Boolean(preference.alertsHidden),
           unreadCount: Number(summary?.unreadCount || 0),
@@ -3444,6 +3749,9 @@ async function handleApi(req, res, url) {
     }
     if (req.method === "POST" && operation === "messages") {
       const input = await readJsonBody(req);
+      if (room.kind === "group" && membership.mutedUntil && Date.parse(membership.mutedUntil) > Date.now()) {
+        return sendJson(res, 403, { error: "You are muted in this group.", code: "ROOM_MUTED", mutedUntil: membership.mutedUntil, reason: membership.muteReason || "" });
+      }
       let attachment;
       try { attachment = safeAttachment(input.attachment); } catch (error) { return sendError(res, 400, error.message); }
       const requestedType = String(input.messageType || "").toLowerCase();
@@ -3504,7 +3812,7 @@ async function handleApi(req, res, url) {
     const roomId = `direct-${randomBytes(12).toString("hex")}`;
     connection.status = "accepted";
     connection.roomId = roomId;
-    community.rooms.push({ id: roomId, kind: "direct", name: "Private conversation", description: "", createdAt: new Date().toISOString() });
+    community.rooms.push({ id: roomId, kind: "direct", name: "Private conversation", description: "", systemManaged: false, createdAt: new Date().toISOString() });
     community.members.push({ roomId, userId: connection.requesterId, joinedAt: new Date().toISOString() }, { roomId, userId: connection.recipientId, joinedAt: new Date().toISOString() });
     localNotification(community, connection.requesterId, "request", "Friend request accepted", `${community.profiles[user.id]?.displayName || user.name} accepted your request`, { roomId, userId: user.id });
     await saveCommunity(community);

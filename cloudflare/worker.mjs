@@ -490,6 +490,54 @@ async function roomForMember(env, roomId, userId) {
   `).bind(roomId, userId).first();
 }
 
+function chatRoomOwnerId(room) {
+  return room?.kind === "group" && !room.system_managed ? room.created_by || null : null;
+}
+
+function effectiveChatRoomRole(room, membership, siteAdministrator = false) {
+  if (!membership) return null;
+  if (chatRoomOwnerId(room) === membership.user_id) return "owner";
+  if (membership.role === "moderator" || (room?.system_managed && siteAdministrator)) return "admin";
+  return "member";
+}
+
+function chatRoomManagement(room, membership, user) {
+  const ownerId = chatRoomOwnerId(room);
+  const currentUserRole = effectiveChatRoomRole(room, membership, Boolean(user?.isAdmin));
+  const canManageAdmins = Boolean(membership) && room?.kind === "group"
+    && (room.system_managed ? Boolean(user?.isAdmin) : ownerId === user?.id);
+  const canManageMembers = room?.kind === "group" && ["owner", "admin"].includes(currentUserRole);
+  return {
+    ownerId,
+    currentUserRole,
+    myRole: currentUserRole,
+    canManageAdmins,
+    canManageMembers,
+    canTransferOwnership: Boolean(ownerId && ownerId === user?.id),
+    canDissolveGroup: Boolean(ownerId && ownerId === user?.id),
+    canDeleteGroup: Boolean(ownerId && ownerId === user?.id),
+    canManageAnnouncements: canManageMembers,
+    canManageJoinSettings: canManageMembers,
+    canMentionEveryone: Boolean(membership) && room?.kind === "group"
+  };
+}
+
+function normalizedRoomMute(input = {}, now = Date.now()) {
+  if (input.mutedUntil === null || Number(input.durationSeconds) === 0) return { mutedUntil: null, muteReason: "" };
+  let endTime;
+  if (input.durationSeconds !== undefined) {
+    const durationSeconds = Number(input.durationSeconds);
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 60 || durationSeconds > 365 * 86400) throw new Error("Choose a mute duration between one minute and one year.");
+    endTime = now + Math.round(durationSeconds * 1000);
+  } else {
+    endTime = Date.parse(String(input.mutedUntil || ""));
+    if (!Number.isFinite(endTime) || endTime <= now || endTime > now + 365 * 86400000) throw new Error("Choose a future mute end time within one year.");
+  }
+  const muteReason = String(input.muteReason || "").replace(/\s+/gu, " ").trim().slice(0, 500);
+  if (!muteReason) throw new Error("Add a reason for the mute.");
+  return { mutedUntil: new Date(endTime).toISOString(), muteReason };
+}
+
 async function activeMeetingParticipantForUser(env, meetingId, userId) {
   return env.DB.prepare(`
     SELECT * FROM meeting_participants
@@ -1864,22 +1912,34 @@ async function api(request, env, ctx) {
     const decision = groupInviteMatch[2];
     const invite = await env.DB.prepare("SELECT * FROM chat_group_invitations WHERE id = ? AND recipient_id = ? AND status = 'pending' LIMIT 1").bind(invitationId, user.id).first();
     if (!invite) return fail("Group invitation not found.", 404);
+    const invitedRoom = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? AND kind = 'group' LIMIT 1").bind(invite.room_id).first();
+    if (!invitedRoom) return fail("This group no longer exists.", 404);
     const now = new Date().toISOString();
     const statements = [env.DB.prepare("UPDATE chat_group_invitations SET status = ?, updated_at = ? WHERE id = ?").bind(decision === "accept" ? "accepted" : "declined", now, invitationId)];
     if (decision === "accept") {
-      const readCursor = Number((await env.DB.prepare("SELECT COALESCE(MAX(message_cursor), 0) AS cursor FROM chat_messages WHERE room_id = ?").bind(invite.room_id).first())?.cursor || 0);
-      statements.push(
-        env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(invite.room_id, user.id, now),
-        env.DB.prepare(`
-          INSERT INTO chat_room_preferences (room_id, user_id, last_read_at, last_read_cursor) VALUES (?, ?, ?, ?)
+      if (invitedRoom.invite_confirmation_required) {
+        statements.push(env.DB.prepare(`
+          INSERT INTO chat_join_requests (id, room_id, user_id, status, created_at, updated_at)
+          VALUES (?, ?, ?, 'pending', ?, ?)
           ON CONFLICT(room_id, user_id) DO UPDATE SET
-            last_read_at = excluded.last_read_at,
-            last_read_cursor = MAX(chat_room_preferences.last_read_cursor, excluded.last_read_cursor)
-        `).bind(invite.room_id, user.id, now, readCursor)
-      );
+            id = excluded.id, status = 'pending', reviewed_by = NULL, updated_at = excluded.updated_at
+        `).bind(randomBytes(12).toString("hex"), invite.room_id, user.id, now, now));
+      } else {
+        const readCursor = Number((await env.DB.prepare("SELECT COALESCE(MAX(message_cursor), 0) AS cursor FROM chat_messages WHERE room_id = ?").bind(invite.room_id).first())?.cursor || 0);
+        statements.push(
+          env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(invite.room_id, user.id, now),
+          env.DB.prepare(`
+            INSERT INTO chat_room_preferences (room_id, user_id, last_read_at, last_read_cursor) VALUES (?, ?, ?, ?)
+            ON CONFLICT(room_id, user_id) DO UPDATE SET
+              last_read_at = excluded.last_read_at,
+              last_read_cursor = MAX(chat_room_preferences.last_read_cursor, excluded.last_read_cursor)
+          `).bind(invite.room_id, user.id, now, readCursor)
+        );
+      }
     }
     await env.DB.batch(statements);
-    return json({ ok: true, roomId: decision === "accept" ? invite.room_id : null });
+    const pendingApproval = decision === "accept" && Boolean(invitedRoom.invite_confirmation_required);
+    return json({ ok: true, roomId: decision === "accept" && !pendingApproval ? invite.room_id : null, pendingApproval }, pendingApproval ? 202 : 200);
   }
 
   if (url.pathname === "/api/community/posts") {
@@ -3637,19 +3697,233 @@ async function api(request, env, ctx) {
     return json({ ok: true, revokedAt: at });
   }
 
+  const roomJoinRequestReviewMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/join-requests\/([^/]+)$/);
+  if (request.method === "PATCH" && roomJoinRequestReviewMatch) {
+    const roomId = decodeURIComponent(roomJoinRequestReviewMatch[1]);
+    const requestId = decodeURIComponent(roomJoinRequestReviewMatch[2]);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+    if (room.kind !== "group") return fail("Join requests are available in group chats only.", 403);
+    const actorMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    if (!chatRoomManagement(room, actorMembership, user).canManageMembers) return fail("A group administrator must review join requests.", 403);
+    const joinRequest = await env.DB.prepare("SELECT * FROM chat_join_requests WHERE id = ? AND room_id = ? AND status = 'pending' LIMIT 1").bind(requestId, roomId).first();
+    if (!joinRequest) return fail("Pending join request not found.", 404);
+    const input = await body(request);
+    const status = String(input.status || "").toLowerCase();
+    if (!['approved', 'declined'].includes(status)) return fail("Approve or decline this join request.");
+    const at = new Date().toISOString();
+    const statements = [env.DB.prepare("UPDATE chat_join_requests SET status = ?, reviewed_by = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(status, user.id, at, requestId)];
+    if (status === "approved") {
+      const readCursor = Number((await env.DB.prepare("SELECT COALESCE(MAX(message_cursor), 0) AS cursor FROM chat_messages WHERE room_id = ?").bind(roomId).first())?.cursor || 0);
+      statements.push(
+        env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, joinRequest.user_id, at),
+        env.DB.prepare(`
+          INSERT INTO chat_room_preferences (room_id, user_id, last_read_at, last_read_cursor) VALUES (?, ?, ?, ?)
+          ON CONFLICT(room_id, user_id) DO UPDATE SET last_read_at = excluded.last_read_at, last_read_cursor = MAX(chat_room_preferences.last_read_cursor, excluded.last_read_cursor)
+        `).bind(roomId, joinRequest.user_id, at, readCursor)
+      );
+    }
+    await env.DB.batch(statements);
+    return json({ ok: true, request: { id: requestId, userId: joinRequest.user_id, status, updatedAt: at } });
+  }
+
+  const roomJoinRequestsMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/join-requests$/);
+  if (roomJoinRequestsMatch && ["GET", "POST"].includes(request.method)) {
+    const roomId = decodeURIComponent(roomJoinRequestsMatch[1]);
+    const profile = await communityProfile(env, user.id);
+    if (!profile?.enabled) return fail("Join the community before using groups.", 403);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+    if (room.kind !== "group") return fail("Join requests are available in group chats only.", 403);
+    const actorMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    if (request.method === "GET") {
+      if (!chatRoomManagement(room, actorMembership, user).canManageMembers) return fail("A group administrator must review join requests.", 403);
+      const rows = await allRows(env.DB.prepare(`
+        SELECT request.id, request.user_id, request.status, request.created_at, request.updated_at,
+          account.avatar_data_url, COALESCE(profile.display_name, account.name) AS display_name
+        FROM chat_join_requests request
+        JOIN users account ON account.id = request.user_id
+        LEFT JOIN community_profiles profile ON profile.user_id = request.user_id
+        WHERE request.room_id = ? AND request.status = 'pending'
+        ORDER BY request.created_at, request.id
+      `).bind(roomId));
+      return json({ requests: rows.map((item) => ({ id: item.id, userId: item.user_id, displayName: item.display_name, avatarDataUrl: item.avatar_data_url || "", createdAt: item.created_at, updatedAt: item.updated_at, status: item.status })) });
+    }
+    if (actorMembership) return json({ ok: true, joined: true, roomId });
+    const at = new Date().toISOString();
+    if (!room.join_approval_required && !room.system_managed) return fail("Member-created groups require an invitation.", 403);
+    if (!room.join_approval_required) {
+      const readCursor = Number((await env.DB.prepare("SELECT COALESCE(MAX(message_cursor), 0) AS cursor FROM chat_messages WHERE room_id = ?").bind(roomId).first())?.cursor || 0);
+      await env.DB.batch([
+        env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, user.id, at),
+        env.DB.prepare(`
+          INSERT INTO chat_room_preferences (room_id, user_id, last_read_at, last_read_cursor) VALUES (?, ?, ?, ?)
+          ON CONFLICT(room_id, user_id) DO UPDATE SET last_read_at = excluded.last_read_at, last_read_cursor = MAX(chat_room_preferences.last_read_cursor, excluded.last_read_cursor)
+        `).bind(roomId, user.id, at, readCursor)
+      ]);
+      return json({ ok: true, joined: true, roomId });
+    }
+    const requestId = randomBytes(12).toString("hex");
+    await env.DB.prepare(`
+      INSERT INTO chat_join_requests (id, room_id, user_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'pending', ?, ?)
+      ON CONFLICT(room_id, user_id) DO UPDATE SET
+        id = excluded.id, status = 'pending', reviewed_by = NULL, updated_at = excluded.updated_at
+    `).bind(requestId, roomId, user.id, at, at).run();
+    return json({ ok: true, joined: false, request: { id: requestId, userId: user.id, status: "pending", createdAt: at } }, 202);
+  }
+
+  const roomMemberManagementMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/members\/([^/]+)$/);
+  if (roomMemberManagementMatch && ["PATCH", "DELETE"].includes(request.method)) {
+    const roomId = decodeURIComponent(roomMemberManagementMatch[1]);
+    const targetUserId = decodeURIComponent(roomMemberManagementMatch[2]);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+    if (room.kind !== "group") return fail("Member management is available in group chats only.", 403);
+    const actorMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    const permissions = chatRoomManagement(room, actorMembership, user);
+    if (!permissions.canManageMembers) return fail("A group administrator must manage members.", 403);
+    if (targetUserId === user.id) return fail("Use the group settings to leave or transfer ownership instead.", 409);
+    const targetMembership = await env.DB.prepare(`
+      SELECT member.*, account.is_admin
+      FROM chat_members member JOIN users account ON account.id = member.user_id
+      WHERE member.room_id = ? AND member.user_id = ? LIMIT 1
+    `).bind(roomId, targetUserId).first();
+    if (!targetMembership) return fail("Choose a current group member.", 404);
+    const targetRole = effectiveChatRoomRole(room, targetMembership, Boolean(targetMembership.is_admin));
+    if (request.method === "DELETE") {
+      if (targetRole !== "member") return fail("Demote this administrator before removing them.", 409);
+      const at = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM chat_members WHERE room_id = ? AND user_id = ?").bind(roomId, targetUserId),
+        env.DB.prepare(`
+          UPDATE meeting_participants
+          SET left_at = COALESCE(left_at, ?), removed_at = COALESCE(removed_at, ?), removed_by = ?
+          WHERE user_id = ? AND restored_at IS NULL
+            AND meeting_id IN (SELECT id FROM community_meetings WHERE room_id = ? AND status NOT IN ('ended', 'cancelled'))
+        `).bind(at, at, user.id, targetUserId, roomId)
+      ]);
+      return json({ ok: true, removedUserId: targetUserId });
+    }
+    const input = await body(request);
+    const changesRole = Object.hasOwn(input, "role");
+    const changesMute = Object.hasOwn(input, "mutedUntil") || Object.hasOwn(input, "durationSeconds") || Object.hasOwn(input, "muteReason");
+    if (changesRole && changesMute) return fail("Change a member role and mute status separately.");
+    if (changesRole) {
+      if (!permissions.canManageAdmins) return fail("Only the group owner can manage administrators.", 403);
+      if (targetRole === "owner") return fail("Transfer ownership before changing the owner's role.", 409);
+      const requestedRole = String(input.role || "").toLowerCase();
+      if (!['admin', 'member'].includes(requestedRole)) return fail("Choose the admin or member role.");
+      if (room.system_managed && targetMembership.is_admin && requestedRole === "member") return fail("A site administrator is always an administrator in system groups.", 409);
+      await env.DB.prepare("UPDATE chat_members SET role = ? WHERE room_id = ? AND user_id = ?").bind(requestedRole === "admin" ? "moderator" : "member", roomId, targetUserId).run();
+      return json({ ok: true, member: { userId: targetUserId, role: requestedRole, mutedUntil: targetMembership.muted_until || null, muteReason: targetMembership.mute_reason || "" } });
+    }
+    if (!changesMute) return fail("Choose a role or mute setting to update.");
+    if (targetRole !== "member") return fail("Administrators cannot mute the owner or another administrator.", 409);
+    let mute;
+    try { mute = normalizedRoomMute(input); } catch (error) { return fail(error.message); }
+    await env.DB.prepare("UPDATE chat_members SET muted_until = ?, mute_reason = ?, muted_by = ? WHERE room_id = ? AND user_id = ?").bind(mute.mutedUntil, mute.muteReason, mute.mutedUntil ? user.id : null, roomId, targetUserId).run();
+    return json({ ok: true, member: { userId: targetUserId, role: "member", mutedUntil: mute.mutedUntil, muteReason: mute.muteReason } });
+  }
+
+  const roomOwnershipMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)\/ownership$/);
+  if (request.method === "POST" && roomOwnershipMatch) {
+    const roomId = decodeURIComponent(roomOwnershipMatch[1]);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+    if (room.kind !== "group" || room.system_managed || !room.created_by) return fail("System and private chats do not have transferable ownership.", 403);
+    const actorMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    if (!actorMembership || room.created_by !== user.id) return fail("Only the group owner can transfer ownership.", 403);
+    const input = await body(request);
+    const targetUserId = String(input.userId || "").trim();
+    if (!targetUserId || targetUserId === user.id) return fail("Choose another current group member.");
+    const targetMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, targetUserId).first();
+    if (!targetMembership) return fail("Ownership can be transferred only to a current group member.", 404);
+    const transferred = await env.DB.prepare("UPDATE chat_rooms SET created_by = ? WHERE id = ? AND created_by = ? AND system_managed = 0").bind(targetUserId, roomId, user.id).run();
+    if (Number(transferred?.meta?.changes || 0) !== 1) return fail("Group ownership changed. Refresh and try again.", 409);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE chat_members SET role = 'moderator' WHERE room_id = ? AND user_id = ?").bind(roomId, user.id),
+      env.DB.prepare("UPDATE chat_members SET role = 'moderator' WHERE room_id = ? AND user_id = ?").bind(roomId, targetUserId)
+    ]);
+    return json({ ok: true, room: { id: roomId, ownerId: targetUserId }, previousOwner: { userId: user.id, role: "admin" }, owner: { userId: targetUserId, role: "owner" } });
+  }
+
+  const roomSettingsMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)$/);
+  if (roomSettingsMatch && ["PATCH", "DELETE"].includes(request.method)) {
+    const roomId = decodeURIComponent(roomSettingsMatch[1]);
+    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    if (!room) return fail("Chat room not found.", 404);
+    if (room.kind !== "group") return fail("Group settings are unavailable in private chats.", 403);
+    const actorMembership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    const permissions = chatRoomManagement(room, actorMembership, user);
+    if (request.method === "DELETE") {
+      if (!permissions.canDissolveGroup) return fail("Only the owner can dissolve a member-created group.", 403);
+      await env.DB.prepare("DELETE FROM chat_rooms WHERE id = ? AND created_by = ? AND system_managed = 0").bind(roomId, user.id).run();
+      return json({ ok: true, dissolvedRoomId: roomId });
+    }
+    const input = await body(request);
+    const dailyFields = ["name", "description", "announcement", "announcementPinned"].filter((field) => Object.hasOwn(input, field));
+    const ownerFields = ["joinApprovalRequired", "inviteConfirmationRequired"].filter((field) => Object.hasOwn(input, field));
+    if (dailyFields.length && !permissions.canManageMembers) return fail("A group administrator must update group details.", 403);
+    if (ownerFields.length && !permissions.canManageMembers) return fail("A group administrator must change membership approval settings.", 403);
+    if (!dailyFields.length && !ownerFields.length) return fail("Choose a group setting to update.");
+    const values = [];
+    const assignments = [];
+    if (Object.hasOwn(input, "name")) { assignments.push("name = ?"); values.push(safeDisplayName(input.name, "Group")); }
+    if (Object.hasOwn(input, "description")) { assignments.push("description = ?"); values.push(String(input.description || "").trim().slice(0, 240)); }
+    if (Object.hasOwn(input, "announcement")) { assignments.push("announcement = ?"); values.push(String(input.announcement || "").replace(/\r\n?/g, "\n").trim().slice(0, 2000)); }
+    if (Object.hasOwn(input, "announcementPinned")) { assignments.push("announcement_pinned = ?"); values.push(input.announcementPinned ? 1 : 0); }
+    if (Object.hasOwn(input, "announcement") || Object.hasOwn(input, "announcementPinned")) {
+      assignments.push("announcement_updated_at = ?", "announcement_updated_by = ?");
+      values.push(new Date().toISOString(), user.id);
+    }
+    if (Object.hasOwn(input, "joinApprovalRequired")) { assignments.push("join_approval_required = ?"); values.push(input.joinApprovalRequired ? 1 : 0); }
+    if (Object.hasOwn(input, "inviteConfirmationRequired")) { assignments.push("invite_confirmation_required = ?"); values.push(input.inviteConfirmationRequired ? 1 : 0); }
+    const candidateText = `${Object.hasOwn(input, "name") ? input.name : room.name} ${Object.hasOwn(input, "description") ? input.description : room.description} ${Object.hasOwn(input, "announcement") ? input.announcement : room.announcement}`;
+    if (containsBlockedLanguage(candidateText)) return fail("Please use respectful language in group details.");
+    values.push(roomId);
+    await env.DB.prepare(`UPDATE chat_rooms SET ${assignments.join(", ")} WHERE id = ?`).bind(...values).run();
+    if (Object.hasOwn(input, "announcement") || Object.hasOwn(input, "announcementPinned")) {
+      const announcement = Object.hasOwn(input, "announcement") ? String(input.announcement || "").replace(/\r\n?/g, "\n").trim().slice(0, 2000) : room.announcement || "";
+      const notificationBody = Object.hasOwn(input, "announcement")
+        ? announcement || "The group announcement was cleared."
+        : `The group announcement was ${input.announcementPinned ? "pinned" : "unpinned"}.`;
+      ctx.waitUntil(createCommunityNotifications(env, roomId, user.id, "group-announcement", room.name, notificationBody, { roomId, announcement, pinned: Boolean(input.announcementPinned ?? room.announcement_pinned) }).catch(() => {}));
+    }
+    return json({ ok: true, room: { id: roomId, name: Object.hasOwn(input, "name") ? safeDisplayName(input.name, "Group") : room.name } });
+  }
+
   const roomMatch = url.pathname.match(/^\/api\/community\/rooms\/([^/]+)(?:\/(join|messages|leave|pin|history|invite|preferences|read))?$/);
   if (roomMatch) {
     const roomId = decodeURIComponent(roomMatch[1]);
     const operation = roomMatch[2] || "";
     const profile = await communityProfile(env, user.id);
     if (!profile?.enabled) return fail("Join the community before using chat.", 403);
-    const room = await env.DB.prepare("SELECT * FROM chat_rooms WHERE id = ? LIMIT 1").bind(roomId).first();
+    const room = await env.DB.prepare(`
+      SELECT room.*, COALESCE(profile.display_name, author.name) AS announcement_author
+      FROM chat_rooms room
+      LEFT JOIN users author ON author.id = room.announcement_updated_by
+      LEFT JOIN community_profiles profile ON profile.user_id = author.id
+      WHERE room.id = ? LIMIT 1
+    `).bind(roomId).first();
     if (!room) return fail("Chat room not found.", 404);
 
     if (request.method === "POST" && operation === "join") {
       if (room.kind !== "group") return fail("Private conversations cannot be joined directly.", 403);
-      if (!room.system_managed) return fail("Member-created groups require an invitation.", 403);
       const at = new Date().toISOString();
+      const existingMembership = await env.DB.prepare("SELECT 1 AS joined FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+      if (existingMembership) return json({ ok: true, joined: true, roomId });
+      if (room.join_approval_required) {
+        const requestId = randomBytes(12).toString("hex");
+        await env.DB.prepare(`
+          INSERT INTO chat_join_requests (id, room_id, user_id, status, created_at, updated_at)
+          VALUES (?, ?, ?, 'pending', ?, ?)
+          ON CONFLICT(room_id, user_id) DO UPDATE SET
+            id = excluded.id, status = 'pending', reviewed_by = NULL, updated_at = excluded.updated_at
+        `).bind(requestId, roomId, user.id, at, at).run();
+        return json({ ok: true, joined: false, request: { id: requestId, userId: user.id, status: "pending", createdAt: at } }, 202);
+      }
+      if (!room.system_managed) return fail("Member-created groups require an invitation.", 403);
       const readCursor = Number((await env.DB.prepare("SELECT COALESCE(MAX(message_cursor), 0) AS cursor FROM chat_messages WHERE room_id = ?").bind(roomId).first())?.cursor || 0);
       await env.DB.batch([
         env.DB.prepare("INSERT OR IGNORE INTO chat_members (room_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").bind(roomId, user.id, at),
@@ -3660,10 +3934,10 @@ async function api(request, env, ctx) {
             last_read_cursor = MAX(chat_room_preferences.last_read_cursor, excluded.last_read_cursor)
         `).bind(roomId, user.id, at, readCursor)
       ]);
-      return json({ ok: true });
+      return json({ ok: true, joined: true, roomId });
     }
 
-    const membership = await env.DB.prepare("SELECT user_id, joined_at FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
+    const membership = await env.DB.prepare("SELECT * FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, user.id).first();
     if (!membership) return fail("Join this room before reading or sending messages.", 403);
 
     if (request.method === "POST" && operation === "invite") {
@@ -3673,18 +3947,22 @@ async function api(request, env, ctx) {
       if (!memberIds.length) return fail("Choose at least one friend to invite.");
       const now = new Date().toISOString();
       const statements = [];
+      const invitedIds = [];
       for (const memberId of memberIds) {
         if (!await areFriends(env, user.id, memberId) || await usersBlocked(env, user.id, memberId)) return fail("You can invite accepted, unblocked friends only.", 403);
         const joined = await env.DB.prepare("SELECT 1 AS joined FROM chat_members WHERE room_id = ? AND user_id = ? LIMIT 1").bind(roomId, memberId).first();
-        if (!joined) statements.push(env.DB.prepare(`INSERT INTO chat_group_invitations (id, room_id, inviter_id, recipient_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT(room_id, recipient_id) DO UPDATE SET inviter_id = excluded.inviter_id, status = 'pending', updated_at = excluded.updated_at`).bind(randomBytes(12).toString("hex"), roomId, user.id, memberId, now, now));
+        if (joined) continue;
+        invitedIds.push(memberId);
+        statements.push(env.DB.prepare(`INSERT INTO chat_group_invitations (id, room_id, inviter_id, recipient_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT(room_id, recipient_id) DO UPDATE SET inviter_id = excluded.inviter_id, status = 'pending', updated_at = excluded.updated_at`).bind(randomBytes(12).toString("hex"), roomId, user.id, memberId, now, now));
       }
       if (statements.length) await env.DB.batch(statements);
-      memberIds.forEach((memberId) => ctx.waitUntil(createUserNotification(env, memberId, "group-invite", "Village group invitation", `${profile.display_name} invited you to ${room.name}`, { roomId, inviterId: user.id }).catch(() => {})));
-      return json({ ok: true, invited: statements.length });
+      invitedIds.forEach((memberId) => ctx.waitUntil(createUserNotification(env, memberId, "group-invite", "Village group invitation", `${profile.display_name} invited you to ${room.name}`, { roomId, inviterId: user.id, adminConfirmationAfterAccept: Boolean(room.invite_confirmation_required) }).catch(() => {})));
+      return json({ ok: true, invited: invitedIds.length, confirmationRequired: true, adminConfirmationAfterAccept: Boolean(room.invite_confirmation_required) });
     }
 
     if (request.method === "POST" && operation === "leave") {
       if (room.kind !== "group") return fail("Use Remove friend to close a private conversation.");
+      if (!room.system_managed && room.created_by === user.id) return fail("Transfer group ownership before leaving.", 409);
       await env.DB.prepare("DELETE FROM chat_members WHERE room_id = ? AND user_id = ?").bind(roomId, user.id).run();
       return json({ ok: true });
     }
@@ -3772,11 +4050,40 @@ async function api(request, env, ctx) {
       `).bind(roomId, user.id, pref?.last_read_cursor || 0, pref?.cleared_before || "", user.id).first();
       const readCursor = Math.max(Number(pref?.last_read_cursor || 0), ...rows.map((row) => Number(row.cursor || 0)));
       const other = room.kind === "direct" ? await env.DB.prepare("SELECT user_id FROM chat_members WHERE room_id = ? AND user_id != ? LIMIT 1").bind(roomId, user.id).first() : null;
-      const members = room.kind === "group" ? await allRows(env.DB.prepare(`SELECT member.user_id, member.role, account.avatar_data_url, COALESCE(profile.display_name, account.name) AS display_name FROM chat_members member JOIN users account ON account.id = member.user_id LEFT JOIN community_profiles profile ON profile.user_id = member.user_id WHERE member.room_id = ? ORDER BY member.role = 'moderator' DESC, display_name`).bind(roomId)) : [];
+      const members = room.kind === "group" ? await allRows(env.DB.prepare(`SELECT member.user_id, member.role, member.muted_until, member.mute_reason, account.is_admin, account.avatar_data_url, COALESCE(profile.display_name, account.name) AS display_name FROM chat_members member JOIN users account ON account.id = member.user_id LEFT JOIN community_profiles profile ON profile.user_id = member.user_id WHERE member.room_id = ? ORDER BY member.user_id = COALESCE(?, '') DESC, member.role = 'moderator' DESC, display_name`).bind(roomId, room.created_by)) : [];
+      const management = chatRoomManagement(room, membership, user);
       return json({
-        room: { id: room.id, name: room.name, kind: room.kind, systemManaged: Boolean(room.system_managed), createdBy: room.created_by, pinned: Boolean(pref?.pinned_at), alertsHidden: Boolean(pref?.alerts_hidden), unreadCount: Number(unread?.count || 0), otherUserId: other?.user_id || null },
+        room: {
+          id: room.id,
+          name: room.name,
+          description: room.description || "",
+          kind: room.kind,
+          systemManaged: Boolean(room.system_managed),
+          createdBy: room.created_by,
+          ...management,
+          announcement: room.announcement || "",
+          announcementPinned: Boolean(room.announcement_pinned),
+          announcementUpdatedAt: room.announcement_updated_at || null,
+          announcementUpdatedBy: room.announcement_updated_by || null,
+          announcementAuthor: room.announcement_author || "",
+          joinApprovalRequired: Boolean(room.join_approval_required),
+          inviteConfirmationRequired: Boolean(room.invite_confirmation_required),
+          pinned: Boolean(pref?.pinned_at),
+          alertsHidden: Boolean(pref?.alerts_hidden),
+          unreadCount: Number(unread?.count || 0),
+          otherUserId: other?.user_id || null
+        },
         readCursor,
-        members: members.map((member) => ({ userId: member.user_id, displayName: member.display_name, role: member.role, avatarDataUrl: member.avatar_data_url || "" })),
+        members: members.map((member) => ({
+          userId: member.user_id,
+          displayName: member.display_name,
+          role: effectiveChatRoomRole(room, member, Boolean(member.is_admin)),
+          isSiteAdmin: Boolean(member.is_admin),
+          avatarDataUrl: member.avatar_data_url || "",
+          mutedUntil: member.muted_until || null,
+          muteReason: member.mute_reason || "",
+          isMuted: Boolean(member.muted_until && Date.parse(member.muted_until) > Date.now())
+        })),
         messages: rows.reverse().map((row) => ({
           id: row.id,
           cursor: Number(row.cursor || 0),
@@ -3796,6 +4103,9 @@ async function api(request, env, ctx) {
 
     if (request.method === "POST" && operation === "messages") {
       const input = await body(request);
+      if (room.kind === "group" && membership.muted_until && Date.parse(membership.muted_until) > Date.now()) {
+        return json({ error: "You are muted in this group.", code: "ROOM_MUTED", mutedUntil: membership.muted_until, reason: membership.mute_reason || "" }, 403);
+      }
       let attachment;
       try { attachment = safeAttachment(input.attachment); } catch (error) { return fail(error.message); }
       const requestedType = String(input.messageType || "").toLowerCase();

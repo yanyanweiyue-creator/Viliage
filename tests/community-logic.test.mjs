@@ -51,6 +51,8 @@ test("Community penalties calculate duration, active access, and every chat-writ
     "/api/community/posts/post-1/comments",
     "/api/community/rooms/group-general/messages",
     "/api/community/rooms/group-general/invite",
+    "/api/community/rooms/group-general/ownership",
+    "/api/community/rooms/group-general/join-requests",
     "/api/community/meetings",
     "/api/community/meetings/meeting-1/invitations",
     "/api/community/meetings/meeting-1/messages",
@@ -60,6 +62,15 @@ test("Community penalties calculate duration, active access, and every chat-writ
     "/api/community/documents/document-1/comments",
     "/api/community/documents/document-1/share",
   ]) assert.equal(isCommunityChatWrite("POST", path), true, path);
+  for (const path of [
+    "/api/community/rooms/group-general",
+    "/api/community/rooms/group-general/members/member-1",
+    "/api/community/rooms/group-general/join-requests/request-1"
+  ]) assert.equal(isCommunityChatWrite("PATCH", path), true, path);
+  for (const path of [
+    "/api/community/rooms/group-general",
+    "/api/community/rooms/group-general/members/member-1"
+  ]) assert.equal(isCommunityChatWrite("DELETE", path), true, path);
   assert.equal(isCommunityChatWrite("DELETE", "/api/community/meeting-messages/message-1/reactions"), false);
   assert.equal(isCommunityChatWrite("GET", "/api/community/rooms/group-general/messages"), false);
   assert.equal(isCommunityChatWrite("POST", "/api/community/messages/message-1/report"), false);

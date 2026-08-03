@@ -152,14 +152,26 @@ export function communityModerationState(sanctions = [], now = Date.now()) {
 }
 
 export function isCommunityChatWrite(method, pathname) {
-  if (String(method || "").toUpperCase() !== "POST") return false;
+  const verb = String(method || "").toUpperCase();
   const path = String(pathname || "");
+  if (verb === "PATCH") {
+    return /^\/api\/community\/rooms\/[^/]+$/.test(path)
+      || /^\/api\/community\/rooms\/[^/]+\/members\/[^/]+$/.test(path)
+      || /^\/api\/community\/rooms\/[^/]+\/join-requests\/[^/]+$/.test(path);
+  }
+  if (verb === "DELETE") {
+    return /^\/api\/community\/rooms\/[^/]+$/.test(path)
+      || /^\/api\/community\/rooms\/[^/]+\/members\/[^/]+$/.test(path);
+  }
+  if (verb !== "POST") return false;
   return path === "/api/community/connect"
     || path === "/api/community/groups"
     || path === "/api/community/meetings"
     || path === "/api/community/posts"
     || /^\/api\/community\/posts\/[^/]+\/comments$/.test(path)
     || /^\/api\/community\/rooms\/[^/]+\/(?:messages|invite)$/.test(path)
+    || /^\/api\/community\/rooms\/[^/]+\/ownership$/.test(path)
+    || /^\/api\/community\/rooms\/[^/]+\/join-requests$/.test(path)
     || /^\/api\/community\/meetings\/[^/]+\/(?:invitations|messages|polls|whiteboard)$/.test(path)
     || /^\/api\/community\/meeting-messages\/[^/]+\/reactions$/.test(path)
     || /^\/api\/community\/documents\/[^/]+\/(?:comments|share)$/.test(path);

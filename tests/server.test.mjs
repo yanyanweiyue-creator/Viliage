@@ -890,7 +890,7 @@ test("local server persists and enforces report-linked Community penalties", asy
     assert.equal(overview.data.moderation.access.chatWrite, false);
     assert.equal(overview.data.moderation.sanctions[0].reason, "Local repeated harassment");
     assert.ok(overview.data.moderation.sanctions[0].endsAt);
-    const blocked = await call("/api/community/rooms/group-general/messages", { cookie: target.cookie, method: "POST", payload: { message: "Should be blocked" } });
+    const blocked = await call("/api/community/rooms/group-general/messages", { cookie: target.cookie, method: "POST", payload: { message: "@所有人 blocked by the account chat mute" } });
     assert.equal(blocked.response.status, 403);
     assert.equal(blocked.data.code, "COMMUNITY_SANCTION");
     for (const path of [
@@ -938,6 +938,150 @@ test("local server persists and enforces report-linked Community penalties", asy
     const persistedCommunity = JSON.parse(await readFile(communityFile, "utf8"));
     assert.equal(persistedCommunity.profiles[target.user.id].displayName, target.user.name);
     assert.equal(persistedCommunity.messages.some((message) => message.userId === target.user.id), true);
+  } finally {
+    if (previousAdmins === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = previousAdmins;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local group administration mirrors owner, admin, mute, approval, transfer, and dissolve rules", async () => {
+  const previousAdmins = process.env.ADMIN_EMAILS;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const siteAdminEmail = `group-system-admin-${suffix}@example.com`;
+  process.env.ADMIN_EMAILS = [previousAdmins, siteAdminEmail].filter(Boolean).join(",");
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const call = async (path, { cookie = "", method = "GET", payload } = {}) => {
+    const requestBody = payload === undefined ? "" : JSON.stringify(payload);
+    const response = await httpRequest(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: {
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...(requestBody ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(requestBody) } : {})
+      },
+      ...(requestBody ? { body: requestBody } : {})
+    });
+    return { response, data: JSON.parse(response.text) };
+  };
+  const register = async (name, email) => {
+    const result = await call("/api/auth/register", { method: "POST", payload: { name, email, password: "safe-password" } });
+    assert.equal(result.response.status, 201);
+    const member = { user: result.data.user, cookie: result.response.headers["set-cookie"][0].split(";")[0] };
+    assert.equal((await call("/api/community/settings", { cookie: member.cookie, method: "POST", payload: { enabled: true, displayName: name } })).response.status, 200);
+    return member;
+  };
+  const connect = async (requester, recipient) => {
+    assert.equal((await call("/api/community/connect", { cookie: requester.cookie, method: "POST", payload: { targetUserId: recipient.user.id } })).response.status, 201);
+    const overview = await call("/api/community", { cookie: recipient.cookie });
+    const pending = overview.data.incoming.find((item) => item.user_id === requester.user.id);
+    assert.ok(pending);
+    assert.equal((await call(`/api/community/connections/${pending.id}/accept`, { cookie: recipient.cookie, method: "POST", payload: {} })).response.status, 200);
+  };
+  const acceptGroupInvite = async (member, roomId, reviewer) => {
+    const overview = await call("/api/community", { cookie: member.cookie });
+    const invitation = overview.data.groupInvites.find((item) => item.room_id === roomId);
+    assert.ok(invitation);
+    const accepted = await call(`/api/community/group-invitations/${invitation.id}/accept`, { cookie: member.cookie, method: "POST", payload: {} });
+    if (!reviewer) {
+      assert.equal(accepted.response.status, 200);
+      assert.equal(accepted.data.pendingApproval, false);
+      return;
+    }
+    assert.equal(accepted.response.status, 202);
+    assert.equal(accepted.data.pendingApproval, true);
+    const requests = await call(`/api/community/rooms/${roomId}/join-requests`, { cookie: reviewer.cookie });
+    const requestItem = requests.data.requests.find((item) => item.userId === member.user.id);
+    assert.ok(requestItem);
+    assert.equal((await call(`/api/community/rooms/${roomId}/join-requests/${requestItem.id}`, { cookie: reviewer.cookie, method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+  };
+
+  try {
+    const owner = await register("Local Group Owner", `local-group-owner-${suffix}@example.com`);
+    const successor = await register("Local Future Owner", `local-group-successor-${suffix}@example.com`);
+    const appointedAdmin = await register("Local Group Admin", `local-group-admin-${suffix}@example.com`);
+    const ordinary = await register("Local Ordinary Member", `local-group-member-${suffix}@example.com`);
+    const outsider = await register("Local Outsider", `local-group-outsider-${suffix}@example.com`);
+    for (const member of [successor, appointedAdmin, ordinary]) await connect(owner, member);
+
+    const created = await call("/api/community/groups", {
+      cookie: owner.cookie,
+      method: "POST",
+      payload: { name: "Local Family Circle", memberIds: [successor.user.id, appointedAdmin.user.id, ordinary.user.id] }
+    });
+    assert.equal(created.response.status, 201);
+    const roomId = created.data.room.id;
+    for (const member of [successor, appointedAdmin, ordinary]) await acceptGroupInvite(member, roomId);
+
+    const ownerView = await call(`/api/community/rooms/${roomId}/messages`, { cookie: owner.cookie });
+    assert.equal(ownerView.data.room.ownerId, owner.user.id);
+    assert.equal(ownerView.data.room.currentUserRole, "owner");
+    assert.equal(ownerView.data.room.canManageAdmins, true);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: ordinary.cookie, method: "PATCH", payload: { name: "Unauthorized" } })).response.status, 403);
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${outsider.user.id}`, { cookie: owner.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 404);
+    await connect(owner, outsider);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: owner.cookie, method: "PATCH", payload: { inviteConfirmationRequired: true } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/invite`, { cookie: owner.cookie, method: "POST", payload: { memberIds: [outsider.user.id] } })).response.status, 200);
+    await acceptGroupInvite(outsider, roomId, owner);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${appointedAdmin.user.id}`, { cookie: owner.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, {
+      cookie: appointedAdmin.cookie,
+      method: "PATCH",
+      payload: { name: "Locally managed circle", announcement: "Local group notice", announcementPinned: true }
+    })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: appointedAdmin.cookie, method: "PATCH", payload: { joinApprovalRequired: false } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/members/${successor.user.id}`, { cookie: appointedAdmin.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 403);
+
+    const muted = await call(`/api/community/rooms/${roomId}/members/${ordinary.user.id}`, {
+      cookie: appointedAdmin.cookie,
+      method: "PATCH",
+      payload: { durationSeconds: 3600, muteReason: "Local cooling-off period" }
+    });
+    assert.equal(muted.response.status, 200);
+    assert.ok(muted.data.member.mutedUntil);
+    const blocked = await call(`/api/community/rooms/${roomId}/messages`, { cookie: ordinary.cookie, method: "POST", payload: { message: "@所有人 muted local broadcast" } });
+    assert.equal(blocked.response.status, 403);
+    assert.equal(blocked.data.code, "ROOM_MUTED");
+    assert.equal((await call(`/api/community/rooms/${roomId}/messages`, { cookie: successor.cookie, method: "POST", payload: { message: "@everyone ordinary local broadcast" } })).response.status, 201);
+    assert.equal((await call(`/api/community/rooms/${roomId}/messages`, { cookie: appointedAdmin.cookie, method: "POST", payload: { message: "@everyone valid local notice" } })).response.status, 201);
+
+    const memberView = await call(`/api/community/rooms/${roomId}/messages`, { cookie: successor.cookie });
+    assert.equal(memberView.data.room.announcement, "Local group notice");
+    assert.equal(memberView.data.room.announcementPinned, true);
+    assert.equal(memberView.data.room.currentUserRole, "member");
+    assert.equal(memberView.data.room.canMentionEveryone, true);
+    assert.equal(memberView.data.members.find((item) => item.userId === ordinary.user.id).isMuted, true);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}/ownership`, { cookie: owner.cookie, method: "POST", payload: { userId: successor.user.id } })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/leave`, { cookie: successor.cookie, method: "POST", payload: {} })).response.status, 409);
+    assert.equal((await call(`/api/community/rooms/${roomId}/leave`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/${roomId}/ownership`, { cookie: owner.cookie, method: "POST", payload: { userId: appointedAdmin.user.id } })).response.status, 403);
+
+    const siteAdmin = await register("Local System Administrator", siteAdminEmail);
+    const systemModerator = await register("Local System Moderator", `local-system-moderator-${suffix}@example.com`);
+    const applicant = await register("Local Join Applicant", `local-system-applicant-${suffix}@example.com`);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: siteAdmin.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/join", { cookie: systemModerator.cookie, method: "POST", payload: {} })).response.status, 200);
+    assert.equal((await call(`/api/community/rooms/group-general/members/${systemModerator.user.id}`, { cookie: siteAdmin.cookie, method: "PATCH", payload: { role: "admin" } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: systemModerator.cookie, method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: siteAdmin.cookie, method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+    const pendingJoin = await call("/api/community/rooms/group-general/join", { cookie: applicant.cookie, method: "POST", payload: {} });
+    assert.equal(pendingJoin.response.status, 202);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: applicant.cookie })).response.status, 403);
+    const requests = await call("/api/community/rooms/group-general/join-requests", { cookie: systemModerator.cookie });
+    const requestItem = requests.data.requests.find((item) => item.userId === applicant.user.id);
+    assert.ok(requestItem);
+    assert.equal((await call(`/api/community/rooms/group-general/join-requests/${requestItem.id}`, { cookie: systemModerator.cookie, method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general/messages", { cookie: applicant.cookie })).response.status, 200);
+    assert.equal((await call("/api/community/rooms/group-general", { cookie: siteAdmin.cookie, method: "DELETE" })).response.status, 403);
+
+    assert.equal((await call(`/api/community/rooms/${roomId}`, { cookie: successor.cookie, method: "DELETE" })).response.status, 200);
+    const persisted = JSON.parse(await readFile(communityFile, "utf8"));
+    assert.equal(persisted.rooms.some((room) => room.id === roomId), false);
+    assert.equal(persisted.members.some((member) => member.roomId === roomId), false);
   } finally {
     if (previousAdmins === undefined) delete process.env.ADMIN_EMAILS;
     else process.env.ADMIN_EMAILS = previousAdmins;

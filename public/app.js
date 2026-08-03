@@ -1874,20 +1874,86 @@ function communityWorkspaceHtml(data, mainHtml, { activeTab = state.communityTab
   </div>`;
 }
 
+function communityMemberRole(member = {}) {
+  if (member.role === "owner" || member.isOwner) return "owner";
+  if (["admin", "moderator"].includes(member.role) || member.isGroupAdmin || member.isSiteAdmin) return "admin";
+  return "member";
+}
+
+function communityMemberRoleBadge(member = {}) {
+  const role = communityMemberRole(member);
+  if (role === "owner") return `<span class="community-member-role owner">Owner</span>`;
+  if (role === "admin") return `<span class="community-member-role admin">Admin</span>`;
+  return "";
+}
+
+function communityRoomCapabilities(room = {}) {
+  return {
+    currentUserRole: room.currentUserRole || room.myRole || "member",
+    canManageMembers: room.canManageMembers === true || room.canManageGroup === true || room.canModerateMembers === true,
+    canManageAdmins: room.canManageAdmins === true,
+    canEditGroup: room.canEditGroup === true || room.canManageGroup === true || room.canManageAnnouncements === true || room.canManageMembers === true,
+    canReviewJoinRequests: room.canReviewJoinRequests === true || room.canManageGroup === true || room.canManageMembers === true,
+    canManageJoinSettings: room.canManageJoinSettings === true || room.canManageMembers === true,
+    canTransferOwnership: room.systemManaged !== true && room.canTransferOwnership === true,
+    canDeleteGroup: room.systemManaged !== true && (room.canDeleteGroup === true || room.canDissolveGroup === true),
+    canMentionEveryone: room.canMentionEveryone === true
+  };
+}
+
+function communityCurrentRoomMute(data = {}) {
+  const member = (data.members || []).find((item) => item.userId === state.user?.id);
+  if (!member) return null;
+  const active = Boolean(member.isMuted ?? (member.mutedUntil && Date.parse(member.mutedUntil) > Date.now()));
+  return active ? { endsAt: member.mutedUntil || null, reason: member.muteReason || "Group chat moderation" } : null;
+}
+
+function communityRoomChatWritable(data = {}) {
+  return communityCanChatWrite() && !communityCurrentRoomMute(data);
+}
+
+function communityGroupManagementHtml(data) {
+  const room = data.room || {};
+  const capabilities = communityRoomCapabilities(room);
+  if (!capabilities.canEditGroup && !capabilities.canReviewJoinRequests && !capabilities.canDeleteGroup) return "";
+  const requests = Array.isArray(data.joinRequests) ? data.joinRequests : [];
+  const requestList = requests.map((request) => `<article class="community-join-request">
+    ${communityAvatarHtml(request, { clickable: false, className: "small" })}
+    <div><strong>${escapeHtml(request.displayName || "Village member")}</strong><small>${escapeHtml(request.createdAt ? `Requested ${communityTime(request.createdAt)}` : "Waiting for review")}</small></div>
+    <span><button type="button" data-action="review-community-join-request" data-request-id="${escapeHtml(request.id)}" data-request-status="approved">Approve</button><button type="button" class="danger" data-action="review-community-join-request" data-request-id="${escapeHtml(request.id)}" data-request-status="declined">Decline</button></span>
+  </article>`).join("");
+  const settings = capabilities.canEditGroup ? `<details class="community-group-settings">
+    <summary><span><strong>Group settings</strong><small>Name, announcement and joining rules</small></span><b>›</b></summary>
+    <form id="community-group-settings-form" class="stack-form">
+      <label>Group name<input name="name" maxlength="80" required value="${escapeHtml(room.name || "")}"></label>
+      <label>Description<textarea name="description" maxlength="240" rows="3">${escapeHtml(room.description || "")}</textarea></label>
+      <label>Group announcement<textarea name="announcement" maxlength="1200" rows="4" placeholder="Share an update with every member">${escapeHtml(room.announcement || "")}</textarea></label>
+      <label class="community-group-setting-toggle"><span><strong>Pin announcement</strong><small>Keep the notice above the conversation.</small></span><input type="checkbox" name="announcementPinned"${room.announcementPinned ? " checked" : ""}></label>
+      ${capabilities.canManageJoinSettings ? `<label class="community-group-setting-toggle"><span><strong>Approve join requests</strong><small>New members wait for an owner or admin.</small></span><input type="checkbox" name="joinApprovalRequired"${room.joinApprovalRequired ? " checked" : ""}></label>
+      <label class="community-group-setting-toggle"><span><strong>Review accepted invitations</strong><small>After an invited friend accepts, an owner or admin must approve their entry.</small></span><input type="checkbox" name="inviteConfirmationRequired"${room.inviteConfirmationRequired ? " checked" : ""}></label>` : `<p class="community-group-owner-note">Membership approval rules are read-only for your role.</p>`}
+      <button type="submit" class="primary-button">Save group settings</button><p class="form-error" role="alert"></p>
+    </form>
+  </details>` : "";
+  const approvals = capabilities.canReviewJoinRequests ? `<details class="community-join-requests"${requests.length ? " open" : ""}><summary><span><strong>Join requests</strong><small>${requests.length ? `${requests.length} waiting for review` : "No pending requests"}</small></span>${requests.length ? `<em>${requests.length}</em>` : ""}<b>›</b></summary><div>${requestList || `<p class="community-empty">New requests will appear here.</p>`}</div></details>` : "";
+  const dissolve = capabilities.canDeleteGroup ? `<button type="button" class="community-group-danger-action" data-action="dissolve-community-group" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><span><strong>Dissolve group</strong><small>Permanently close this group for every member.</small></span><b>›</b></button>` : "";
+  return `<section class="community-group-management" aria-label="Group management"><h3>Management</h3>${settings}${approvals}${dissolve}</section>`;
+}
+
 function communityRoomInfoHtml(data) {
   const room = data.room || {};
-  const chatWritable = communityCanChatWrite();
+  const chatWritable = communityRoomChatWritable(data);
   const directRoom = (state.communityOverview?.directRooms || []).find((item) => item.id === room.id);
-  const members = room.kind === "group" ? (data.members || []).map((member) => `<button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(member.userId)}">${communityAvatarHtml(member, { clickable: false, className: "small" })}<span>${escapeHtml(member.displayName)}</span>${member.role === "moderator" ? "<small>Moderator</small>" : ""}</button>`).join("") : "";
+  const capabilities = communityRoomCapabilities(room);
+  const currentRoleLabel = capabilities.currentUserRole === "owner" ? "You are the owner" : capabilities.currentUserRole === "admin" ? "You are an admin" : "Group member";
   return `<aside class="community-room-info" aria-label="Conversation details">
     <header><strong>Chat details</strong><button type="button" data-action="toggle-community-info" aria-label="Close chat details">×</button></header>
-    ${room.kind === "group" ? `<section class="community-info-members"><h3>${Number(data.members?.length || 0)} members</h3><div>${members}</div>${groupMemberControls(data, { chatWritable })}</section>` : `<section class="community-info-person">${communityAvatarHtml(directRoom || { name: room.name }, { clickable: false, className: "large" })}<strong>${escapeHtml(room.name)}</strong></section>`}
+    ${room.kind === "group" ? `<section class="community-info-members"><header class="community-info-members-heading"><div><h3>${Number(data.members?.length || 0)} members</h3><small>${escapeHtml(room.systemManaged ? "System group · Village administrators can appoint group admins" : `${currentRoleLabel} · Only the owner can transfer ownership`)}</small></div></header>${groupMemberControls(data, { chatWritable })}</section>${communityGroupManagementHtml(data)}` : `<section class="community-info-person">${communityAvatarHtml(directRoom || { name: room.name }, { clickable: false, className: "large" })}<strong>${escapeHtml(room.name)}</strong></section>`}
     <section class="community-info-settings">
       <button type="button" class="community-info-switch" data-action="toggle-room-alerts" data-room-id="${escapeHtml(room.id)}" data-alerts-hidden="${String(!room.alertsHidden)}" role="switch" aria-checked="${String(Boolean(room.alertsHidden))}"><span><strong>Hide alerts</strong><small>Messages still show unread red dots.</small></span><i aria-hidden="true"></i></button>
       <button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}"><span><strong>${room.pinned ? "Unpin conversation" : "Pin conversation"}</strong><small>Keep it near the top of your list.</small></span><b>›</b></button>
       <button type="button" data-action="clear-community-history" data-room-id="${escapeHtml(room.id)}"><span><strong>Clear my chat history</strong><small>This affects only your view.</small></span><b>›</b></button>
       ${room.kind === "group"
-        ? `<button type="button" class="danger" data-action="leave-community-room" data-room-id="${escapeHtml(room.id)}"><span><strong>Leave group</strong></span><b>›</b></button>`
+        ? capabilities.currentUserRole === "owner" ? `<button type="button" class="community-info-disabled" disabled title="Transfer ownership before leaving"><span><strong>Leave group</strong><small>Transfer ownership before you leave.</small></span><b>›</b></button>` : `<button type="button" class="danger" data-action="leave-community-room" data-room-id="${escapeHtml(room.id)}"><span><strong>Leave group</strong></span><b>›</b></button>`
         : `<button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>View Moments</strong></span><b>›</b></button><button type="button" class="danger" data-action="remove-community-friend" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>Remove friend</strong></span><b>›</b></button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.otherUserId || "")}"><span><strong>Block member</strong></span><b>›</b></button>`}
     </section>
   </aside>`;
@@ -1895,18 +1961,21 @@ function communityRoomInfoHtml(data) {
 
 function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
   const room = data.room;
-  const chatWritable = communityCanChatWrite();
+  const roomMute = communityCurrentRoomMute(data);
+  const chatWritable = communityCanChatWrite() && !roomMute;
   const disabled = chatWritable ? "" : "disabled";
   const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" ${disabled} data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
   const rawCustomStickers = communityStickerButtons();
   const customStickers = chatWritable ? rawCustomStickers : rawCustomStickers.replaceAll("<button ", "<button disabled ");
   const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
+  const announcement = room.kind === "group" && room.announcement ? `<aside class="community-group-announcement ${room.announcementPinned ? "pinned" : ""}"><span aria-hidden="true">${room.announcementPinned ? "◆" : "◇"}</span><div><strong>Group announcement${room.announcementPinned ? " · Pinned" : ""}</strong><p>${escapeHtml(room.announcement)}</p></div></aside>` : "";
   return `<section class="community-chat wechat-chat">
     <header class="community-chat-header"><button type="button" class="community-mobile-back" data-action="close-community-room" aria-label="Back to conversations">‹</button><div><strong>${escapeHtml(room.name)}</strong><small>${room.kind === "group" ? `${Number(data.members?.length || 0)} members` : "Private conversation"}</small></div><button type="button" data-action="toggle-community-info" aria-label="Conversation details" aria-expanded="${String(state.communityInfoOpen)}">•••</button></header>
     ${room.systemManaged ? `<p class="community-chat-retention">Commons messages are kept for 12 hours.</p>` : ""}
+    ${announcement}
     ${meetings ? `<section class="room-meeting-list"><header><strong>Meetings</strong></header>${meetings}</section>` : ""}
     <div id="community-message-list" class="community-message-list" aria-live="polite">${communityMessagesHtml(data.messages)}</div>
-    ${chatWritable ? "" : communityModerationBanner(state.communityOverview?.moderation)}
+    ${roomMute ? `<aside class="community-room-mute-banner" role="status"><strong>You are muted in this group</strong><span>${escapeHtml(roomMute.reason)}${roomMute.endsAt ? ` · Ends ${escapeHtml(new Date(roomMute.endsAt).toLocaleString())}` : ""}</span></aside>` : chatWritable ? "" : communityModerationBanner(state.communityOverview?.moderation)}
     <div class="community-compose-shell ${chatWritable ? "" : "is-disabled"}">
       <div class="community-compose-tools">
         <label class="compose-tool" title="Attach a photo or document">＋<span class="sr-only">Attach file</span><input type="file" ${disabled} accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
@@ -1918,7 +1987,7 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
       <div id="community-attachment-preview" class="community-attachment-preview"></div>
       <div class="sticker-picker" aria-label="Stickers">${stickerButtons}${customStickers}</div>
       <form id="community-meeting-form" class="community-meeting-form hidden"><input name="title" ${disabled} maxlength="120" value="Village catch-up" required><label>Start time<input name="startsAt" ${disabled} type="datetime-local" required></label><label>Minutes<input name="durationMinutes" ${disabled} type="number" min="10" max="480" value="45" required></label><button type="submit" ${disabled} class="secondary-button">Schedule and invite this chat</button><p class="form-error"></p></form>
-      <form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(room.id)}"><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" ${disabled} maxlength="1000" rows="2" placeholder="${escapeHtml(chatWritable ? t("communityMessagePlaceholder") : "Chat is unavailable during your mute.")}"></textarea></label><button type="submit" ${disabled} class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form>
+      <form id="community-message-form" class="community-message-form"><input type="hidden" name="roomId" value="${escapeHtml(room.id)}"><label><span class="sr-only">${escapeHtml(t("communityMessagePlaceholder"))}</span><textarea name="message" ${disabled} maxlength="1000" rows="2" placeholder="${escapeHtml(chatWritable ? t("communityMessagePlaceholder") : "Chat is unavailable during your mute.")}"></textarea></label>${room.kind === "group" ? `<button type="button" ${disabled} class="community-everyone-button" data-action="mention-member" data-mention="@everyone" title="@everyone · Notify all group members" aria-label="Mention everyone in this group">@all</button>` : ""}<button type="submit" ${disabled} class="primary-button">${escapeHtml(t("communitySend"))}</button><p class="form-error" role="alert"></p></form>
     </div>
   </section>`;
 }
@@ -2043,28 +2112,70 @@ function communityMessagesHtml(messages = []) {
 
 function groupMemberControls(data, { chatWritable = communityCanChatWrite() } = {}) {
   if (data.room.kind !== "group") return "";
+  const room = data.room || {};
+  const capabilities = communityRoomCapabilities(room);
   const members = data.members || [];
   const memberIds = new Set(members.map((member) => member.userId));
-  const memberButtons = members.map((member) => {
+  const memberRows = members.map((member) => {
+    const role = communityMemberRole(member);
+    const mine = member.userId === state.user?.id;
     const mention = String(member.displayName || "member").trim().replace(/\s+/g, "_");
-    return `<button type="button" class="member-chip" ${chatWritable ? `data-action="mention-member"` : "disabled"} data-mention="@${escapeHtml(mention)}"><span>${escapeHtml(member.displayName)}</span>${member.role === "moderator" ? `<small>admin</small>` : ""}</button>`;
+    const canChangeAdmin = capabilities.canManageAdmins && !mine && role !== "owner" && !(room.systemManaged && member.isSiteAdmin);
+    const canModerate = capabilities.canManageMembers && !mine && role === "member";
+    const canTransfer = capabilities.canTransferOwnership && !mine;
+    const muted = Boolean(member.isMuted ?? (member.mutedUntil && Date.parse(member.mutedUntil) > Date.now()));
+    const menu = canChangeAdmin || canModerate || canTransfer ? `<details class="community-member-menu">
+      <summary aria-label="Manage ${escapeHtml(member.displayName)}">•••</summary>
+      <div role="menu">
+        ${canChangeAdmin ? role === "admin" ? `<button type="button" data-action="demote-group-admin" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Remove admin role</button>` : `<button type="button" data-action="promote-group-admin" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Appoint as admin</button>` : ""}
+        ${canModerate ? `<button type="button" data-action="mute-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">${muted ? "Change mute" : "Mute member…"}</button>${muted ? `<button type="button" data-action="unmute-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Unmute member</button>` : ""}<button type="button" class="danger" data-action="remove-community-member" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Remove from group</button>` : ""}
+        ${canTransfer ? `<button type="button" class="ownership-action" data-action="transfer-community-ownership" data-user-id="${escapeHtml(member.userId)}" data-user-name="${escapeHtml(member.displayName)}">Transfer ownership</button>` : ""}
+      </div>
+    </details>` : "";
+    const mute = muted ? `<span class="community-member-muted" title="${escapeHtml(member.muteReason || "Muted by a group administrator")}">Muted until ${escapeHtml(new Date(member.mutedUntil).toLocaleString())}</span>` : "";
+    return `<article class="community-member-row" data-community-member-id="${escapeHtml(member.userId)}">
+      <button type="button" class="community-member-profile" data-action="open-community-profile" data-user-id="${escapeHtml(member.userId)}">${communityAvatarHtml(member, { clickable: false, className: "small" })}<span><strong>${escapeHtml(member.displayName)}${mine ? " (You)" : ""}</strong><small>${role === "owner" ? "Group owner" : role === "admin" ? room.systemManaged && member.isSiteAdmin ? "Village administrator" : "Group administrator" : "Member"}</small>${mute}</span></button>
+      ${communityMemberRoleBadge(member)}
+      ${chatWritable && (!mine || capabilities.canMentionEveryone) ? `<button type="button" class="community-member-mention" data-action="mention-member" data-mention="@${escapeHtml(mention)}" aria-label="Mention ${escapeHtml(member.displayName)}">@</button>` : ""}
+      ${menu}
+    </article>`;
   }).join("");
   const eligibleFriends = (state.communityOverview?.directRooms || []).filter((friend) => !memberIds.has(friend.user_id));
   const invitationChoices = eligibleFriends.map((friend) => `<label class="friend-choice"><input type="checkbox" name="memberIds" value="${escapeHtml(friend.user_id)}"> ${escapeHtml(friend.name)}</label>`).join("");
   const invitation = chatWritable
-    ? `<details class="group-invite"><summary>Invite more friends</summary>${invitationChoices ? `<form id="community-room-invite-form" class="stack-form"><div class="friend-choices">${invitationChoices}</div><button type="submit" class="secondary-button">Send group invitation</button><p class="form-error" role="alert"></p></form>` : `<p class="community-empty">All of your current friends are already members.</p>`}</details>`
+    ? `<details class="group-invite"><summary><span><strong>Invite friends</strong><small>${room.inviteConfirmationRequired ? "Accepted invitations also need admin approval" : "Friends choose whether to join"}</small></span><b>›</b></summary>${invitationChoices ? `<form id="community-room-invite-form" class="stack-form"><div class="friend-choices">${invitationChoices}</div><button type="submit" class="secondary-button">Send invitations</button><p class="form-error" role="alert"></p></form>` : `<p class="community-empty">All of your current friends are already members.</p>`}</details>`
     : `<p class="community-write-restricted">Invitations are unavailable during your chat mute.</p>`;
-  return `<section class="group-members"><div class="community-section-heading"><h3>Members (${members.length})</h3><p>Click a name to mention them in your message.</p></div><div class="member-chips"><button type="button" class="member-chip everyone" ${chatWritable ? `data-action="mention-member"` : "disabled"} data-mention="@everyone"><span>@everyone</span></button>${memberButtons}</div>${invitation}</section>`;
+  return `<div class="group-members"><div class="community-member-list">${memberRows}</div>${invitation}</div>`;
+}
+
+function communityRoomManagementSignature(data = {}) {
+  const room = data.room || {};
+  return JSON.stringify({
+    room: [room.name, room.description, room.announcement, room.announcementPinned, room.joinApprovalRequired, room.inviteConfirmationRequired, room.currentUserRole, room.canManageMembers, room.canManageAdmins, room.canTransferOwnership, room.canDeleteGroup, room.canMentionEveryone],
+    members: (data.members || []).map((member) => [member.userId, communityMemberRole(member), member.isSiteAdmin, member.isMuted, member.mutedUntil, member.muteReason]),
+    requests: (data.joinRequests || []).map((request) => [request.id, request.status])
+  });
 }
 
 async function refreshCommunityRoom() {
   if (!state.communityRoom) return;
   try {
+    const previousSignature = communityRoomManagementSignature(state.communityRoom.data);
     const data = await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`);
+    data.joinRequests = state.communityRoom.data?.joinRequests || [];
+    if (state.communityInfoOpen && data.room?.kind === "group" && communityRoomCapabilities(data.room).canReviewJoinRequests) {
+      const pending = await api(`/api/community/rooms/${encodeURIComponent(data.room.id)}/join-requests`).catch(() => null);
+      if (pending) data.joinRequests = pending.requests || [];
+    }
     const list = $("#community-message-list");
     if (!list || state.communityRoom?.id !== data.room.id) return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 90;
     state.communityRoom = { ...state.communityRoom, ...data.room, data };
+    if (previousSignature !== communityRoomManagementSignature(data)) {
+      renderOpenCommunityRoom();
+      if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
+      return;
+    }
     list.innerHTML = communityMessagesHtml(data.messages);
     if (nearBottom) list.scrollTop = list.scrollHeight;
     if (document.visibilityState === "visible" && $("#panel")?.classList.contains("open")) await markCommunityRoomRead(data.room.id);
@@ -2251,13 +2362,18 @@ async function openCommunityRoom(roomId, roomName) {
     api(`/api/community/rooms/${encodeURIComponent(roomId)}/messages`),
     api(`/api/community/meetings?roomId=${encodeURIComponent(roomId)}`).catch(() => ({ meetings: [] }))
   ]);
+  if (data.room?.kind === "group" && communityRoomCapabilities(data.room).canReviewJoinRequests) {
+    const pending = await api(`/api/community/rooms/${encodeURIComponent(roomId)}/join-requests`).catch(() => ({ requests: [] }));
+    data.joinRequests = pending.requests || [];
+  }
   openPanel({
     title: roomName || data.room.name,
     eyebrow: t("communityTitle"),
     html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`,
     className: "community-workspace-panel"
   });
-  data.room.name = roomName || data.room.name;
+  data.room.name = data.room.name || roomName;
+  updateCommunityRoomSummary(roomId, { name: data.room.name, description: data.room.description || "" });
   state.communityRoom = { ...data.room, id: roomId, name: data.room.name, data, meetingData };
   renderOpenCommunityRoom();
   await markCommunityRoomRead(roomId);
@@ -2323,6 +2439,140 @@ async function submitCommunityRoomInvite(event) {
     form.reset();
     toast(result.invited ? `Sent ${result.invited} group invitation${result.invited === 1 ? "" : "s"}.` : "Those friends are already members or invited.");
   } catch (error) { form.querySelector(".form-error").textContent = error.message; }
+}
+
+async function submitCommunityGroupSettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  const room = state.communityRoom;
+  if (!room?.id || room.kind !== "group") return;
+  const data = new FormData(form);
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  form.querySelector(".form-error").textContent = "";
+  try {
+    const payload = {
+      name: data.get("name"),
+      description: data.get("description"),
+      announcement: data.get("announcement"),
+      announcementPinned: data.get("announcementPinned") === "on"
+    };
+    if (form.elements.namedItem("joinApprovalRequired")) payload.joinApprovalRequired = data.get("joinApprovalRequired") === "on";
+    if (form.elements.namedItem("inviteConfirmationRequired")) payload.inviteConfirmationRequired = data.get("inviteConfirmationRequired") === "on";
+    await api(`/api/community/rooms/${encodeURIComponent(room.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    updateCommunityRoomSummary(room.id, { name: String(data.get("name") || room.name), description: String(data.get("description") || "") });
+    toast("Group settings saved.");
+    await openCommunityRoom(room.id, String(data.get("name") || room.name));
+    state.communityInfoOpen = true;
+    renderOpenCommunityRoom();
+  } catch (error) {
+    form.querySelector(".form-error").textContent = error.message;
+  } finally { button.disabled = false; }
+}
+
+async function updateCommunityGroupAdmin(element, role) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  const message = role === "admin"
+    ? `Appoint ${name} as a group administrator? They will be able to manage ordinary members and group settings.`
+    : `Remove ${name}'s group administrator role? They will remain a member.`;
+  if (!confirm(message)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) });
+  toast(role === "admin" ? `${name} is now a group administrator.` : `${name} is now a regular member.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function transferCommunityGroupOwnership(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  if (!confirm(`Transfer ownership of “${room.name}” to ${name}? You will become a group administrator. Only the new owner can transfer or dissolve the group.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/ownership`, { method: "POST", body: JSON.stringify({ userId }) });
+  toast(`${name} is now the group owner.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function muteCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId) return;
+  const durationInput = prompt(`Mute ${name} for how many hours?`, "24");
+  if (durationInput === null) return;
+  const hours = Number(durationInput);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 8760) return toast("Enter a duration between 0 and 8,760 hours.");
+  const reason = prompt("Reason shown to group administrators:", "Group chat moderation");
+  if (reason === null) return;
+  if (!String(reason).trim()) return toast("Add a reason before muting this member.");
+  if (!confirm(`Mute ${name} for ${hours} hour${hours === 1 ? "" : "s"}? They can still read the group.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ durationSeconds: Math.round(hours * 3600), muteReason: String(reason).trim() }) });
+  toast(`${name} has been muted in this group.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function unmuteCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId || !confirm(`Unmute ${name} now?`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ mutedUntil: null }) });
+  toast(`${name} can send group messages again.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function removeCommunityGroupMember(element) {
+  const room = state.communityRoom;
+  const userId = element.dataset.userId;
+  const name = element.dataset.userName || "this member";
+  if (!room?.id || !userId || !confirm(`Remove ${name} from “${room.name}”? They will lose access to future group messages.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+  toast(`${name} was removed from the group.`);
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function reviewCommunityJoinRequest(element) {
+  const room = state.communityRoom;
+  const requestId = element.dataset.requestId;
+  const status = element.dataset.requestStatus;
+  if (!room?.id || !requestId || !["approved", "declined"].includes(status)) return;
+  if (status === "declined" && !confirm("Decline this request to join the group?")) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}/join-requests/${encodeURIComponent(requestId)}`, { method: "PATCH", body: JSON.stringify({ status }) });
+  toast(status === "approved" ? "Join request approved." : "Join request declined.");
+  await openCommunityRoom(room.id, room.name);
+  state.communityInfoOpen = true;
+  renderOpenCommunityRoom();
+}
+
+async function dissolveCommunityGroup(element) {
+  const room = state.communityRoom;
+  if (!room?.id || room.systemManaged) return;
+  const roomName = element.dataset.roomName || room.name;
+  const confirmation = prompt(`This permanently deletes the group and its chat history for every member. Type “${roomName}” to continue:`);
+  if (confirmation === null) return;
+  if (confirmation !== roomName) return toast("Group name did not match. Nothing was deleted.");
+  if (!confirm(`Final confirmation: permanently dissolve “${roomName}”? This cannot be undone.`)) return;
+  await api(`/api/community/rooms/${encodeURIComponent(room.id)}`, { method: "DELETE" });
+  state.communityRoom = null;
+  state.communityInfoOpen = false;
+  state.communityTab = "groups";
+  toast("Group dissolved.");
+  return communityPanel();
 }
 
 async function submitCommunityPost(event) {
@@ -2720,6 +2970,14 @@ async function communityAction(element, action) {
       toast(alertsHidden ? "Message sounds hidden for this chat. Unread dots stay on." : "Message sounds turned on for this chat.");
       return;
     }
+    if (action === "promote-group-admin") return await updateCommunityGroupAdmin(element, "admin");
+    if (action === "demote-group-admin") return await updateCommunityGroupAdmin(element, "member");
+    if (action === "transfer-community-ownership") return await transferCommunityGroupOwnership(element);
+    if (action === "mute-community-member") return await muteCommunityGroupMember(element);
+    if (action === "unmute-community-member") return await unmuteCommunityGroupMember(element);
+    if (action === "remove-community-member") return await removeCommunityGroupMember(element);
+    if (action === "review-community-join-request") return await reviewCommunityJoinRequest(element);
+    if (action === "dissolve-community-group") return await dissolveCommunityGroup(element);
     if (action === "support-tab") return supportPanel(element.dataset.supportTab, state.supportIsland);
     if (action === "send-sticker") { await api(`/api/community/rooms/${encodeURIComponent(state.communityRoom.id)}/messages`, { method: "POST", body: JSON.stringify({ message: `[[sticker:${element.dataset.sticker}]]` }) }); return refreshCommunityRoom(); }
     if (action === "send-custom-sticker") {
@@ -2845,7 +3103,11 @@ async function communityAction(element, action) {
       if (room) return openCommunityRoom(room.id, room.name);
     }
     if (action === "join-community-room") {
-      await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
+      const result = await api(`/api/community/rooms/${encodeURIComponent(element.dataset.roomId)}/join`, { method: "POST", body: "{}" });
+      if (result.joined === false || result.pending || result.status === "pending" || result.request?.status === "pending") {
+        toast("Join request sent. A group owner or administrator will review it.");
+        return communityPanel();
+      }
       return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
     }
     if (action === "open-community-room") return openCommunityRoom(element.dataset.roomId, element.dataset.roomName);
@@ -4783,6 +5045,7 @@ document.addEventListener("click", (event) => {
   if (action === "clear-local-music") clearLocalMusic(actionElement.dataset.musicSlot);
   if ([
     "open-community", "community-tab", "close-community-workspace", "close-community-room", "show-community-directory", "close-community-directory", "toggle-community-info", "toggle-room-alerts",
+    "promote-group-admin", "demote-group-admin", "transfer-community-ownership", "mute-community-member", "unmute-community-member", "remove-community-member", "review-community-join-request", "dissolve-community-group",
     "support-tab", "send-sticker", "send-custom-sticker", "save-custom-sticker", "delete-custom-sticker",
     "mention-member", "open-friend-chat", "join-community-room", "open-community-room", "connect-community", "accept-connection",
     "decline-connection", "accept-group-invite", "decline-group-invite", "disable-community", "pin-community-room",
@@ -4843,6 +5106,7 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "community-search-form") submitCommunitySearch(event);
   if (event.target.id === "community-group-form") submitCommunityGroup(event);
   if (event.target.id === "community-room-invite-form") submitCommunityRoomInvite(event);
+  if (event.target.id === "community-group-settings-form") submitCommunityGroupSettings(event);
   if (event.target.id === "community-post-form") submitCommunityPost(event);
   if (event.target.matches("[data-community-comment-form]")) submitCommunityComment(event);
   if (event.target.id === "community-privacy-form") submitCommunityPrivacy(event);

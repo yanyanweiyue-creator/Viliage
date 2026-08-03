@@ -45,7 +45,7 @@ async function applyAccountSchema(database) {
 
 async function applyCommunitySchema(database) {
   await applyAccountSchema(database);
-  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql", "0013_meeting_collaboration.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql", "0018_meeting_participant_removals.sql"]) {
+  for (const migration of ["0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0011_community_workspace.sql", "0012_document_studio.sql", "0013_meeting_collaboration.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql", "0018_meeting_participant_removals.sql", "0019_group_chat_administrators.sql"]) {
     database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
 }
@@ -85,8 +85,9 @@ test("community migration creates durable chat tables and starter groups", async
   database.exec(await readFile(new URL("../migrations/0016_meeting_invitations.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0017_stable_event_cursors.sql", import.meta.url), "utf8"));
   database.exec(await readFile(new URL("../migrations/0018_meeting_participant_removals.sql", import.meta.url), "utf8"));
+  database.exec(await readFile(new URL("../migrations/0019_group_chat_administrators.sql", import.meta.url), "utf8"));
   const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name").all();
-  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
+  assert.deepEqual(tables.map((row) => row.name), ["chat_blocks", "chat_connections", "chat_group_invitations", "chat_join_requests", "chat_members", "chat_messages", "chat_room_preferences", "chat_rooms", "chat_saved_messages"]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE kind = 'group'").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE system_managed = 1").get().count, 3);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'password_reset_codes'").get().count, 1);
@@ -105,7 +106,9 @@ test("community migration creates durable chat tables and starter groups", async
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('chat_messages') WHERE name = 'message_cursor'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('meeting_signals') WHERE name = 'signal_cursor'").get().count, 1);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('meeting_participants') WHERE name IN ('removed_at', 'removed_by', 'restored_at', 'restored_by')").get().count, 4);
-  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "18");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('chat_rooms') WHERE name IN ('announcement', 'announcement_pinned', 'join_approval_required', 'invite_confirmation_required')").get().count, 4);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pragma_table_info('chat_members') WHERE name IN ('muted_until', 'mute_reason', 'muted_by')").get().count, 3);
+  assert.equal(database.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'").get().value, "19");
   database.close();
 });
 
@@ -221,7 +224,7 @@ test("administrators can issue, enforce, disclose, and revoke report-linked Comm
   assert.equal(overview.data.moderation.sanctions[0].reason, "Repeated harassment");
   assert.ok(overview.data.moderation.sanctions[0].endsAt);
   assert.equal((await request(target, "/api/community/rooms/group-general/messages")).response.status, 200);
-  const blockedMessage = await request(target, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "Blocked" } });
+  const blockedMessage = await request(target, "/api/community/rooms/group-general/messages", { method: "POST", payload: { message: "@everyone blocked by the account chat mute" } });
   assert.equal(blockedMessage.response.status, 403);
   assert.equal(blockedMessage.data.code, "COMMUNITY_SANCTION");
   for (const path of [
@@ -903,7 +906,7 @@ test("chat alert preferences keep unread cursors isolated and do not swallow con
 
 test("community controls isolate history, restrict moments to friends, and enforce blocks", async () => {
   const database = new DatabaseSync(":memory:");
-  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql", "0011_community_workspace.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
+  for (const migration of ["0001_persistent_accounts.sql", "0002_community_chat.sql", "0003_community_controls.sql", "0004_group_invitations.sql", "0006_new_user_onboarding.sql", "0007_liked_resources.sql", "0008_disliked_resources.sql", "0009_announcements_admins.sql", "0010_admin_activities.sql", "0011_community_workspace.sql", "0014_community_moderation.sql", "0015_chat_alerts_unread.sql", "0016_meeting_invitations.sql", "0017_stable_event_cursors.sql", "0019_group_chat_administrators.sql"]) database.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   const env = cloudflareEnv(database);
   const register = async (name, email) => {
     const response = await worker.fetch(new Request("https://village.example/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, password: "safe-password" }) }), env, ctx);
@@ -981,6 +984,162 @@ test("community controls isolate history, restrict moments to friends, and enfor
   await cleanupPromise;
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'old-system'").get().count, 0);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_messages WHERE id = 'recent-system'").get().count, 1);
+  database.close();
+});
+
+test("group administration enforces owner, appointed admin, member, and system administrator boundaries", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const api = async (member, path, { method = "GET", payload } = {}) => {
+    const response = await worker.fetch(new Request(`https://village.example${path}`, {
+      method,
+      headers: {
+        ...(member?.cookie ? { Cookie: member.cookie } : {}),
+        ...(payload === undefined ? {} : { "Content-Type": "application/json" })
+      },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) })
+    }), env, ctx);
+    return { response, data: await response.json() };
+  };
+  const register = async (name, email) => {
+    const result = await api(null, "/api/auth/register", { method: "POST", payload: { name, email, password: "safe-password" } });
+    assert.equal(result.response.status, 201);
+    const member = { user: result.data.user, cookie: result.response.headers.get("set-cookie").split(";")[0] };
+    assert.equal((await api(member, "/api/community/settings", { method: "POST", payload: { enabled: true, displayName: name } })).response.status, 200);
+    return member;
+  };
+  const connect = async (requester, recipient) => {
+    assert.equal((await api(requester, "/api/community/connect", { method: "POST", payload: { targetUserId: recipient.user.id } })).response.status, 201);
+    const overview = await api(recipient, "/api/community");
+    const pending = overview.data.incoming.find((item) => item.user_id === requester.user.id);
+    assert.ok(pending);
+    assert.equal((await api(recipient, `/api/community/connections/${pending.id}/accept`, { method: "POST", payload: {} })).response.status, 200);
+  };
+  const acceptGroupInvite = async (member, roomId, reviewer) => {
+    const overview = await api(member, "/api/community");
+    const invitation = overview.data.groupInvites.find((item) => item.room_id === roomId);
+    assert.ok(invitation);
+    const accepted = await api(member, `/api/community/group-invitations/${invitation.id}/accept`, { method: "POST", payload: {} });
+    if (!reviewer) {
+      assert.equal(accepted.response.status, 200);
+      assert.equal(accepted.data.pendingApproval, false);
+      return;
+    }
+    assert.equal(accepted.response.status, 202);
+    assert.equal(accepted.data.pendingApproval, true);
+    const requests = await api(reviewer, `/api/community/rooms/${roomId}/join-requests`);
+    const requestItem = requests.data.requests.find((item) => item.userId === member.user.id);
+    assert.ok(requestItem);
+    assert.equal((await api(reviewer, `/api/community/rooms/${roomId}/join-requests/${requestItem.id}`, { method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+  };
+
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const owner = await register("Group Owner", `group-owner-${suffix}@example.com`);
+  const successor = await register("Future Owner", `group-successor-${suffix}@example.com`);
+  const appointedAdmin = await register("Appointed Admin", `group-admin-${suffix}@example.com`);
+  const ordinary = await register("Ordinary Member", `group-member-${suffix}@example.com`);
+  const outsider = await register("Outside Member", `group-outsider-${suffix}@example.com`);
+  for (const member of [successor, appointedAdmin, ordinary]) await connect(owner, member);
+
+  const created = await api(owner, "/api/community/groups", {
+    method: "POST",
+    payload: { name: "Family Circle", description: "Original description", memberIds: [successor.user.id, appointedAdmin.user.id, ordinary.user.id] }
+  });
+  assert.equal(created.response.status, 201);
+  const roomId = created.data.room.id;
+  for (const member of [successor, appointedAdmin, ordinary]) await acceptGroupInvite(member, roomId);
+
+  const ownerView = await api(owner, `/api/community/rooms/${roomId}/messages`);
+  assert.equal(ownerView.response.status, 200);
+  assert.equal(ownerView.data.room.ownerId, owner.user.id);
+  assert.equal(ownerView.data.room.currentUserRole, "owner");
+  assert.equal(ownerView.data.room.canManageMembers, true);
+  assert.equal(ownerView.data.room.canManageAdmins, true);
+  assert.equal(ownerView.data.room.canTransferOwnership, true);
+  assert.equal(ownerView.data.members.find((item) => item.userId === owner.user.id).role, "owner");
+
+  assert.equal((await api(ordinary, `/api/community/rooms/${roomId}`, { method: "PATCH", payload: { name: "Unauthorized rename" } })).response.status, 403);
+  assert.equal((await api(ordinary, `/api/community/rooms/${roomId}/members/${ordinary.user.id}`, { method: "PATCH", payload: { role: "admin" } })).response.status, 403);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}/members/${outsider.user.id}`, { method: "PATCH", payload: { role: "admin" } })).response.status, 404);
+  await connect(owner, outsider);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}`, { method: "PATCH", payload: { inviteConfirmationRequired: true } })).response.status, 200);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}/invite`, { method: "POST", payload: { memberIds: [outsider.user.id] } })).response.status, 200);
+  await acceptGroupInvite(outsider, roomId, owner);
+
+  const promoted = await api(owner, `/api/community/rooms/${roomId}/members/${appointedAdmin.user.id}`, { method: "PATCH", payload: { role: "admin" } });
+  assert.equal(promoted.response.status, 200);
+  assert.equal(promoted.data.member.role, "admin");
+  assert.equal((await api(appointedAdmin, `/api/community/rooms/${roomId}/members/${successor.user.id}`, { method: "PATCH", payload: { role: "admin" } })).response.status, 403);
+  assert.equal((await api(appointedAdmin, `/api/community/rooms/${roomId}`, {
+    method: "PATCH",
+    payload: { name: "Admin-renamed circle", announcement: "Please read the updated group notice.", announcementPinned: true }
+  })).response.status, 200);
+  assert.equal((await api(appointedAdmin, `/api/community/rooms/${roomId}`, { method: "PATCH", payload: { joinApprovalRequired: false } })).response.status, 200);
+
+  const muted = await api(appointedAdmin, `/api/community/rooms/${roomId}/members/${ordinary.user.id}`, {
+    method: "PATCH",
+    payload: { durationSeconds: 3600, muteReason: "Cooling-off period" }
+  });
+  assert.equal(muted.response.status, 200);
+  assert.ok(muted.data.member.mutedUntil);
+  const mutedMessage = await api(ordinary, `/api/community/rooms/${roomId}/messages`, { method: "POST", payload: { message: "@所有人 this muted broadcast must be blocked" } });
+  assert.equal(mutedMessage.response.status, 403);
+  assert.equal(mutedMessage.data.code, "ROOM_MUTED");
+  assert.equal((await api(successor, `/api/community/rooms/${roomId}/messages`, { method: "POST", payload: { message: "@Everyone ordinary member broadcast" } })).response.status, 201);
+  assert.equal((await api(appointedAdmin, `/api/community/rooms/${roomId}/messages`, { method: "POST", payload: { message: "@everyone administrator notice" } })).response.status, 201);
+  assert.equal((await api(appointedAdmin, `/api/community/rooms/${roomId}/members/${owner.user.id}`, { method: "DELETE" })).response.status, 409);
+
+  const memberView = await api(successor, `/api/community/rooms/${roomId}/messages`);
+  assert.equal(memberView.data.room.name, "Admin-renamed circle");
+  assert.equal(memberView.data.room.announcement, "Please read the updated group notice.");
+  assert.equal(memberView.data.room.announcementPinned, true);
+  assert.equal(memberView.data.room.currentUserRole, "member");
+  assert.equal(memberView.data.room.canManageMembers, false);
+  assert.equal(memberView.data.room.canMentionEveryone, true);
+  const mutedMember = memberView.data.members.find((item) => item.userId === ordinary.user.id);
+  assert.equal(mutedMember.isMuted, true);
+  assert.equal(mutedMember.muteReason, "Cooling-off period");
+
+  const transferred = await api(owner, `/api/community/rooms/${roomId}/ownership`, { method: "POST", payload: { userId: successor.user.id } });
+  assert.equal(transferred.response.status, 200);
+  assert.equal(transferred.data.room.ownerId, successor.user.id);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}/ownership`, { method: "POST", payload: { userId: appointedAdmin.user.id } })).response.status, 403);
+  assert.equal((await api(successor, `/api/community/rooms/${roomId}/leave`, { method: "POST", payload: {} })).response.status, 409);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}/leave`, { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await api(owner, `/api/community/rooms/${roomId}/messages`)).response.status, 403);
+
+  const siteAdmin = await register("System Administrator", "yanyanweiyue@gmail.com");
+  const systemModerator = await register("System Moderator", `system-moderator-${suffix}@example.com`);
+  const applicant = await register("Join Applicant", `system-applicant-${suffix}@example.com`);
+  assert.equal((await api(siteAdmin, "/api/community/rooms/group-general/join", { method: "POST", payload: {} })).response.status, 200);
+  assert.equal((await api(systemModerator, "/api/community/rooms/group-general/join", { method: "POST", payload: {} })).response.status, 200);
+  const siteAdminView = await api(siteAdmin, "/api/community/rooms/group-general/messages");
+  assert.equal(siteAdminView.data.room.currentUserRole, "admin");
+  assert.equal(siteAdminView.data.room.canManageAdmins, true);
+  assert.equal((await api(siteAdmin, `/api/community/rooms/group-general/members/${systemModerator.user.id}`, { method: "PATCH", payload: { role: "admin" } })).response.status, 200);
+  assert.equal((await api(systemModerator, "/api/community/rooms/group-general", { method: "PATCH", payload: { announcement: "System moderator notice", announcementPinned: true } })).response.status, 200);
+  assert.equal((await api(systemModerator, "/api/community/rooms/group-general", { method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+  assert.equal((await api(siteAdmin, "/api/community/rooms/group-general", { method: "PATCH", payload: { joinApprovalRequired: true } })).response.status, 200);
+
+  const pendingJoin = await api(applicant, "/api/community/rooms/group-general/join", { method: "POST", payload: {} });
+  assert.equal(pendingJoin.response.status, 202);
+  assert.equal(pendingJoin.data.joined, false);
+  assert.equal((await api(applicant, "/api/community/rooms/group-general/messages")).response.status, 403);
+  const joinRequests = await api(systemModerator, "/api/community/rooms/group-general/join-requests");
+  assert.equal(joinRequests.response.status, 200);
+  const joinRequest = joinRequests.data.requests.find((item) => item.userId === applicant.user.id);
+  assert.ok(joinRequest);
+  assert.equal((await api(systemModerator, `/api/community/rooms/group-general/join-requests/${joinRequest.id}`, { method: "PATCH", payload: { status: "approved" } })).response.status, 200);
+  assert.equal((await api(applicant, "/api/community/rooms/group-general/messages")).response.status, 200);
+  assert.equal((await api(systemModerator, `/api/community/rooms/group-general/members/${applicant.user.id}`, { method: "PATCH", payload: { role: "admin" } })).response.status, 403);
+  assert.equal((await api(siteAdmin, "/api/community/rooms/group-general/ownership", { method: "POST", payload: { userId: applicant.user.id } })).response.status, 403);
+  assert.equal((await api(siteAdmin, "/api/community/rooms/group-general", { method: "DELETE" })).response.status, 403);
+
+  const dissolved = await api(successor, `/api/community/rooms/${roomId}`, { method: "DELETE" });
+  assert.equal(dissolved.response.status, 200);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_rooms WHERE id = ?").get(roomId).count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM chat_members WHERE room_id = ?").get(roomId).count, 0);
   database.close();
 });
 

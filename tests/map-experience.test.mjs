@@ -263,7 +263,7 @@ test("Community chat uses a responsive WeChat-style workspace with per-room soun
   assert.match(css, /@media \(max-width: 700px\)[\s\S]*\.community-workspace\.has-active-room/);
   assert.match(app, /events\.filter\(\(event\) => !event\.alertsHidden\)/);
   assert.match(app, /notificationGain\.connect\(this\.context\.destination\)/);
-  assert.match(css, /\.wechat-chat > \.community-message-list \{ grid-row: 4; \}/);
+  assert.match(css, /\.wechat-chat > \.community-message-list \{ grid-row: 5; \}/);
   assert.match(css, /#meeting-chat-list \{ grid-row: 5; min-height: 0; \}/);
   assert.match(css, /\.meeting-caption-options > div \{ position: fixed;/);
 });
