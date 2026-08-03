@@ -2265,6 +2265,9 @@ body.building-mode:has(.community-workspace-panel.open) .panel-scrim { display: 
 .rail-badge,
 .request-badge { position: absolute; top: .18rem; right: .12rem; border-color: #292d2b; }
 .direct-room-badge { align-self: start; margin-left: -.9rem; }
+.overview-room-avatar { position: relative; }
+.overview-room-badge { position: absolute; top: -.38rem; right: -.38rem; border-color: #fff; }
+.community-dock b.hidden { display: none; }
 .community-hotspot-badge { position: absolute; z-index: 12; top: 4%; right: 2%; border-color: #fff; }
 .community-launch-button { position: relative; }
 .community-launch-badge { position: absolute; top: -.5rem; right: -.5rem; border-color: #fff; }

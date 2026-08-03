@@ -234,7 +234,44 @@ test("Village Community includes Moments, Self, shared files, documents, and liv
   for (const capability of ["getDisplayMedia", "MediaRecorder", "SpeechRecognition", "whiteboard", "poll"]) assert.match(meeting, new RegExp(capability, "i"));
 });
 
-test("Community chat uses a responsive WeChat-style workspace with per-room sound and unread controls", async () => {
+test("Community overview keeps the original Village page while chat rooms use the workspace", async () => {
+  const [app, css] = await Promise.all([
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  ]);
+  const overviewStart = app.indexOf("function communityOverviewHtml");
+  const overviewEnd = app.indexOf("\nasync function communityPanel", overviewStart);
+  const overview = app.slice(overviewStart, overviewEnd);
+  const panelStart = app.indexOf("async function communityPanel");
+  const panelEnd = app.indexOf("\nfunction communityMessagesHtml", panelStart);
+  const panel = app.slice(panelStart, panelEnd);
+  const roomStart = app.indexOf("async function openCommunityRoom");
+  const roomEnd = app.indexOf("\nasync function submitCommunitySettings", roomStart);
+  const room = app.slice(roomStart, roomEnd);
+  const badgesStart = app.indexOf("function renderCommunityBadges");
+  const badgesEnd = app.indexOf("\nfunction mergeCommunityRoomUpdates", badgesStart);
+  const badges = app.slice(badgesStart, badgesEnd);
+
+  assert.ok(overviewStart >= 0 && overviewEnd > overviewStart);
+  assert.match(overview, /classList\.remove\("community-workspace-panel"\)/);
+  assert.match(overview, /#panel-title/);
+  assert.match(overview, /#panel-eyebrow/);
+  assert.match(overview, /class="community-dock"/);
+  assert.match(overview, /data-overview-room-id/);
+  assert.match(overview, /class="overview-room-avatar"/);
+  assert.match(overview, /data-community-tab-badge/);
+  assert.match(overview, /return mainHtml;/);
+  assert.doesNotMatch(overview, /return communityWorkspaceHtml/);
+  assert.doesNotMatch(panel, /className: "community-workspace-panel"/);
+  assert.match(room, /className: "community-workspace-panel"/);
+  assert.match(room, /renderOpenCommunityRoom\(\)/);
+  assert.match(badges, /data-overview-room-id/);
+  assert.match(badges, /\.community-dock \[data-community-tab-badge/);
+  assert.match(css, /\.overview-room-avatar \{ position: relative; \}/);
+  assert.match(css, /\.community-dock b\.hidden \{ display: none; \}/);
+});
+
+test("Community chat rooms use a responsive WeChat-style workspace with per-room sound and unread controls", async () => {
   const [app, css] = await Promise.all([
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")

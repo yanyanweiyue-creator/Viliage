@@ -1993,10 +1993,13 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
 }
 
 function communityOverviewHtml(data, posts = state.communityPosts, activeTab = state.communityTab) {
+  $("#panel")?.classList.remove("community-workspace-panel");
+  if ($("#panel-title")) $("#panel-title").textContent = t("communityTitle");
+  if ($("#panel-eyebrow")) $("#panel-eyebrow").textContent = t("supportEyebrow");
   if (!data.enabled) {
     state.communityOverview = data;
     const optIn = `<div class="community-opt-in"><p>${escapeHtml(t("communityIntro"))}</p><p class="privacy-note">${escapeHtml(t("communityPrivacy"))}</p><form id="community-settings-form" class="stack-form"><label>${escapeHtml(t("communityDisplayName"))}<input name="displayName" maxlength="40" value="${escapeHtml(data.displayName || state.user?.name || "")}" required /></label><input type="hidden" name="enabled" value="true" /><button class="primary-button" type="submit">${escapeHtml(t("communityEnable"))}</button><p class="form-error" role="alert"></p></form></div>`;
-    return communityWorkspaceHtml(data, optIn, { activeTab });
+    return optIn;
   }
   state.communityOverview = data;
   state.communityPosts = posts;
@@ -2006,10 +2009,10 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   state.communityUnreadCount = communityAllRooms(data).reduce((total, room) => total + Number(room.unreadCount || 0), 0)
     + Number(data.notificationCounts?.moments || 0) + Number(data.notificationCounts?.requests || 0) + Number(data.notificationCounts?.meetings || 0);
   const outgoingIds = new Set((data.outgoing || []).map((item) => item.user_id));
-  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card"><span class="room-symbol">⌂</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("communityNoGroups"))}</p>`;
+  const groupCards = (data.groups || []).map((group) => `<article class="community-room-card village-room-card" data-overview-room-id="${escapeHtml(group.id)}"><span class="overview-room-avatar"><span class="room-symbol">⌂</span>${communityUnreadBadge(group.unreadCount, "overview-room-badge")}</span><button type="button" class="community-room-open" data-action="${group.joined ? "open-community-room" : "join-community-room"}" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}"><h4>${group.pinned ? "Pinned · " : ""}${escapeHtml(group.name)}</h4><p>${escapeHtml(group.description)}</p><small>${Number(group.member_count || 0)} members · ${group.system_managed ? "Commons history lasts 12 hours" : "Friend group"}</small></button>${group.joined ? `<details class="community-row-menu"><summary aria-label="Group options">•••</summary><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(group.id)}" data-pinned="${String(!group.pinned)}">${group.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="leave-community-room" data-room-id="${escapeHtml(group.id)}">Leave</button></details>` : `<button type="button" class="secondary-button" data-action="join-community-room" data-room-id="${escapeHtml(group.id)}" data-room-name="${escapeHtml(group.name)}">${escapeHtml(t("communityJoin"))}</button>`}</article>`).join("") || `<p class="community-empty">${escapeHtml(t("communityNoGroups"))}</p>`;
   const suggestions = (data.recommendations || []).map((person) => `<article class="community-person-card">${communityAvatarHtml(person)}<div><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(person.userId)}"><strong>${escapeHtml(person.displayName)}</strong></button><ul>${(person.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul></div><button type="button" class="secondary-button" ${outgoingIds.has(person.userId) || !chatWritable ? `disabled title="${escapeHtml(!chatWritable ? communityChatMuteMessage() : t("communityPending"))}"` : `data-action="connect-community" data-user-id="${escapeHtml(person.userId)}"`}>${escapeHtml(outgoingIds.has(person.userId) ? t("communityPending") : t("communityConnect"))}</button></article>`).join("") || `<p class="community-empty">${escapeHtml(t("communitySuggestionsEmpty"))}</p>`;
   const incoming = (data.incoming || []).map((request) => `<article class="community-person-card">${communityAvatarHtml(request)}<strong>${escapeHtml(request.display_name)}</strong><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityAccept"))}</button><button type="button" class="text-button" data-action="decline-connection" data-connection-id="${escapeHtml(request.id)}">${escapeHtml(t("communityDecline"))}</button></div></article>`).join("");
-  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room">${communityAvatarHtml(room)}${communityUnreadBadge(room.unreadCount, "direct-room-badge")}<button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small>${room.alertsHidden ? "⌁ " : ""}${escapeHtml(communityRoomPreview(room))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
+  const directRooms = (data.directRooms || []).map((room) => `<article class="community-direct-room" data-overview-room-id="${escapeHtml(room.id)}"><span class="overview-room-avatar">${communityAvatarHtml(room)}${communityUnreadBadge(room.unreadCount, "overview-room-badge")}</span><button type="button" class="community-room-open" data-action="open-community-room" data-room-id="${escapeHtml(room.id)}" data-room-name="${escapeHtml(room.name)}"><strong>${room.pinned ? "Pinned · " : ""}${escapeHtml(room.name)}</strong><small data-overview-room-preview>${room.alertsHidden ? "⌁ " : ""}${escapeHtml(communityRoomPreview(room))}</small></button><details class="community-row-menu"><summary aria-label="Chat options">•••</summary><button type="button" data-action="open-community-profile" data-user-id="${escapeHtml(room.user_id)}">Moments</button><button type="button" data-action="pin-community-room" data-room-id="${escapeHtml(room.id)}" data-pinned="${String(!room.pinned)}">${room.pinned ? "Unpin" : "Pin"}</button><button type="button" data-action="remove-community-friend" data-user-id="${escapeHtml(room.user_id)}">Remove</button><button type="button" class="danger" data-action="block-community-user" data-user-id="${escapeHtml(room.user_id)}">Block</button></details></article>`).join("");
   const blocks = (data.blocks || []).map((person) => `<article class="community-person-card"><strong>${escapeHtml(person.display_name)}</strong><button type="button" class="text-button" data-action="unblock-community-user" data-user-id="${escapeHtml(person.user_id)}">Unblock</button></article>`).join("");
   const groupInvites = (data.groupInvites || []).map((invite) => `<article class="community-person-card"><div><strong>${escapeHtml(invite.room_name)}</strong><small>Invited by ${escapeHtml(invite.inviter_name)}</small><p>${escapeHtml(invite.description || "")}</p></div><div class="community-actions"><button type="button" class="secondary-button" data-action="accept-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Accept</button><button type="button" class="text-button" data-action="decline-group-invite" data-invitation-id="${escapeHtml(invite.id)}">Decline</button></div></article>`).join("");
   const momentProfile = state.communityPostsProfile || { userId: state.user?.id, displayName: data.displayName, avatarDataUrl: data.avatarDataUrl, coverImageDataUrl: data.coverImageDataUrl, momentTheme: data.preferences?.momentTheme || "light", mine: true };
@@ -2025,12 +2028,16 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
     <div class="community-post-list">${communityPostsHtml(posts, { chatWritable })}</div>
   </section>`;
   const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>${escapeHtml(t("communityGroupsIntro"))}</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>${escapeHtml(t("communityGroupName"))}<input name="name" ${writeDisabled} maxlength="40" required></label><label>${escapeHtml(t("communityDescription"))}<textarea name="description" ${writeDisabled} maxlength="240"></textarea></label><strong>${escapeHtml(t("communityInviteFriends"))}</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds", { disabled: !chatWritable })}</div><button class="primary-button" ${writeDisabled}>${escapeHtml(t("communityCreateGroup"))}</button>${chatWritable ? "" : `<p class="community-write-restricted">${escapeHtml(communityChatMuteMessage())}</p>`}<p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
-  const direct = `<button type="button" class="mobile-directory-back" data-action="close-community-directory">‹ Conversations</button><section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
+  const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
   const inbox = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityNotificationsTitle"))}</h3><p>${escapeHtml(t("communityNotificationsIntro"))}</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">${escapeHtml(t("communityMarkAllRead"))}</button></section><section><h3>${escapeHtml(t("communityFriendRequests"))}</h3><div class="community-grid">${incoming || `<p class="community-empty">${escapeHtml(t("communityNoFriendRequests"))}</p>`}</div></section><section><h3>${escapeHtml(t("communityGroupInvitations"))}</h3><div class="community-grid">${groupInvites || `<p class="community-empty">${escapeHtml(t("communityNoGroupInvitations"))}</p>`}</div></section>${blocks ? `<section><h3>${escapeHtml(t("communityBlockedUsers"))}</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
   const self = communitySelfHtml(data);
   const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : activeTab === "self" ? self : direct;
+  const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", t("communitySelfTab")]];
+  const counts = data.notificationCounts || {};
+  const badgeFor = (tab) => Number(tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0);
   const showSearch = ["direct", "groups", "inbox"].includes(activeTab);
   const mainHtml = `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
+    ${communityModerationBanner(data.moderation)}
     ${activeTab === "moments" ? "" : `<header class="community-village-header">
       <div class="community-village-art"><img src="/assets/interior-village.jpg" alt=""><span></span></div>
       <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>${escapeHtml(t("communityCommons"))}</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
@@ -2039,8 +2046,9 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
     ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">${escapeHtml(t("communitySearchPeople"))}</label><input id="community-query" name="query" minlength="2" placeholder="${escapeHtml(t("communitySearchPlaceholder"))}" required><button class="secondary-button">${escapeHtml(t("search"))}</button></form><div id="community-search-results"></div></div>` : ""}
     <main class="community-tab-content">${tabContent}</main>
     <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
+    <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span><b class="${badge ? "" : "hidden"}" data-community-tab-badge="${tab}" aria-label="${badge} unread ${escapeHtml(label)} item${badge === 1 ? "" : "s"}">${badge > 99 ? "99+" : badge || ""}</b></button>`; }).join("")}</nav>
   </div>`;
-  return communityWorkspaceHtml(data, mainHtml, { activeTab });
+  return mainHtml;
 }
 
 async function communityPanel() {
@@ -2051,7 +2059,7 @@ async function communityPanel() {
   state.communityActiveProfileId = null;
   state.communityInfoOpen = false;
   state.communityDirectoryOpen = false;
-  openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>`, className: "community-workspace-panel" });
+  openPanel({ title: t("communityTitle"), eyebrow: t("supportEyebrow"), html: `<p class="panel-intro">${escapeHtml(t("communityLoading"))}</p>` });
   try {
     const optional = (path, fallback) => api(path).catch(() => fallback);
     const data = await api("/api/community");
@@ -2226,26 +2234,32 @@ function renderCommunityBadges() {
   if (!state.communityOverview) return;
   communityAllRooms(state.communityOverview).forEach((room) => {
     const row = document.querySelector(`.community-conversation-row[data-room-id="${CSS.escape(room.id)}"]`);
-    if (!row) return;
-    const badge = row.querySelector("[data-room-unread]");
+    const overviewRoom = document.querySelector(`[data-overview-room-id="${CSS.escape(room.id)}"]`);
     const count = Math.max(0, Number(room.unreadCount || 0));
-    if (badge) {
+    [row?.querySelector("[data-room-unread]"), overviewRoom?.querySelector("[data-room-unread]")].filter(Boolean).forEach((badge) => {
       badge.classList.toggle("hidden", count === 0);
       badge.textContent = count ? (count > 99 ? "99+" : String(count)) : "";
       badge.setAttribute("aria-label", `${count} unread message${count === 1 ? "" : "s"}`);
-    }
-    const preview = row.querySelector(".conversation-copy small");
+    });
+    const preview = row?.querySelector(".conversation-copy small");
     if (preview) preview.innerHTML = `${room.alertsHidden ? `<i aria-label="Alerts hidden">⌁</i>` : ""}${escapeHtml(communityRoomPreview(room))}`;
-    const time = row.querySelector("time");
+    const overviewPreview = overviewRoom?.querySelector("[data-overview-room-preview]");
+    if (overviewPreview) overviewPreview.textContent = `${room.alertsHidden ? "⌁ " : ""}${communityRoomPreview(room)}`;
+    const time = row?.querySelector("time");
     if (time) time.textContent = room.latestMessageAt ? communityTime(room.latestMessageAt) : "";
   });
   const counts = state.communityOverview.notificationCounts || {};
   [["direct", counts.direct], ["groups", counts.groups], ["moments", counts.moments], ["inbox", counts.requests]].forEach(([tab, count]) => {
-    const badge = document.querySelector(`.community-workspace-rail [data-community-tab="${tab}"] [data-room-unread]`);
-    if (!badge) return;
     const value = Math.max(0, Number(count || 0));
-    badge.classList.toggle("hidden", value === 0);
-    badge.textContent = value ? (value > 99 ? "99+" : String(value)) : "";
+    const label = tab === "direct" ? t("communityPrivateTab") : tab === "groups" ? t("communityGroupsTab") : tab === "moments" ? t("communityMomentsTab") : t("communityRequestsTab");
+    [
+      document.querySelector(`.community-workspace-rail [data-community-tab="${tab}"] [data-room-unread]`),
+      document.querySelector(`.community-dock [data-community-tab-badge="${tab}"]`)
+    ].filter(Boolean).forEach((badge) => {
+      badge.classList.toggle("hidden", value === 0);
+      badge.textContent = value ? (value > 99 ? "99+" : String(value)) : "";
+      badge.setAttribute("aria-label", `${value} unread ${label} item${value === 1 ? "" : "s"}`);
+    });
   });
 }
 
