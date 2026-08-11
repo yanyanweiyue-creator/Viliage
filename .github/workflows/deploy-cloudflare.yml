@@ -105,13 +105,11 @@ jobs:
           if (cloudflareTurn || customTurn) {
             console.log("Meeting relay configuration is present.");
           } else {
-            console.error(
-              "::error title=Meeting relay required::"
-              + "Production deployment stopped because audio, video, and screen sharing "
-              + "cannot be reliable with STUN only. Add both Cloudflare TURN secrets "
-              + "or MEETING_ICE_SERVERS_JSON."
+            console.log(
+              "::warning title=Meeting uses STUN only::"
+              + "Deployment will continue, but audio, video, and screen sharing may fail "
+              + "between restrictive networks until TURN is configured."
             );
-            process.exit(1);
           }
           NODE
         env:

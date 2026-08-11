@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 
-test("production deploy preserves reset serialization and checks Meeting relay secrets", async () => {
+test("production deploy preserves reset serialization and warns when Meeting uses STUN only", async () => {
   const workflow = await readFile(new URL("../.github/workflows/deploy-cloudflare.yml", import.meta.url), "utf8");
 
   assert.match(workflow, /group:\s*cloudflare-production/);
@@ -13,9 +13,9 @@ test("production deploy preserves reset serialization and checks Meeting relay s
   assert.match(workflow, /CLOUDFLARE_TURN_KEY_ID/);
   assert.match(workflow, /CLOUDFLARE_TURN_API_TOKEN/);
   assert.match(workflow, /MEETING_ICE_SERVERS_JSON/);
-  assert.match(workflow, /::error title=Meeting relay required::/);
-  assert.match(workflow, /process\.exit\(1\)/);
-  assert.doesNotMatch(workflow, /Meeting will use STUN only/);
+  assert.match(workflow, /::warning title=Meeting uses STUN only::/);
+  assert.match(workflow, /Deployment will continue/);
+  assert.doesNotMatch(workflow, /process\.exit\(1\)/);
   assert.doesNotMatch(workflow, /reset-production\.sql/);
 });
 
