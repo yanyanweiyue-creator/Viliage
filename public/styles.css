@@ -1438,7 +1438,10 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
 
 /* Full meeting workspace */
 .village-meeting { position: fixed; z-index: 220; inset: 0; display: grid; grid-template-rows: 3.5rem minmax(0,1fr) 4.45rem; background: #090b0a; color: #f3f6f4; }
+.village-meeting.has-connectivity-warning { grid-template-rows: 3.5rem auto minmax(0,1fr) 4.45rem; }
 .meeting-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; padding: .45rem .85rem; border-bottom: 1px solid #272c2a; background: #111412; }
+.meeting-connectivity-warning { display: flex; align-items: center; justify-content: center; gap: .45rem 1rem; padding: .45rem 1rem; border-bottom: 1px solid #765b24; background: #3d3015; color: #f8e7b2; font-size: .72rem; text-align: center; }
+.meeting-connectivity-warning strong { color: #fff3ce; }
 .meeting-header > div:first-child { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: baseline; gap: .25rem .7rem; min-width: 0; }
 .meeting-header small { color: #dfb94d; font-size: .6rem; font-weight: 850; letter-spacing: .15em; }
 .meeting-header h2 { min-width: 0; margin: 0; overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -1577,6 +1580,8 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
   .chat-file-card, .chat-location-card, .chat-document-card, .chat-meeting-card { min-width: 0; width: 100%; }
   .community-message { max-width: 98%; }
   .village-meeting { grid-template-rows: 3.25rem minmax(0,1fr) 4.05rem; }
+  .village-meeting.has-connectivity-warning { grid-template-rows: 3.25rem auto minmax(0,1fr) 4.05rem; }
+  .meeting-connectivity-warning { align-items: flex-start; flex-direction: column; gap: .15rem; text-align: left; }
   .meeting-header { padding-inline: .55rem; }
   .meeting-header > div:first-child { grid-template-columns: minmax(0,1fr) auto; }
   .meeting-header small { display: none; }

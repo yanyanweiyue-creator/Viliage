@@ -1403,7 +1403,10 @@ test("community workspace shares moderation, documents, Moments, and live meetin
   const invitationNotification = database.prepare("SELECT metadata_json FROM community_notifications WHERE user_id = ? AND kind = 'meeting-invite' ORDER BY created_at DESC LIMIT 1").get(lee.user.id);
   assert.deepEqual(Object.keys(JSON.parse(invitationNotification.metadata_json)).sort(), ["invitationId", "meetingId"]);
   assert.equal(JSON.parse(invitationNotification.metadata_json).meetingId, meetingId);
-  assert.equal((await request(lee, `/api/community/meetings/${meetingId}`)).response.status, 200);
+  const leeMeetingPreview = await request(lee, `/api/community/meetings/${meetingId}`);
+  assert.equal(leeMeetingPreview.response.status, 200);
+  assert.equal(leeMeetingPreview.data.rtcConfiguration.relayAvailable, false);
+  assert.ok(leeMeetingPreview.data.rtcConfiguration.iceServers.length > 0);
   assert.equal((await request(lee, `/api/community/meetings/${meetingId}/messages`)).response.status, 403);
   assert.equal((await request(lee, `/api/community/rooms/${samRoomId}/messages`)).response.status, 403);
   assert.equal((await request(lee, `/api/community/meetings/${meetingId}/join`, { method: "POST", payload: {} })).response.status, 200);
@@ -1562,6 +1565,8 @@ test("recommendation API applies diagnosis and category before scoring database 
     row("https://example.com/allowed", "Medicaid legal assistance", "Autism", "Legal", "Medicaid"),
     row("https://example.com/wrong-diagnosis", "Medicaid legal assistance", "ADHD", "Legal", "Medicaid"),
     row("https://example.com/wrong-category", "Medicaid legal assistance", "Autism", "Education", "Medicaid"),
+    row("https://example.com/education-law", "Education rights and IEP advocacy", "ADHD", "Legal", "Education"),
+    row("https://example.com/general-education", "Education tutoring and IEP study support", "Autism", "Education", "Education"),
     row("https://example.com/support", "Affordable family respite support", "Autism", "Caregiver Support", "Respite")
   ] } };
   const originalFetch = globalThis.fetch;
@@ -1585,6 +1590,28 @@ test("recommendation API applies diagnosis and category before scoring database 
     }), env, ctx);
     assert.equal(preciseResponse.status, 200);
     assert.ok((await preciseResponse.json()).followUpQuestions.length > 0);
+
+    const profileResponse = await worker.fetch(new Request("https://village.example/api/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ responses: { interests: ["IEP"], age: "13-18", journey: "Exploring", situation: ["School planning"], note: "Need advocacy" } })
+    }), env, ctx);
+    assert.equal(profileResponse.status, 200);
+
+    const personalResponse = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ topic: "Legal", description: "education rights guidance", count: 5, usePersonalRecord: true })
+    }), env, ctx);
+    assert.equal(personalResponse.status, 200);
+    const personal = await personalResponse.json();
+    assert.deepEqual(personal.resources.map((item) => item.url), ["https://example.com/education-law"]);
+    assert.equal(personal.researchContext.diagnosis, "");
+    assert.equal(personal.researchContext.category, "Legal");
+    assert.equal(personal.researchContext.personalRecordMode, true);
+    assert.ok(personal.researchContext.confirmedKeywords.includes("iep"));
+    assert.ok(personal.resources[0].passedFilters.includes("Personal record"));
+    assert.equal(personal.resources[0].passedFilters.some((filter) => filter.startsWith("Diagnosis:")), false);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

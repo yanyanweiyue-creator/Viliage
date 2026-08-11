@@ -49,6 +49,7 @@ test("chat mute keeps messages readable while disabling every chat-card write co
   assert.match(room, /data-action="share-community-location"/);
   assert.match(room, /data-action="create-community-document"/);
   assert.match(room, /data-action="toggle-meeting-scheduler"/);
+  assert.match(room, /room\.systemManaged \? "" : `<label class="compose-tool"[\s\S]*?data-action="toggle-meeting-scheduler"/);
   assert.match(room, /data-action="send-sticker"/);
   assert.ok((room.match(/\$\{disabled\}/g) || []).length >= 10);
 

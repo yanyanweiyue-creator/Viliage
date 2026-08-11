@@ -13,6 +13,9 @@ test("production deploy preserves reset serialization and checks Meeting relay s
   assert.match(workflow, /CLOUDFLARE_TURN_KEY_ID/);
   assert.match(workflow, /CLOUDFLARE_TURN_API_TOKEN/);
   assert.match(workflow, /MEETING_ICE_SERVERS_JSON/);
+  assert.match(workflow, /::error title=Meeting relay required::/);
+  assert.match(workflow, /process\.exit\(1\)/);
+  assert.doesNotMatch(workflow, /Meeting will use STUN only/);
   assert.doesNotMatch(workflow, /reset-production\.sql/);
 });
 

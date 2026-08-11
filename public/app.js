@@ -44,6 +44,7 @@ const state = {
   selectedIsland: null,
   currentTopic: "Education",
   currentDiagnosis: "",
+  quickResearchUsesPersonalRecord: false,
   currentResearch: null,
   dailyResearchContext: null,
   dailyResearchFeedbackPending: false,
@@ -191,10 +192,8 @@ const supplementalI18n = {
   en: {
     quickSearch: "Quick search",
     quickSearchEyebrow: "Search the whole village",
-    quickSearchIntro: "Describe what you need, choose a topic, and Waffles will search the live resource database without making you enter a building first.",
+    quickSearchIntro: "Describe what you need and choose a topic. Waffles will combine the request with your personal record; island selection is not used.",
     quickSearchTopic: "Topic",
-    quickSearchPath: "Profile focus",
-    quickSearchAnyPath: "Use my full record",
     quickSearchQuery: "What would you like to find?",
     quickSearchPlaceholder: "For example: a sensory-friendly weekend program near me for a 10-year-old…",
     quickSearchSubmit: "Search now",
@@ -296,10 +295,8 @@ const supplementalI18n = {
   zh: {
     quickSearch: "快速检索",
     quickSearchEyebrow: "检索整个村庄",
-    quickSearchIntro: "描述你的需求并选择主题，Waffles 会直接检索实时资源数据库，无需先进入某栋建筑。",
+    quickSearchIntro: "描述你的需求并选择主题。Waffles 会结合你的个人记录进行检索，不会使用岛屿选择。",
     quickSearchTopic: "主题",
-    quickSearchPath: "个人记录范围",
-    quickSearchAnyPath: "使用完整个人记录",
     quickSearchQuery: "你想查找什么？",
     quickSearchPlaceholder: "例如：适合 10 岁孩子、离我较近的感官友好型周末活动……",
     quickSearchSubmit: "立即检索",
@@ -401,10 +398,8 @@ const supplementalI18n = {
   es: {
     quickSearch: "Búsqueda rápida",
     quickSearchEyebrow: "Busca en toda la aldea",
-    quickSearchIntro: "Describe lo que necesitas, elige un tema y Waffles buscará en la base de datos sin que tengas que entrar primero en un edificio.",
+    quickSearchIntro: "Describe lo que necesitas y elige un tema. Waffles combinará la solicitud con tu registro personal; no usará la isla seleccionada.",
     quickSearchTopic: "Tema",
-    quickSearchPath: "Enfoque del perfil",
-    quickSearchAnyPath: "Usar mi registro completo",
     quickSearchQuery: "¿Qué te gustaría encontrar?",
     quickSearchPlaceholder: "Por ejemplo: un programa de fin de semana sensorialmente accesible para una persona de 10 años…",
     quickSearchSubmit: "Buscar ahora",
@@ -1312,6 +1307,7 @@ async function continueAsGuest() {
     const { user } = await api("/api/auth/guest", { method: "POST", body: "{}" });
     state.user = user;
     routeForUser();
+    setTimeout(() => openWafflesIntro({ guestSession: true }), 350);
     toast("Guest visit started. Community chat stays locked until you create an account.");
   } catch (error) { $("#auth-error").textContent = error.message; }
 }
@@ -1559,6 +1555,7 @@ function supportPanel(tab = state.supportTab, island = state.supportIsland || st
   state.supportIsland = island;
   state.currentTopic = "Caregiver Support";
   state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
+  state.quickResearchUsesPersonalRecord = false;
   const contacts = [
     { title: t("supportEmergencyTitle"), detail: t("supportEmergencyDetail"), href: "tel:911", action: t("supportEmergencyAction") },
     { title: t("supportLifelineTitle"), detail: t("supportLifelineDetail"), href: "https://988lifeline.org", action: t("supportLifelineAction") },
@@ -1979,10 +1976,10 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
     ${roomMute ? `<aside class="community-room-mute-banner" role="status"><strong>You are muted in this group</strong><span>${escapeHtml(roomMute.reason)}${roomMute.endsAt ? ` · Ends ${escapeHtml(new Date(roomMute.endsAt).toLocaleString())}` : ""}</span></aside>` : chatWritable ? "" : communityModerationBanner(state.communityOverview?.moderation)}
     <div class="community-panel-compose ${chatWritable ? "" : "is-disabled"}">
       <div class="community-compose-tools">
-        <label class="compose-tool" title="Attach a photo or document">＋<span class="sr-only">Attach file</span><input type="file" ${disabled} accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
+        ${room.systemManaged ? "" : `<label class="compose-tool" title="Attach a photo or document">＋<span class="sr-only">Attach file</span><input type="file" ${disabled} accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx" data-community-attachment></label>
         <button type="button" ${disabled} class="compose-tool" data-action="share-community-location" title="Share current location">⌖</button>
         <button type="button" ${disabled} class="compose-tool" data-action="create-community-document" title="Create a Village document">▤</button>
-        <button type="button" ${disabled} class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉</button>
+        <button type="button" ${disabled} class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉</button>`}
         <label class="compose-tool" title="Upload a custom sticker">☺<input type="file" ${disabled} accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>
       </div>
       <div id="community-attachment-preview" class="community-attachment-preview"></div>
@@ -3366,7 +3363,6 @@ function submitGuide(event) {
 function quickSearchPanel() {
   const topics = ["Education", "Legal", "Recreation", "Support"];
   const selectedTopic = topics.includes(state.currentTopic) ? state.currentTopic : "Education";
-  const selectedPath = ["autism", "adhd"].includes(state.selectedIsland) ? state.selectedIsland : "";
   openPanel({
     title: t("quickSearch"),
     eyebrow: t("quickSearchEyebrow"),
@@ -3375,7 +3371,6 @@ function quickSearchPanel() {
       <form id="quick-search-form" class="quick-search-form">
         <div class="quick-search-filters">
           <label>${escapeHtml(t("quickSearchTopic"))}<select name="topic">${topics.map((topic) => `<option value="${topic}" ${topic === selectedTopic ? "selected" : ""}>${escapeHtml(t(topic.toLowerCase()))}</option>`).join("")}</select></label>
-          <label>${escapeHtml(t("quickSearchPath"))}<select name="island"><option value="" ${selectedPath ? "" : "selected"}>${escapeHtml(t("quickSearchAnyPath"))}</option><option value="autism" ${selectedPath === "autism" ? "selected" : ""}>${escapeHtml(t("autismIsland"))}</option><option value="adhd" ${selectedPath === "adhd" ? "selected" : ""}>${escapeHtml(t("adhdIsland"))}</option></select></label>
         </div>
         <label class="quick-search-query">${escapeHtml(t("quickSearchQuery"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(t("quickSearchPlaceholder"))}"></textarea></label>
         <button class="primary-button" type="submit">${escapeHtml(t("quickSearchSubmit"))} <span aria-hidden="true">→</span></button>
@@ -3391,12 +3386,13 @@ function submitQuickSearch(event) {
   const formData = new FormData(event.target);
   const description = String(formData.get("description") || "").trim();
   if (description.length < 8) return;
-  aiPanel(String(formData.get("topic") || "Education"), String(formData.get("island") || ""), description, { autoSubmit: true });
+  aiPanel(String(formData.get("topic") || "Education"), "", description, { autoSubmit: true, usePersonalRecord: true });
 }
 
 function aiPanel(topic = "Education", island = state.selectedIsland, initialDescription = "", options = {}) {
   state.currentTopic = topic;
   state.currentDiagnosis = island === "autism" ? "Autism" : island === "adhd" ? "ADHD" : "";
+  state.quickResearchUsesPersonalRecord = Boolean(options.usePersonalRecord);
   const character = GUIDE_CHARACTERS[topic] || GUIDE_CHARACTERS.Education;
   const examples = topic === "Legal" ? t("aiExampleLegal") : topic === "Recreation" ? t("aiExampleRecreation") : t("aiExampleEducation");
   const descriptionValue = String(initialDescription || "").trim();
@@ -3704,7 +3700,7 @@ async function submitAi(event) {
   character?.classList.add("thinking");
   $("#ai-error").textContent = "";
   try {
-    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en", allowFollowUpQuestions: Boolean(state.settings.precisionResearch) };
+    const payload = { topic: state.currentTopic, diagnosis: state.currentDiagnosis, description, count, language: state.settings.language || "en", allowFollowUpQuestions: Boolean(state.settings.precisionResearch), usePersonalRecord: state.quickResearchUsesPersonalRecord };
     const data = await api("/api/ai/recommend", { method: "POST", body: JSON.stringify(payload) });
     if (data.sync) state.sheetSync = { configured: data.sync.synced || state.sheetSync.configured, ...data.sync };
     character?.classList.remove("thinking");
@@ -4918,8 +4914,8 @@ function renderWafflesIntro() {
   $("#intro-next").textContent = state.introStep === WAFFLES_INTRO_STEPS.length - 1 ? "Enter the village →" : "Next →";
 }
 
-function openWafflesIntro({ force = false } = {}) {
-  if (!state.user || state.user.guest || (!force && state.user.onboardingCompleted !== false)) return;
+function openWafflesIntro({ force = false, guestSession = false } = {}) {
+  if (!state.user || (state.user.guest && !guestSession) || (!state.user.guest && !force && state.user.onboardingCompleted !== false)) return;
   state.introStep = 0;
   state.introOpen = true;
   state.introReplay = Boolean(force);

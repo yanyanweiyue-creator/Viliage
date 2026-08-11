@@ -164,7 +164,7 @@ test("joining a meeting offers every existing participant regardless of ID order
         meeting: { id: "meeting-1", hostId: "host", title: "Village call", status: "live", settings: {} },
         participants: [],
         polls: [],
-        rtcConfiguration: { iceServers: [{ urls: ["stun:example.test:3478"] }] }
+        rtcConfiguration: { iceServers: [{ urls: ["turn:example.test:3478"] }], relayAvailable: true }
       };
     },
     getUser: () => ({ id: "middle-member", name: "Middle" })
@@ -181,7 +181,8 @@ test("joining a meeting offers every existing participant regardless of ID order
 
   assert.deepEqual(offered.sort(), ["a-member", "z-member"]);
   assert.equal(runtime.signalCursor, 41);
-  assert.deepEqual(runtime.iceServers, [{ urls: ["stun:example.test:3478"] }]);
+  assert.deepEqual(runtime.iceServers, [{ urls: ["turn:example.test:3478"] }]);
+  assert.equal(runtime.relayAvailable, true);
   assert.deepEqual(calls.map(([path]) => path), [
     "/api/community/meetings/meeting-1",
     "/api/community/meetings/meeting-1/join"

@@ -158,6 +158,26 @@ test("every building opens through a capybara loading walk into its illustrated 
   assert.match(css, /\.visual-quality-settings \.setting-options/);
 });
 
+test("guest entry always starts the introduction and Quick Research uses the personal record without an island", async () => {
+  const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  const guestStart = app.indexOf("async function continueAsGuest");
+  const guestEnd = app.indexOf("\nfunction prepareSurveyForm", guestStart);
+  const guest = app.slice(guestStart, guestEnd);
+  assert.match(guest, /routeForUser\(\);[\s\S]*?openWafflesIntro\(\{ guestSession: true \}\)/);
+
+  const introStart = app.indexOf("function openWafflesIntro");
+  const introEnd = app.indexOf("\nasync function finishWafflesIntro", introStart);
+  const intro = app.slice(introStart, introEnd);
+  assert.match(intro, /state\.user\.guest && !guestSession/);
+
+  const quickStart = app.indexOf("function quickSearchPanel");
+  const quickEnd = app.indexOf("\nfunction aiPanel", quickStart);
+  const quick = app.slice(quickStart, quickEnd);
+  assert.doesNotMatch(quick, /name="island"|selectedPath|quickSearchPath/);
+  assert.match(quick, /usePersonalRecord: true/);
+  assert.match(app, /usePersonalRecord: state\.quickResearchUsesPersonalRecord/);
+});
+
 test("low-stimulation mode removes animals and weather while forcing the lowest 3D quality", async () => {
   const [app, css, live3d, immersive] = await Promise.all([
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),

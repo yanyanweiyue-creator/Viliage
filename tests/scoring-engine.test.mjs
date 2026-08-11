@@ -30,6 +30,25 @@ test("diagnosis and category are permanent hard filters", () => {
   assert.ok(ranked.every((item) => item.passedFilters.length === 3));
 });
 
+test("personal-record research drops the island filter but keeps the current building category", () => {
+  const ranked = rankResources([
+    resource({ name: "Education law", diagnosis: "ADHD", categories: ["Legal"], tags: ["IEP", "Education"], description: "Education rights and IEP advocacy" }),
+    resource({ name: "General education", diagnosis: "Autism", categories: ["Education"], tags: ["IEP", "Education"], description: "Education and IEP tutoring" })
+  ], {
+    diagnosis: "",
+    category: "Legal",
+    gateKeywords: ["education", "iep"],
+    primaryKeywords: ["education"],
+    confirmedSecondaryKeywords: ["iep"],
+    personalRecordMode: true,
+    count: 5
+  });
+  assert.deepEqual(ranked.map((item) => item.name), ["Education law"]);
+  assert.ok(ranked[0].passedFilters.includes("Personal record"));
+  assert.ok(ranked[0].passedFilters.includes("Category: Legal"));
+  assert.equal(ranked[0].passedFilters.some((filter) => filter.startsWith("Diagnosis:")), false);
+});
+
 test("life stage is a permanent hard filter when provided", () => {
   const ranked = rankResources([
     resource({ name: "Middle school", age: "13-18", tags: ["IEP"] }),
@@ -94,7 +113,7 @@ test("expansion runs only to fill missing slots and never outranks tier 1", () =
   assert.equal(ranked[1].tier, 4);
 });
 
-test("category broadening is the lowest-priority expansion tier", () => {
+test("the current category never backfills results that miss the user's query", () => {
   const ranked = rankResources([
     resource({ name: "Direct", tags: ["lawyer"], description: "Lawyer support" }),
     resource({ name: "Broad", tags: ["advocacy"], description: "Advocacy clinic" })
@@ -102,7 +121,7 @@ test("category broadening is the lowest-priority expansion tier", () => {
     diagnosis: "Autism", category: "Legal", gateKeywords: ["lawyer"], primaryKeywords: ["lawyer"], expansionKeywords: [], count: 5
   });
   assert.equal(ranked[0].tier, 1);
-  assert.equal(ranked[1].tier, 6);
+  assert.deepEqual(ranked.map((item) => item.name), ["Direct"]);
 });
 
 test("rejected keywords never enter filtering or scoring", () => {
@@ -117,6 +136,7 @@ test("keyword helpers enforce a small gate set and clarification asks one to thr
   const gate = extractGateKeywords(primary, DEFAULT_SCORE_CONFIG);
   assert.ok(gate.length <= Math.max(1, Math.floor(primary.length * 0.2)));
   assert.ok(heuristicKeywordExpansion(["sports"], 10).includes("recreation"));
+  assert.equal(heuristicKeywordExpansion(["rights"], 10, { category: "Legal" }).includes("legal"), false);
   assert.ok(inferIssuePreferences(["affordable and soon"]).includes("long waitlist"));
   const questions = clarificationQuestions({ topic: "Legal", description: "Find a lawyer" });
   assert.ok(questions.length >= 1 && questions.length <= 3);

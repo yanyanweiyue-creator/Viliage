@@ -167,6 +167,7 @@ export class VillageMeetingRuntime {
     this.peerStates = new Map();
     this.peerRecoveryTimers = new Map();
     this.iceServers = DEFAULT_MEETING_ICE_SERVERS;
+    this.relayAvailable = false;
     this.signalTimer = null;
     this.refreshTimer = null;
     this.whiteboardTimer = null;
@@ -261,6 +262,7 @@ export class VillageMeetingRuntime {
       this.iceServers = Array.isArray(data.rtcConfiguration?.iceServers) && data.rtcConfiguration.iceServers.length
         ? data.rtcConfiguration.iceServers
         : DEFAULT_MEETING_ICE_SERVERS;
+      this.relayAvailable = data.rtcConfiguration?.relayAvailable === true;
       this.polls = data.polls || [];
       this.raisedHand = Boolean((data.participants || []).find((participant) => participant.mine)?.raisedHand);
       this.mount(data);
@@ -303,7 +305,7 @@ export class VillageMeetingRuntime {
     const chatWritable = this.canChatWrite();
     const overlay = document.createElement("section");
     overlay.id = "village-meeting";
-    overlay.className = "village-meeting";
+    overlay.className = `village-meeting${this.relayAvailable ? "" : " has-connectivity-warning"}`;
     overlay.setAttribute("aria-label", "Village video meeting");
     overlay.innerHTML = `
       <header class="meeting-header">
@@ -314,6 +316,7 @@ export class VillageMeetingRuntime {
           <button type="button" data-meeting-action="close" class="meeting-icon" title="Leave meeting">${icon("close")}<span class="sr-only">Leave meeting</span></button>
         </div>
       </header>
+      ${this.relayAvailable ? "" : `<aside class="meeting-connectivity-warning" role="status"><strong>Meeting relay is not configured</strong><span>Audio, video, and screen sharing may fail between different networks. A Village administrator must configure TURN before production use.</span></aside>`}
       <div class="meeting-layout sidebar-closed">
         <main class="meeting-stage">
           <div id="meeting-video-strip" class="meeting-video-strip" aria-label="Participant video strip">
@@ -843,7 +846,7 @@ export class VillageMeetingRuntime {
         return;
       }
       if (peer.connectionState === "failed") {
-        this.updatePeerStatus(id, "Reconnecting…");
+        this.updatePeerStatus(id, this.relayAvailable ? "Reconnecting…" : "Could not connect · relay unavailable");
         this.recoverPeer(id);
       }
     };
@@ -2575,6 +2578,7 @@ export class VillageMeetingRuntime {
     this.room = null;
     this.localStream = null;
     this.screenStream = null;
+    this.relayAvailable = false;
     this.signalCursor = 0;
     this.captionDisplayToken += 1;
     this.onClose();

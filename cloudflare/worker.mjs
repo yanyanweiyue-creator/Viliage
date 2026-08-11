@@ -352,18 +352,25 @@ function sanitizeMeetingIceServers(value, { browserGenerated = false } = {}) {
   }).filter(Boolean);
 }
 
+function publicMeetingRtcConfiguration(iceServers) {
+  return {
+    iceServers,
+    relayAvailable: iceServers.some((server) => (Array.isArray(server.urls) ? server.urls : [server.urls]).some((url) => /^turns?:/i.test(String(url || ""))))
+  };
+}
+
 async function meetingRtcConfiguration(env, cacheKey = "") {
   const fallback = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
   const configured = sanitizeMeetingIceServers(parseJson(env.MEETING_ICE_SERVERS_JSON, []));
   const turnKeyId = String(env.CLOUDFLARE_TURN_KEY_ID || "").trim();
   const turnApiToken = String(env.CLOUDFLARE_TURN_API_TOKEN || "").trim();
   if (!turnKeyId || !turnApiToken) {
-    return { iceServers: configured.length ? [...configured, ...fallback] : fallback };
+    return publicMeetingRtcConfiguration(configured.length ? [...configured, ...fallback] : fallback);
   }
   const key = String(cacheKey || "shared").slice(0, 300);
   const cached = meetingTurnConfigurations.get(key);
   if (cached?.expiresAt > Date.now()) {
-    return { iceServers: [...cached.iceServers, ...configured, ...fallback] };
+    return publicMeetingRtcConfiguration([...cached.iceServers, ...configured, ...fallback]);
   }
   try {
     const response = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(turnKeyId)}/credentials/generate-ice-servers`, {
@@ -380,10 +387,10 @@ async function meetingRtcConfiguration(env, cacheKey = "") {
     if (generated.length) {
       meetingTurnConfigurations.set(key, { iceServers: generated, expiresAt: Date.now() + 23 * 60 * 60_000 });
       if (meetingTurnConfigurations.size > 500) meetingTurnConfigurations.delete(meetingTurnConfigurations.keys().next().value);
-      return { iceServers: [...generated, ...configured, ...fallback] };
+      return publicMeetingRtcConfiguration([...generated, ...configured, ...fallback]);
     }
   } catch {}
-  return { iceServers: configured.length ? [...configured, ...fallback] : fallback };
+  return publicMeetingRtcConfiguration(configured.length ? [...configured, ...fallback] : fallback);
 }
 
 function communityDocumentInput(input = {}) {
@@ -884,18 +891,26 @@ function buildingGuideName(topic) {
   return "Waffles";
 }
 
+function normalizeResearchTopic(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "legal") return "Legal";
+  if (key === "recreation") return "Recreation";
+  if (key === "support" || key === "caregiver support") return "Caregiver Support";
+  return "Education";
+}
+
 function deterministicAnswer(topic, description, matches, language = "en") {
   const topicText = String(topic).toLowerCase();
   const guideName = buildingGuideName(topic);
   if (language === "zh") {
-    if (!matches.length) return `${guideName} 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；诊断类型与建筑分类仍会作为硬性筛选保留。`;
+    if (!matches.length) return `${guideName} 没有找到完全通过必要筛选的${topicText}资源：“${description}”。可以试着输入更宽泛的需求或地点关键词；当前建筑分类仍会作为硬性筛选保留。`;
     return `你好，我是 ${guideName}。我找到了 ${matches.length} 个可能合适的${topicText}资源，匹配你的需求：“${description}”。可以先看：${matches.slice(0, 3).map((item) => item.name).join("、")}。结果已按分数从高到低排列。请直接向服务机构确认资格、费用和当前可用性。`;
   }
   if (language === "es") {
-    if (!matches.length) return `${guideName} no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; el diagnóstico y la categoría del edificio seguirán protegidos como filtros.`;
+    if (!matches.length) return `${guideName} no encontró un recurso de ${topicText} que pasara todos los filtros requeridos para “${description}”. Prueba una necesidad o ubicación más amplia; la categoría del edificio seguirá protegida como filtro.`;
     return `Hola, soy ${guideName}. Encontré ${matches.length} recursos prometedores de ${topicText} para “${description}”. Empieza con ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Los resultados están ordenados de mayor a menor puntuación. Confirma requisitos, costo y disponibilidad directamente con cada proveedor.`;
   }
-  if (!matches.length) return `${guideName} did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; diagnosis and building category will remain protected filters.`;
+  if (!matches.length) return `${guideName} did not find a ${topicText} resource that passed every required filter for “${description}”. Try one broader need or location phrase; the current building category will remain a protected filter.`;
   return `Hi, I’m ${guideName}. I found ${matches.length} promising ${topicText} resources for “${description}”. Start with ${matches.slice(0, 3).map((item) => item.name).join(", ")}. Results are ordered from highest to lowest score. Please confirm eligibility, cost, and current availability directly with each provider.`;
 }
 
@@ -4208,19 +4223,32 @@ async function api(request, env, ctx) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/ai/recommend") {
-    const { topic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en", allowFollowUpQuestions = false } = await body(request);
+    const { topic: requestedTopic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en", allowFollowUpQuestions = false, usePersonalRecord = false } = await body(request);
+    const topic = normalizeResearchTopic(requestedTopic);
+    const personalRecordMode = usePersonalRecord === true;
+    const effectiveDiagnosis = personalRecordMode ? "" : String(diagnosis || "").trim();
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
-    if (!diagnosis) return fail("Choose an island before searching for resources.");
+    if (!personalRecordMode && !effectiveDiagnosis) return fail("Choose an island before searching for resources.");
     const data = await resources(env);
     const blockedPrimaryKeywords = await primaryKeywordBlocklist(env);
     const primaryKeywords = filterPrimaryKeywords(extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, scoreConfig.limits.maximumPrimaryKeywords);
-    const gateKeywords = extractGateKeywords([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig);
-    const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...confirmedSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords);
-    const profileAge = user.profile?.responses?.age || "";
+    const profileResponses = user.profile?.responses || {};
+    const profileKeywords = personalRecordMode
+      ? filterPrimaryKeywords(extractKeywords([
+        profileResponses.interests || [],
+        profileResponses.situation || [],
+        profileResponses.journey || "",
+        profileResponses.note || ""
+      ], scoreConfig.limits.maximumSecondaryKeywords), blockedPrimaryKeywords)
+      : [];
+    const effectiveSecondaryKeywords = [...new Set([...(Array.isArray(confirmedSecondaryKeywords) ? confirmedSecondaryKeywords : []), ...profileKeywords])].slice(0, scoreConfig.limits.maximumSecondaryKeywords);
+    const gateKeywords = extractGateKeywords([...primaryKeywords, ...effectiveSecondaryKeywords], scoreConfig);
+    const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...effectiveSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords, { category: topic });
+    const profileAge = profileResponses.age || "";
     const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
-    const issuePreferences = inferIssuePreferences([description, user.profile?.responses?.note || ""]);
+    const issuePreferences = inferIssuePreferences([description, profileResponses.note || ""]);
     const requestedCount = normalizeResultCount(count, scoreConfig);
-    const rankingInput = { diagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig };
+    const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig, personalRecordMode };
     const expanded = { ai: false, keywords: [] };
     const matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: [] });
     let answer = null;
@@ -4231,10 +4259,11 @@ async function api(request, env, ctx) {
     const foundKeywords = locatedKeywords(matches);
     const researchContext = {
       fullInput: String(description),
-      diagnosis,
+      diagnosis: effectiveDiagnosis,
       category: topic,
+      personalRecordMode,
       primaryKeywords,
-      confirmedKeywords: confirmedSecondaryKeywords,
+      confirmedKeywords: effectiveSecondaryKeywords,
       predictedKeywords: expanded.keywords,
       locatedKeywords: foundKeywords,
       requestedCount,
@@ -4262,14 +4291,14 @@ async function api(request, env, ctx) {
           reason: shortageReasons.join(" "),
           user,
           topic,
-          diagnosis,
+          diagnosis: effectiveDiagnosis,
           description,
           requestedCount,
           providedCount: matches.length,
           highScoreCount,
           source: data.source,
           primaryKeywords,
-          confirmedKeywords: confirmedSecondaryKeywords,
+          confirmedKeywords: effectiveSecondaryKeywords,
           predictedKeywords: expanded.keywords,
           locatedKeywords: foundKeywords
         }));

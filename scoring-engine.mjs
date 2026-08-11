@@ -121,14 +121,26 @@ export function extractGateKeywords(values, config = DEFAULT_SCORE_CONFIG) {
   return uniqueNormalized([...phrases, ...distinctive], cap);
 }
 
-export function heuristicKeywordExpansion(primaryKeywords, limit = 12) {
+export function heuristicKeywordExpansion(primaryKeywords, limit = 12, { category = "" } = {}) {
   const suggestions = [];
-  for (const keyword of uniqueNormalized(primaryKeywords, 50)) {
+  const explicit = uniqueNormalized(primaryKeywords, 50);
+  for (const keyword of explicit) {
     for (const [root, related] of Object.entries(SYNONYMS)) {
       if (keyword.includes(root) || related.some((term) => keyword.includes(normalizeText(term)))) suggestions.push(root, ...related);
     }
   }
-  return uniqueNormalized(suggestions, limit).filter((keyword) => !primaryKeywords.includes(keyword));
+  const categoryKey = normalizeText(category);
+  const categoryGeneric = new Set(uniqueNormalized({
+    education: ["education", "school", "learning", "student", "academic", "accommodation", "iep", "504"],
+    legal: ["legal", "law", "lawyer", "attorney", "rights", "advocacy", "disability rights"],
+    recreation: ["recreation", "activity", "social", "community", "sports", "camp"],
+    support: ["support", "family", "caregiver", "support group", "navigation", "case management"],
+    "caregiver support": ["support", "family", "caregiver", "support group", "navigation", "case management"]
+  }[categoryKey] || [], 30));
+  const explicitSet = new Set(explicit);
+  return uniqueNormalized(suggestions, limit)
+    .filter((keyword) => !categoryGeneric.has(keyword) || explicitSet.has(keyword))
+    .filter((keyword) => !explicitSet.has(keyword));
 }
 
 export function inferIssuePreferences(values) {
@@ -300,24 +312,14 @@ function scorePool(resources, options, tier, keywordOptions) {
       else scored.tier = 3;
     }
     scored.passedFilters = [
-      `Diagnosis: ${options.diagnosis}`,
+      ...(options.diagnosis ? [`Diagnosis: ${options.diagnosis}`] : []),
+      ...(options.personalRecordMode ? ["Personal record"] : []),
       `Category: ${options.category}`,
       ...(options.lifeStages?.length ? [`Life stage: ${options.lifeStages.join(", ")}`] : []),
       "Description gate"
     ];
     return { ...resource, ...scored };
   });
-}
-
-function categoryBroadeningKeywords(category, keywords = [], limit = 12) {
-  const categoryKey = normalizeText(category);
-  const broad = {
-    education: ["school", "learning", "academic", "student", "accommodation", "iep", "504"],
-    legal: ["rights", "advocacy", "lawyer", "attorney", "disability rights", "regional center"],
-    recreation: ["activity", "social", "community", "sports", "camp", "sensory friendly"],
-    support: ["family", "caregiver", "support group", "navigation", "case management"]
-  };
-  return uniqueNormalized([categoryKey, ...(broad[categoryKey] || []), ...keywords], limit);
 }
 
 export function rankResources(resources, options = {}) {
@@ -350,15 +352,6 @@ export function rankResources(resources, options = {}) {
     const predictedPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, predicted));
     for (const resource of scorePool(predictedPool, scoringOptions, 5, { predictedKeywords: predicted })) {
       collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: predicted }) });
-      seen.add(resource.url || resource.name);
-    }
-  }
-
-  if (collected.length < count && (primary.length || secondary.length || uniqueNormalized(options.predictedKeywords || [], 4).length)) {
-    const broad = categoryBroadeningKeywords(options.category, [...primary, ...secondary], limits.maximumPredictedKeywords).filter((item) => !rejected.has(item));
-    const broadPool = hardFiltered.filter((resource) => !seen.has(resource.url || resource.name) && passesDescriptionGate(resource, broad));
-    for (const resource of scorePool(broadPool, scoringOptions, 6, { predictedKeywords: broad })) {
-      collected.push({ ...resource, gateEvidence: descriptionGateEvidence(resource, { fallbackGateKeywords: broad }) });
       seen.add(resource.url || resource.name);
     }
   }

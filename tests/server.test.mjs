@@ -379,14 +379,17 @@ test("hourly user count sync fills the User Count sheet with numeric metrics onl
     });
     assert.equal(register.status, 201);
 
-    const searchBody = JSON.stringify({ topic: "Education", diagnosis: "Autism", description: "inclusive school support", count: 3, allowFollowUpQuestions: false });
+    const searchBody = JSON.stringify({ topic: "Education", description: "inclusive school support", count: 3, allowFollowUpQuestions: false, usePersonalRecord: true });
     const search = await httpRequest(`http://127.0.0.1:${port}/api/ai/recommend`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(searchBody), "X-Village-Guest": "1" },
       body: searchBody
     });
     assert.equal(search.status, 200);
-    assert.deepEqual(JSON.parse(search.text).followUpQuestions, []);
+    const searchResult = JSON.parse(search.text);
+    assert.deepEqual(searchResult.followUpQuestions, []);
+    assert.equal(searchResult.researchContext.diagnosis, "");
+    assert.equal(searchResult.researchContext.personalRecordMode, true);
 
     const helpfulBody = JSON.stringify({ helpful: true, rating: 4, details: "Clear and relevant.", source: "research-results" });
     const helpful = await httpRequest(`http://127.0.0.1:${port}/api/research-feedback`, {
@@ -638,7 +641,10 @@ test("local meeting invitations grant meeting-only access without parent chat me
       method: "POST",
       payload: { recipientIds: [friend.user.id] }
     })).response.status, 403);
-    assert.equal((await call(`/api/community/meetings/${meetingId}`, { cookie: owner.cookie })).response.status, 200);
+    const meetingPreview = await call(`/api/community/meetings/${meetingId}`, { cookie: owner.cookie });
+    assert.equal(meetingPreview.response.status, 200);
+    assert.equal(meetingPreview.data.rtcConfiguration.relayAvailable, false);
+    assert.ok(meetingPreview.data.rtcConfiguration.iceServers.length > 0);
     assert.equal((await call(`/api/community/meetings/${meetingId}/messages`, { cookie: owner.cookie })).response.status, 403);
     assert.equal((await call(`/api/community/meetings/${meetingId}/whiteboard`, { cookie: owner.cookie })).response.status, 403);
     assert.equal((await call(`/api/community/meetings/${meetingId}/join`, { cookie: owner.cookie, method: "POST", payload: {} })).response.status, 200);
