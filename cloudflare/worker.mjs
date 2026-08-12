@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
 import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "../scoring-engine.mjs";
+import { buildReachPlan, createStoredDocument, generateAboutMe, personalRecordSignals, sanitizeJourney, scanPersonalRecordDocument, updateStoredDocument, validateJourney } from "../personal-record.mjs";
 import { communityModerationState, communitySimilarity, containsBlockedLanguage, isCommunityChatWrite, maskBlockedLanguage, normalizeBlockedTerms, normalizeCommunitySanctionInput, normalizeMeetingSignalInput, pairKey, safeDisplayName } from "../community-logic.mjs";
 
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -37,9 +38,9 @@ function fail(message, status = 400) {
   return json({ error: message }, status);
 }
 
-async function body(request) {
+async function body(request, maxBytes = 1_000_000) {
   const length = Number(request.headers.get("content-length") || 0);
-  if (length > 1_000_000) throw new Error("Request is too large.");
+  if (length > maxBytes) throw new Error("Request is too large.");
   try { return await request.json(); } catch { throw new Error("Request body must be valid JSON."); }
 }
 
@@ -4206,12 +4207,57 @@ async function api(request, env, ctx) {
     if (user.guest) return fail("Create an account to save a personal record.", 403);
     const { responses } = await body(request);
     if (!responses || !Array.isArray(responses.interests) || !responses.interests.length) return fail("Please choose at least one area of interest.");
-    user.profile = { responses, summary: profileSummary(responses), updatedAt: new Date().toISOString() };
+    user.profile = { ...(user.profile || {}), responses, summary: profileSummary(responses), updatedAt: new Date().toISOString() };
     user.surveyCompleted = true;
     user.updatedAt = new Date().toISOString();
     await env.DB.prepare("UPDATE users SET survey_completed = 1, profile_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.profile), user.updatedAt, user.id).run();
     ctx.waitUntil(syncUser(env, user).catch(() => {}));
     return json({ user: safeUser(user), sync: { queued: Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/profile/journey") {
+    if (user.guest) return fail("Create an account to save a personalized journey.", 403);
+    const input = await body(request);
+    const journey = validateJourney(sanitizeJourney(input.journey));
+    if (!journey.aboutMe) journey.aboutMe = generateAboutMe(journey);
+    const data = await resources(env);
+    user.profile = { ...(user.profile || {}), journey };
+    user.profile.reachPlan = buildReachPlan(data.rows, user.profile);
+    user.updatedAt = new Date().toISOString();
+    user.profile.updatedAt = user.updatedAt;
+    await env.DB.prepare("UPDATE users SET profile_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.profile), user.updatedAt, user.id).run();
+    return json({ user: safeUser(user) });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/profile/documents/scan") {
+    if (user.guest) return fail("Create an account to import a private record document.", 403);
+    const input = await body(request, 7_100_000);
+    const { file, extracted } = await scanPersonalRecordDocument({ apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL, input });
+    const document = createStoredDocument({ file, extracted, id: randomBytes(12).toString("hex") });
+    user.profile = { ...(user.profile || {}), documents: [...(Array.isArray(user.profile?.documents) ? user.profile.documents : []), document].slice(-20), updatedAt: new Date().toISOString() };
+    user.updatedAt = user.profile.updatedAt;
+    await env.DB.prepare("UPDATE users SET profile_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.profile), user.updatedAt, user.id).run();
+    return json({ user: safeUser(user), document }, 201);
+  }
+
+  const profileDocumentMatch = url.pathname.match(/^\/api\/profile\/documents\/([^/]+)$/);
+  if ((request.method === "PATCH" || request.method === "DELETE") && profileDocumentMatch) {
+    if (user.guest) return fail("Create an account to manage private record documents.", 403);
+    const documentId = decodeURIComponent(profileDocumentMatch[1]);
+    const documents = Array.isArray(user.profile?.documents) ? user.profile.documents : [];
+    if (!documents.some((item) => item.id === documentId)) return fail("Imported document not found.", 404);
+    const input = request.method === "PATCH" ? await body(request) : {};
+    const nextDocuments = request.method === "DELETE"
+      ? documents.filter((item) => item.id !== documentId)
+      : documents.map((item) => item.id === documentId ? updateStoredDocument(item, input) : item);
+    user.profile = { ...(user.profile || {}), documents: nextDocuments, updatedAt: new Date().toISOString() };
+    if (user.profile.journey) {
+      const data = await resources(env);
+      user.profile.reachPlan = buildReachPlan(data.rows, user.profile);
+    }
+    user.updatedAt = user.profile.updatedAt;
+    await env.DB.prepare("UPDATE users SET profile_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.profile), user.updatedAt, user.id).run();
+    return json({ user: safeUser(user) });
   }
 
   if (request.method === "POST" && url.pathname === "/api/onboarding/complete") {
@@ -4226,7 +4272,8 @@ async function api(request, env, ctx) {
     const { topic: requestedTopic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en", allowFollowUpQuestions = false, usePersonalRecord = false } = await body(request);
     const topic = normalizeResearchTopic(requestedTopic);
     const personalRecordMode = usePersonalRecord === true;
-    const effectiveDiagnosis = personalRecordMode ? "" : String(diagnosis || "").trim();
+    const recordSignals = personalRecordMode ? personalRecordSignals(user.profile) : { confirmedDiagnoses: [], diagnosisNames: [], insuranceKeywords: [], supportKeywords: [] };
+    const effectiveDiagnosis = personalRecordMode ? (recordSignals.confirmedDiagnoses.length ? recordSignals.confirmedDiagnoses : "") : String(diagnosis || "").trim();
     if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
     if (!personalRecordMode && !effectiveDiagnosis) return fail("Choose an island before searching for resources.");
     const data = await resources(env);
@@ -4238,7 +4285,13 @@ async function api(request, env, ctx) {
         profileResponses.interests || [],
         profileResponses.situation || [],
         profileResponses.journey || "",
-        profileResponses.note || ""
+        profileResponses.note || "",
+        user.profile?.journey?.strengths || [],
+        user.profile?.journey?.goal || "",
+        user.profile?.journey?.goalOther || "",
+        Object.values(user.profile?.journey?.helps || {}),
+        recordSignals.diagnosisNames,
+        recordSignals.supportKeywords
       ], scoreConfig.limits.maximumSecondaryKeywords), blockedPrimaryKeywords)
       : [];
     const effectiveSecondaryKeywords = [...new Set([...(Array.isArray(confirmedSecondaryKeywords) ? confirmedSecondaryKeywords : []), ...profileKeywords])].slice(0, scoreConfig.limits.maximumSecondaryKeywords);
@@ -4246,9 +4299,9 @@ async function api(request, env, ctx) {
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...effectiveSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords, { category: topic });
     const profileAge = profileResponses.age || "";
     const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
-    const issuePreferences = inferIssuePreferences([description, profileResponses.note || ""]);
+    const issuePreferences = inferIssuePreferences([description, profileResponses.note || "", recordSignals.insuranceKeywords]);
     const requestedCount = normalizeResultCount(count, scoreConfig);
-    const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig, personalRecordMode };
+    const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, coverageKeywords: recordSignals.insuranceKeywords, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig, personalRecordMode };
     const expanded = { ai: false, keywords: [] };
     const matches = rankResources(data.rows, { ...rankingInput, predictedKeywords: [] });
     let answer = null;

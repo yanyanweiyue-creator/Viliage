@@ -1618,6 +1618,100 @@ test("recommendation API applies diagnosis and category before scoring database 
   }
 });
 
+test("personal journey and reviewed document imports persist and affect later matching", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyAccountSchema(database);
+  const env = cloudflareEnv(database, { OPENAI_API_KEY: "test-key", OPENAI_MODEL: "test-model" });
+  const register = await worker.fetch(new Request("https://village.example/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Journey User", email: "journey@example.com", password: "safe-password" })
+  }), env, ctx);
+  const cookie = register.headers.get("set-cookie").split(";")[0];
+  const columns = ["URL", "Description", "Diagnosis", "Category1", "Category2", "Age", "Tag1", "Tag2", "Tag3", "Tag4", "Tag5", "Location1", "Location2", "Location3", "Location4", "Issues", "Unused", "Price", "Resource Name"];
+  const row = (name, url, description, diagnosis, category, tags, price = "") => ({ c: [url, description, diagnosis, category, "", "All ages", ...[...tags, "", "", "", "", ""].slice(0, 5), "", "", "", "", "", "", price, name].map((v) => ({ v })) });
+  const sheetPayload = { table: { cols: columns.map((label) => ({ label })), rows: [
+    row("Autism learning", "https://example.com/autism-learning", "School learning support with Medicaid", "Autism", "Education", ["school", "learning", "Medicaid"], "Medicaid accepted"),
+    row("ADHD learning", "https://example.com/adhd-learning", "School learning support", "ADHD", "Education", ["school", "learning"]),
+    row("Advocacy help", "https://example.com/advocacy", "Rights accommodations advocacy", "Both", "Legal", ["rights", "accommodations"]),
+    row("Peer group", "https://example.com/peer", "Peer community friendship activities", "Both", "Recreation", ["peer", "community"])
+  ] } };
+  const originalFetch = globalThis.fetch;
+  let scanRequest;
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("docs.google.com/spreadsheets")) return new Response(`google.visualization.Query.setResponse(${JSON.stringify(sheetPayload)});`);
+    if (String(url) === "https://api.openai.com/v1/responses") {
+      const requestBody = JSON.parse(options.body);
+      if (requestBody.text?.format?.name === "personal_record_document") {
+        scanRequest = requestBody;
+        return Response.json({ output: [{ content: [{ type: "output_text", text: JSON.stringify({
+          documentType: "diagnosis",
+          summary: "Autism is explicitly recorded. The insurance plan is Medicaid.",
+          diagnoses: [{ name: "Autism", status: "confirmed" }],
+          insurance: { provider: "Example Health", planName: "Community Plan", planType: "Medicaid", networkType: "HMO", coveragePrograms: ["Behavioral health"], effectiveDate: "2026-01-01", expirationDate: "" },
+          accommodations: ["Extra processing time"],
+          supportNeeds: ["Clear instructions"],
+          confidence: "high",
+          warnings: []
+        }) }] }] });
+      }
+      return Response.json({ output: [{ content: [{ type: "output_text", text: "Waffles found matching resources." }] }] });
+    }
+    return originalFetch(url, options);
+  };
+  try {
+    const journeyResponse = await worker.fetch(new Request("https://village.example/api/profile/journey", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ journey: {
+        pathway: "young-person",
+        strengths: ["Creative", "Persistent"],
+        goal: "Feeling more confident at school",
+        helps: { learnBetterWhen: "instructions are clear", overwhelmedWhen: "too much information", helpsMe: "a break", wishPeopleUnderstood: "I need processing time" }
+      } })
+    }), env, ctx);
+    assert.equal(journeyResponse.status, 200);
+    const journeyResult = await journeyResponse.json();
+    assert.match(journeyResult.user.profile.journey.aboutMe, /^I’m creative and persistent/);
+    assert.deepEqual(journeyResult.user.profile.reachPlan.steps.map((step) => step.type), ["Learn", "Advocate", "Connect"]);
+
+    const dataUrl = `data:image/png;base64,${Buffer.from("record-image").toString("base64")}`;
+    const scanResponse = await worker.fetch(new Request("https://village.example/api/profile/documents/scan", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ name: "assessment.png", mime: "image/png", size: 12, kind: "diagnosis", dataUrl })
+    }), env, ctx);
+    assert.equal(scanResponse.status, 201);
+    const scanResult = await scanResponse.json();
+    assert.equal(scanRequest.store, false);
+    assert.equal(scanResult.document.reviewed, false);
+    assert.equal("dataUrl" in scanResult.document, false);
+
+    const beforeReview = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ topic: "Education", description: "school learning support", count: 5, usePersonalRecord: true })
+    }), env, ctx);
+    assert.equal((await beforeReview.json()).researchContext.diagnosis, "");
+
+    const reviewResponse = await worker.fetch(new Request(`https://village.example/api/profile/documents/${scanResult.document.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ reviewed: true })
+    }), env, ctx);
+    assert.equal(reviewResponse.status, 200);
+    const reviewed = await reviewResponse.json();
+    assert.equal(reviewed.user.profile.documents[0].reviewed, true);
+
+    const afterReview = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ topic: "Education", description: "school learning support", count: 5, usePersonalRecord: true })
+    }), env, ctx);
+    const matched = await afterReview.json();
+    assert.deepEqual(matched.researchContext.diagnosis, ["Autism"]);
+    assert.deepEqual(matched.resources.map((item) => item.url), ["https://example.com/autism-learning"]);
+    assert.ok(matched.resources[0].passedFilters.includes("Insurance considered"));
+
+    const deleteResponse = await worker.fetch(new Request(`https://village.example/api/profile/documents/${scanResult.document.id}`, { method: "DELETE", headers: { Cookie: cookie } }), env, ctx);
+    assert.equal(deleteResponse.status, 200);
+    assert.equal((await deleteResponse.json()).user.profile.documents.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("administrator blocklist removes noisy primary keywords from scoring and Error sheet records", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);

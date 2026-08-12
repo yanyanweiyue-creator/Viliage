@@ -612,6 +612,82 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .record-resource-item p { margin: .2rem 0 0; color: var(--muted); font-size: .78rem; line-height: 1.35; }
 .record-resource-item a { color: var(--sage-dark); font-size: .76rem; font-weight: 800; white-space: nowrap; }
 .record-empty { margin: 0; color: var(--muted); font-size: .85rem; }
+.journey-welcome { display: grid; gap: 1rem; text-align: center; }
+.journey-welcome h3, .journey-form h3 { margin: 0; font-size: 1.45rem; }
+.journey-welcome p, .journey-form > p:not(.eyebrow):not(.form-error) { margin: 0; color: var(--muted); }
+.journey-mark { display: grid; place-items: center; width: 4.2rem; height: 4.2rem; margin: .5rem auto 0; border-radius: 50%; background: linear-gradient(145deg,#f8e5a9,#e7bd50); color: #66501c; font-size: 1.8rem; box-shadow: 0 .8rem 2rem rgba(111,84,24,.14); }
+.journey-pathways { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+.journey-pathways button { display: grid; gap: .35rem; padding: 1.25rem; border: 1px solid #b9cfc2; border-radius: 1rem; background: white; color: var(--ink); text-align: left; cursor: pointer; }
+.journey-pathways button:hover, .journey-pathways button:focus-visible { border-color: var(--sage-dark); background: var(--sage-soft); outline: 3px solid color-mix(in srgb,var(--sage) 35%,transparent); }
+.journey-pathways span { font-weight: 850; }
+.journey-pathways small { color: var(--muted); line-height: 1.35; }
+.journey-form { display: grid; gap: 1rem; }
+.journey-form label, .record-document-upload label, .record-document-edit-form label { display: grid; gap: .4rem; color: var(--ink); font-size: .82rem; font-weight: 800; }
+.journey-progress { height: .45rem; overflow: hidden; border-radius: 999px; background: #e5ece7; }
+.journey-progress span { display: block; width: var(--journey-progress); height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--sage),#dfb84b); }
+.journey-progress-label { margin-top: -.65rem; color: var(--muted); text-align: right; }
+.journey-choice-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .55rem; }
+.journey-choice-grid label { position: relative; }
+.journey-choice-grid input { position: absolute; opacity: 0; }
+.journey-choice-grid span { min-height: 3rem; display: grid; align-items: center; padding: .65rem .8rem; border: 1px solid #cbd8d1; border-radius: .75rem; background: white; cursor: pointer; }
+.journey-choice-grid input:checked + span { border-color: var(--sage-dark); background: var(--sage-soft); box-shadow: inset 0 0 0 2px var(--sage); }
+.journey-choice-grid input:focus-visible + span { outline: 3px solid color-mix(in srgb,var(--sage) 45%,transparent); }
+.journey-nav { display: flex; align-items: center; justify-content: space-between; gap: .8rem; margin-top: .4rem; }
+.about-me-editor textarea { padding: 1rem; border-color: #d2b45a; background: #fffdf5; font-size: 1rem; line-height: 1.65; }
+.journey-review, .reach-plan-summary { display: flex; flex-wrap: wrap; gap: .45rem; }
+.journey-review span, .reach-plan-summary span { padding: .35rem .55rem; border-radius: 999px; background: var(--sage-soft); color: var(--sage-dark); font-size: .72rem; font-weight: 800; }
+.record-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.record-section-heading small, .record-section-heading strong { display: block; }
+.record-section-heading small { margin-bottom: .18rem; color: var(--sage-dark); font-size: .65rem; letter-spacing: .08em; text-transform: uppercase; }
+.journey-record-card { display: grid; gap: 1rem; border-color: #d7c27e; background: linear-gradient(145deg,#fffdf7,#f8fbf8); }
+.journey-record-card blockquote { margin: 0; padding: 1rem 1rem 1rem 1.2rem; border-left: 4px solid #d8a92f; border-radius: .3rem .8rem .8rem .3rem; background: #fff8df; color: #394c44; line-height: 1.6; }
+.journey-inline-actions { display: flex; justify-content: flex-end; }
+.reach-plan-grid { display: grid; gap: .7rem; }
+.reach-step { display: grid; gap: .55rem; padding: .85rem; border: 1px solid #d6e0da; border-radius: .9rem; background: white; }
+.reach-step-title { display: flex; gap: .65rem; align-items: center; }
+.reach-step-title i { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; border-radius: .65rem; background: var(--sage-soft); color: var(--sage-dark); font-style: normal; font-weight: 900; }
+.reach-step-title small, .reach-step-title strong { display: block; }
+.reach-step-title small { color: #8b6c15; font-size: .66rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.reach-step p, .reach-step > small { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.reach-step > a { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: .15rem .5rem; padding: .65rem; border-radius: .65rem; background: #f2f7f4; color: var(--sage-dark); font-size: .78rem; font-weight: 850; text-decoration: none; }
+.reach-step > a small { grid-column: 1; color: var(--muted); font-weight: 650; }
+.private-record-card { display: grid; gap: .9rem; }
+.private-record-card > p { margin: 0; color: var(--muted); font-size: .82rem; }
+.record-document-upload { display: grid; grid-template-columns: minmax(0,.7fr) minmax(0,1.3fr); gap: .65rem; padding: .85rem; border-radius: .85rem; background: var(--sage-soft); }
+.record-document-upload button, .record-document-upload > small, .record-document-upload .form-error { grid-column: 1 / -1; }
+.record-document-upload > small { color: var(--muted); line-height: 1.4; }
+.record-document-list { display: grid; gap: .7rem; }
+.record-document { overflow: hidden; border: 1px solid #d5ddd8; border-radius: .85rem; background: white; }
+.record-document.reviewed { border-color: #91b99f; }
+.record-document > header { display: flex; align-items: flex-start; justify-content: space-between; gap: .7rem; padding: .8rem; background: #f6f9f7; }
+.record-document > header small, .record-document > header strong { display: block; }
+.record-document > header small { color: var(--muted); font-size: .66rem; }
+.record-document > header > span { padding: .25rem .45rem; border-radius: 999px; background: #fff0cf; color: #755a14; font-size: .64rem; font-weight: 850; white-space: nowrap; }
+.record-document.reviewed > header > span { background: #e1f1e6; color: #27633d; }
+.record-document > p, .record-document > .document-facts { margin: .75rem .8rem; }
+.record-document > p { color: var(--muted); font-size: .78rem; }
+.document-facts { display: flex; flex-wrap: wrap; gap: .35rem; }
+.document-facts span { padding: .25rem .45rem; border-radius: .5rem; background: #f1f5f2; color: #3d574b; font-size: .68rem; }
+.document-warning { color: #8b5a2c !important; }
+.record-document details { border-top: 1px solid #e1e7e3; }
+.record-document summary { padding: .65rem .8rem; color: var(--sage-dark); font-size: .75rem; font-weight: 850; cursor: pointer; }
+.record-document-edit-form { display: grid; gap: .7rem; padding: 0 .8rem .9rem; }
+.record-document-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.document-review-check { display: flex !important; grid-template-columns: auto 1fr; align-items: flex-start; padding: .7rem; border-radius: .7rem; background: #fff9e7; font-weight: 700 !important; line-height: 1.4; }
+.document-review-check input { margin-top: .15rem; }
+.document-form-actions { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+@media print {
+  body * { visibility: hidden !important; }
+  #panel, #panel * { visibility: visible !important; }
+  #panel { position: absolute; inset: 0; width: 100%; height: auto; overflow: visible; transform: none; box-shadow: none; }
+  #panel .panel-top, #panel .record-profile-heading, #panel .sync-badge, #panel .record-summary, #panel .record-primary-actions, #panel .private-record-card, #panel .record-card:not(.journey-record-card), #panel .journey-inline-actions { display: none !important; }
+  #panel .panel-content { padding: 0; }
+}
+@media (max-width: 520px) {
+  .journey-pathways, .journey-choice-grid, .record-document-upload, .record-document-fields { grid-template-columns: 1fr; }
+  .record-section-heading, .record-document > header { align-items: stretch; flex-direction: column; }
+  .record-document > header > span { align-self: flex-start; }
+}
 .feedback-form { display: grid; gap: .7rem; margin-top: 1.5rem; }
 .announcement-icon-button { position: relative; display: grid; place-items: center; width: 2.9rem; height: 2.9rem; border: 1px solid var(--line); border-radius: .9rem; background: rgba(255,255,255,.78); color: var(--sage-dark); cursor: pointer; }
 .announcement-icon-button svg { width: 1.4rem; height: 1.4rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

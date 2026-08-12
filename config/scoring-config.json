@@ -1,5 +1,5 @@
 {
-  "version": "3.0",
+  "version": "3.1",
   "weights": {
     "primaryExactTag": 25,
     "primarySimilarTag": 15,
@@ -16,6 +16,8 @@
     "predictedExactTag": 3,
     "predictedSimilarTag": 1,
     "predictedDescription": 1,
+    "coverageMatch": 6,
+    "coverageConflictPenalty": -8,
     "majorIssuePenalty": -5,
     "minorIssuePenalty": -2
   },

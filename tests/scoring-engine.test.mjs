@@ -49,6 +49,24 @@ test("personal-record research drops the island filter but keeps the current bui
   assert.equal(ranked[0].passedFilters.some((filter) => filter.startsWith("Diagnosis:")), false);
 });
 
+test("reviewed personal-record diagnoses may include more than one supported island", () => {
+  const ranked = rankResources([
+    resource({ name: "Autism resource", diagnosis: "Autism" }),
+    resource({ name: "ADHD resource", diagnosis: "ADHD" }),
+    resource({ name: "Other resource", diagnosis: "Dyslexia" })
+  ], { diagnosis: ["Autism", "ADHD"], category: "Legal", gateKeywords: ["Medicaid"], primaryKeywords: ["Medicaid"], personalRecordMode: true, count: 10 });
+  assert.deepEqual(new Set(ranked.map((item) => item.name)), new Set(["Autism resource", "ADHD resource"]));
+  assert.ok(ranked.every((item) => item.passedFilters.includes("Diagnosis: Autism, ADHD")));
+});
+
+test("insurance fields are considered as a soft match and explicit conflicts are penalized", () => {
+  const covered = scoreResource(resource({ name: "Covered", description: "Medi-Cal accepted", price: "Covered by Medicaid" }), { coverageKeywords: ["Medi-Cal", "Medicaid"] });
+  const selfPay = scoreResource(resource({ name: "Self pay", description: "Self pay only and no insurance accepted" }), { coverageKeywords: ["Medi-Cal"] });
+  assert.equal(covered.explanation.some((reason) => reason.label === "insurance or coverage match"), true);
+  assert.equal(selfPay.explanation.some((reason) => reason.label === "insurance or coverage conflict"), true);
+  assert.ok(covered.score > selfPay.score);
+});
+
 test("life stage is a permanent hard filter when provided", () => {
   const ranked = rankResources([
     resource({ name: "Middle school", age: "13-18", tags: ["IEP"] }),
