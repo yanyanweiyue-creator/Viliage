@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
+import { buildReachPlan, createStoredDocument, generateAboutMe, personalRecordSignals, sanitizeJourney, scanPersonalRecordDocument, updateStoredDocument, validateJourney } from "./personal-record.mjs";
 import { communityModerationState, communitySimilarity, containsBlockedLanguage, isCommunityChatWrite, maskBlockedLanguage, normalizeBlockedTerms, normalizeCommunitySanctionInput, normalizeMeetingSignalInput, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -125,12 +126,12 @@ function sendError(res, status, message) {
   sendJson(res, status, { error: message });
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, maxBytes = MAX_BODY) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new Error("Request is too large.");
+    if (size > maxBytes) throw new Error("Request is too large.");
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -3839,10 +3840,52 @@ async function handleApi(req, res, url) {
     const { responses } = await readJsonBody(req);
     if (!responses || !Array.isArray(responses.interests) || !responses.interests.length) return sendError(res, 400, "Please choose at least one area of interest.");
     const summary = profileSummary(responses);
-    const saved = await updateUser(user.id, (item) => ({ ...item, surveyCompleted: true, profile: { responses, summary, updatedAt: new Date().toISOString() } }));
+    const saved = await updateUser(user.id, (item) => ({ ...item, surveyCompleted: true, profile: { ...(item.profile || {}), responses, summary, updatedAt: new Date().toISOString() } }));
     let sync = { synced: false };
     try { sync = await syncUserRecord(saved); } catch (error) { sync = { synced: false, reason: error.message }; }
     return sendJson(res, 200, { user: safeUser(saved), sync });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/profile/journey") {
+    if (user.guest) return sendError(res, 403, "Create an account to save a personalized journey.");
+    const input = await readJsonBody(req);
+    const journey = validateJourney(sanitizeJourney(input.journey));
+    if (!journey.aboutMe) journey.aboutMe = generateAboutMe(journey);
+    const { rows } = await getResources();
+    const profile = { ...(user.profile || {}), journey };
+    profile.reachPlan = buildReachPlan(rows, profile);
+    profile.updatedAt = new Date().toISOString();
+    const saved = await updateUser(user.id, (item) => ({ ...item, profile }));
+    return sendJson(res, 200, { user: safeUser(saved) });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/profile/documents/scan") {
+    if (user.guest) return sendError(res, 403, "Create an account to import a private record document.");
+    const input = await readJsonBody(req, 7_100_000);
+    const { file, extracted } = await scanPersonalRecordDocument({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, input });
+    const document = createStoredDocument({ file, extracted, id: randomBytes(12).toString("hex") });
+    const profile = { ...(user.profile || {}), documents: [...(Array.isArray(user.profile?.documents) ? user.profile.documents : []), document].slice(-20), updatedAt: new Date().toISOString() };
+    const saved = await updateUser(user.id, (item) => ({ ...item, profile }));
+    return sendJson(res, 201, { user: safeUser(saved), document });
+  }
+
+  const profileDocumentMatch = url.pathname.match(/^\/api\/profile\/documents\/([^/]+)$/);
+  if ((req.method === "PATCH" || req.method === "DELETE") && profileDocumentMatch) {
+    if (user.guest) return sendError(res, 403, "Create an account to manage private record documents.");
+    const documentId = decodeURIComponent(profileDocumentMatch[1]);
+    const documents = Array.isArray(user.profile?.documents) ? user.profile.documents : [];
+    if (!documents.some((item) => item.id === documentId)) return sendError(res, 404, "Imported document not found.");
+    const input = req.method === "PATCH" ? await readJsonBody(req) : {};
+    const nextDocuments = req.method === "DELETE"
+      ? documents.filter((item) => item.id !== documentId)
+      : documents.map((item) => item.id === documentId ? updateStoredDocument(item, input) : item);
+    const profile = { ...(user.profile || {}), documents: nextDocuments, updatedAt: new Date().toISOString() };
+    if (profile.journey) {
+      const { rows } = await getResources();
+      profile.reachPlan = buildReachPlan(rows, profile);
+    }
+    const saved = await updateUser(user.id, (item) => ({ ...item, profile }));
+    return sendJson(res, 200, { user: safeUser(saved) });
   }
 
   if (req.method === "POST" && url.pathname === "/api/onboarding/complete") {
@@ -3855,7 +3898,8 @@ async function handleApi(req, res, url) {
     const { topic: requestedTopic = "Education", diagnosis = "", description = "", count, confirmedSecondaryKeywords = [], rejectedKeywords = [], age = "", lifeStage = "", language = "en", allowFollowUpQuestions = false, usePersonalRecord = false } = await readJsonBody(req);
     const topic = normalizeResearchTopic(requestedTopic);
     const personalRecordMode = usePersonalRecord === true;
-    const effectiveDiagnosis = personalRecordMode ? "" : String(diagnosis || "").trim();
+    const recordSignals = personalRecordMode ? personalRecordSignals(user.profile) : { confirmedDiagnoses: [], diagnosisNames: [], insuranceKeywords: [], supportKeywords: [] };
+    const effectiveDiagnosis = personalRecordMode ? (recordSignals.confirmedDiagnoses.length ? recordSignals.confirmedDiagnoses : "") : String(diagnosis || "").trim();
     if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
     if (!personalRecordMode && !effectiveDiagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
@@ -3868,7 +3912,13 @@ async function handleApi(req, res, url) {
         profileResponses.interests || [],
         profileResponses.situation || [],
         profileResponses.journey || "",
-        profileResponses.note || ""
+        profileResponses.note || "",
+        user.profile?.journey?.strengths || [],
+        user.profile?.journey?.goal || "",
+        user.profile?.journey?.goalOther || "",
+        Object.values(user.profile?.journey?.helps || {}),
+        recordSignals.diagnosisNames,
+        recordSignals.supportKeywords
       ], config.limits.maximumSecondaryKeywords), blockedPrimaryKeywords)
       : [];
     const effectiveSecondaryKeywords = [...new Set([...(Array.isArray(confirmedSecondaryKeywords) ? confirmedSecondaryKeywords : []), ...profileKeywords])].slice(0, config.limits.maximumSecondaryKeywords);
@@ -3876,9 +3926,9 @@ async function handleApi(req, res, url) {
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...effectiveSecondaryKeywords], config.limits.maximumSecondaryKeywords, { category: topic });
     const profileAge = profileResponses.age || "";
     const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
-    const issuePreferences = inferIssuePreferences([description, profileResponses.note || ""]);
+    const issuePreferences = inferIssuePreferences([description, profileResponses.note || "", recordSignals.insuranceKeywords]);
     const requestedCount = normalizeResultCount(count, config);
-    const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config, personalRecordMode };
+    const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, coverageKeywords: recordSignals.insuranceKeywords, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config, personalRecordMode };
     const expanded = { ai: false, keywords: [] };
     const matches = rankResources(rows, { ...rankingInput, predictedKeywords: [] });
     let answer;

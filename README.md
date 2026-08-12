@@ -5,7 +5,8 @@ A full-stack, no-dependency web prototype for a personalized caregiver resource 
 ## What is included
 
 - Account creation, login, and email-code password reset with salted `scrypt` password hashes and HTTP-only session cookies
-- First-visit Community Compass survey and personal record
+- First-visit Community Compass survey, strengths-based Neurodiversity Journey, editable About Me statement, and three-step REACH Plan
+- Private diagnosis, insurance, and support-document import with AI extraction, user review, deletion, and no retained original file
 - Two-island scene with island zoom, ten independently configured building hotspots, distinct island habitats, pets, a dragon, livestock, birds, and village walkers
 - Black building-entry transition with a capybara walking across the progress track, followed by a distinct illustrated or live 3D interior for every building
 - Support/contact, opt-in community chat, a dedicated Settings icon, avatar-based My Record, education AI, legal AI, recreation AI, and activity panels
@@ -61,11 +62,13 @@ Do not share a multi-tab workbook containing `User Data`, `Error`, `Feedback`, o
 
 ## Personalized scoring engine
 
-The v2.1 ranking pipeline is `island diagnosis hard filter → building category hard filter → optional clarification → Description Gate → scoring → conditional expansion → tier/score sort`. A diagnosis or category mismatch is permanently excluded and can never return through scoring. The Description Gate uses no more than 20% of the strongest user-confirmed concepts; the full original intent becomes available only after a resource passes the gate. AI prediction is called lazily only when direct and synonym results still cannot fill the selected count.
+The v3.1 ranking pipeline is `diagnosis hard filter when confirmed → building category hard filter → optional clarification → Description Gate → scoring → conditional expansion → tier/score sort`. Quick Research does not require or use the selected island: it starts from the user's personal record. A reviewed imported Autism or ADHD diagnosis becomes a hard filter, while reviewed insurance information is a soft +6 match or −8 explicit-coverage conflict signal so missing insurance metadata cannot hide otherwise relevant resources. A category mismatch is permanently excluded and can never return through scoring. The Description Gate uses no more than 20% of the strongest user-confirmed concepts; the full original intent becomes available only after a resource passes the gate. AI prediction is called lazily only when direct and synonym results still cannot fill the selected count.
 
 Administrators can change every weight, threshold, result count, gate ratio, and clarification limit in `config/scoring-config.json` without editing application code. Primary tag matches use +25/+15/+4, confirmed-secondary tag matches use +12/+7/+2, and AI-predicted matches are capped at +3/+1/+1. `GET /api/scoring-config` exposes the active non-secret configuration for debugging; every returned resource includes its tier, passed filters, gate evidence, score, explanation, and matched keywords.
 
 See `docs/RECOMMENDATION-ARCHITECTURE.md` for the database model, search architecture, API contract, worked scoring example, and test coverage.
+
+My Record also contains two private planning features. The Neurodiversity Journey starts with strengths, one current goal, and what helps, then saves an editable self-advocacy statement and exactly three database-linked steps: Learn, Advocate, and Connect. Diagnosis, insurance, IEP/504, and other support documents may be imported as images or common document formats up to 5 MB. The file is sent directly to the server-side OpenAI Responses API with `store: false`, is not written to D1 or the user sheet, and is discarded after structured extraction. The application stores only the file metadata and recommendation-relevant fields, never extracted names, birth dates, addresses, member or policy IDs, claim numbers, signatures, or provider license numbers. AI-extracted fields do not affect matching until the user reviews them, and the user can edit, disable, or delete them at any time.
 
 For production-scale storage, use normalized `resources`, `resource_tags`, `resource_categories`, and `resource_issues` tables with indexes on normalized terms and resource IDs. The current in-memory pass is linear and suitable for thousands of cached rows. Tens of thousands of rows should add a database full-text index or precomputed inverted tag index while keeping this same scoring contract.
 

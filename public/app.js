@@ -53,6 +53,8 @@ const state = {
   introOpen: false,
   introReplay: false,
   surveyEditing: false,
+  journeyStep: 0,
+  journeyDraft: null,
   activeBuilding: null,
   buildingTransitionTimer: null,
   resources: [],
@@ -3818,12 +3820,242 @@ function recordResourceList(resources, emptyKey) {
   </article>`).join("")}</div>`;
 }
 
+const JOURNEY_STRENGTHS = ["Creative", "Curious", "Great memory", "Problem solver", "Detail-oriented", "Persistent", "Empathetic", "Passionate about interests"];
+const JOURNEY_GOALS = ["Feeling more confident at school", "Making or maintaining friendships", "Managing overwhelming situations", "Communicating what I need", "Becoming more independent", "Understanding ADHD/autism", "Finding school accommodations", "Connecting with people like me"];
+
+function journeyBlank() {
+  return { pathway: "", strengths: [], strengthOther: "", goal: "", goalOther: "", helps: { learnBetterWhen: "", overwhelmedWhen: "", helpsMe: "", wishPeopleUnderstood: "" }, aboutMe: "" };
+}
+
+function clientAboutMe(journey) {
+  const strengths = (journey.strengths || []).map((item) => item.toLowerCase());
+  const list = strengths.length > 2 ? `${strengths.slice(0, -1).join(", ")}, and ${strengths.at(-1)}` : strengths.join(" and ");
+  const fragment = (value) => String(value || "").trim().replace(/[.!?]+$/, "");
+  const parts = [];
+  const caregiver = journey.pathway === "caregiver";
+  if (list) parts.push(caregiver ? `My child is ${list}.` : `I’m ${list}.`);
+  if (journey.helps?.learnBetterWhen) parts.push(caregiver ? `They do their best when ${fragment(journey.helps.learnBetterWhen)}.` : `I do my best when ${fragment(journey.helps.learnBetterWhen)}.`);
+  if (journey.helps?.overwhelmedWhen) parts.push(caregiver ? `They can feel overwhelmed when ${fragment(journey.helps.overwhelmedWhen)}.` : `I can feel overwhelmed when ${fragment(journey.helps.overwhelmedWhen)}.`);
+  if (journey.helps?.helpsMe) parts.push(caregiver ? `What helps is ${fragment(journey.helps.helpsMe)}.` : `Something that helps me is ${fragment(journey.helps.helpsMe)}.`);
+  if (journey.helps?.wishPeopleUnderstood) parts.push(caregiver ? `I want people supporting my child to understand that ${fragment(journey.helps.wishPeopleUnderstood)}.` : `I wish people understood that ${fragment(journey.helps.wishPeopleUnderstood)}.`);
+  const goal = journey.goalOther || journey.goal;
+  if (goal) parts.push(caregiver ? `Right now, we are working toward ${fragment(goal).toLowerCase()}.` : `Right now, I’m working toward ${fragment(goal).toLowerCase()}.`);
+  return parts.join(" ");
+}
+
+function openJourney() {
+  state.journeyDraft = structuredClone(state.user?.profile?.journey || journeyBlank());
+  state.journeyStep = state.journeyDraft.pathway ? 1 : 0;
+  journeyPanel();
+}
+
+function journeyProgress() {
+  const step = Math.max(1, state.journeyStep + 1);
+  return `<div class="journey-progress" aria-label="Journey progress"><span style="--journey-progress:${Math.min(100, step * 20)}%"></span></div><small class="journey-progress-label">Step ${step} of 5</small>`;
+}
+
+function journeyPanel() {
+  const journey = state.journeyDraft || journeyBlank();
+  const step = state.journeyStep;
+  let html = "";
+  if (step === 0) {
+    html = `<section class="journey-welcome"><span class="journey-mark" aria-hidden="true">✦</span><h3>Everyone’s neurodiversity journey is different.</h3><p>Answer a few friendly questions to discover strengths, identify a goal, and find three practical next steps.</p><strong>Who are you?</strong><div class="journey-pathways"><button type="button" data-action="choose-journey-pathway" data-pathway="caregiver"><span>Parent / Caregiver</span><small>I’m planning with or for my child</small></button><button type="button" data-action="choose-journey-pathway" data-pathway="young-person"><span>Neurodivergent Young Person</span><small>I’m creating a plan for myself</small></button></div></section>`;
+  } else if (step === 1) {
+    html = `<form id="journey-strengths-form" class="journey-form">${journeyProgress()}<p class="eyebrow">Discover strengths</p><h3>What are some ${journey.pathway === "caregiver" ? "of your child’s" : "of your"} strengths?</h3><p>Choose as many as feel right.</p><div class="journey-choice-grid">${JOURNEY_STRENGTHS.map((value) => `<label><input type="checkbox" name="strengths" value="${escapeHtml(value)}" ${(journey.strengths || []).includes(value) ? "checked" : ""}><span>${escapeHtml(value)}</span></label>`).join("")}</div><label>Another strength<input name="strengthOther" maxlength="60" value="${escapeHtml(journey.strengthOther || "")}" placeholder="Write your own" /></label><p class="form-error" role="alert"></p><div class="journey-nav"><button type="button" class="text-button" data-action="journey-back">Back</button><button type="submit" class="primary-button">Continue →</button></div></form>`;
+  } else if (step === 2) {
+    html = `<form id="journey-goal-form" class="journey-form">${journeyProgress()}<p class="eyebrow">Choose a goal</p><h3>What would ${journey.pathway === "caregiver" ? "you like to work toward together" : "you like to work toward"} right now?</h3><div class="journey-choice-grid single">${JOURNEY_GOALS.map((value) => `<label><input type="radio" name="goal" value="${escapeHtml(value)}" ${journey.goal === value ? "checked" : ""}><span>${escapeHtml(value)}</span></label>`).join("")}</div><label>Something else<input name="goalOther" maxlength="140" value="${escapeHtml(journey.goalOther || "")}" placeholder="Describe one current goal" /></label><p class="form-error" role="alert"></p><div class="journey-nav"><button type="button" class="text-button" data-action="journey-back">Back</button><button type="submit" class="primary-button">Continue →</button></div></form>`;
+  } else if (step === 3) {
+    const pronoun = journey.pathway === "caregiver" ? "My child" : "I";
+    html = `<form id="journey-helps-form" class="journey-form">${journeyProgress()}<p class="eyebrow">Build self-advocacy</p><h3>What helps ${journey.pathway === "caregiver" ? "your child" : "you"} do well?</h3><p>Use your own words. You can answer any or all.</p><label>${pronoun} ${journey.pathway === "caregiver" ? "learns" : "learn"} better when…<textarea name="learnBetterWhen" rows="3" maxlength="500">${escapeHtml(journey.helps?.learnBetterWhen || "")}</textarea></label><label>${pronoun} ${journey.pathway === "caregiver" ? "feels" : "feel"} overwhelmed when…<textarea name="overwhelmedWhen" rows="3" maxlength="500">${escapeHtml(journey.helps?.overwhelmedWhen || "")}</textarea></label><label>Something that helps ${journey.pathway === "caregiver" ? "them" : "me"} is…<textarea name="helpsMe" rows="3" maxlength="500">${escapeHtml(journey.helps?.helpsMe || "")}</textarea></label><label>Something I wish other people understood is…<textarea name="wishPeopleUnderstood" rows="3" maxlength="500">${escapeHtml(journey.helps?.wishPeopleUnderstood || "")}</textarea></label><p class="form-error" role="alert"></p><div class="journey-nav"><button type="button" class="text-button" data-action="journey-back">Back</button><button type="submit" class="primary-button">Create About Me →</button></div></form>`;
+  } else {
+    if (!journey.aboutMe) journey.aboutMe = clientAboutMe(journey);
+    html = `<form id="journey-about-form" class="journey-form">${journeyProgress()}<p class="eyebrow">Your About Me statement</p><h3>Make sure this sounds like you.</h3><p>Edit anything before saving. This is a self-advocacy statement, not a diagnosis.</p><label class="about-me-editor">About Me<textarea name="aboutMe" rows="9" maxlength="1600" required>${escapeHtml(journey.aboutMe)}</textarea></label><div class="journey-review"><span>✦ ${escapeHtml((journey.strengths || []).join(" + "))}</span><span>◎ ${escapeHtml(journey.goalOther || journey.goal)}</span></div><p class="form-error" role="alert"></p><div class="journey-nav"><button type="button" class="text-button" data-action="journey-back">Back</button><button type="submit" class="primary-button">Save and create my plan</button></div></form>`;
+  }
+  openPanel({ title: "Personalized Neurodiversity Journey", eyebrow: journey.pathway === "caregiver" ? "Parent / Caregiver pathway" : journey.pathway === "young-person" ? "Young Person pathway" : "Start with strengths", html });
+}
+
+function journeyBack() {
+  state.journeyStep = Math.max(0, state.journeyStep - 1);
+  journeyPanel();
+}
+
+function renderReachPlan(plan, journey) {
+  if (!plan?.steps?.length) return `<p class="record-empty">Complete the journey to create your three next steps.</p>`;
+  const icons = { Learn: "▤", Advocate: "◇", Connect: "◎" };
+  return `<div class="reach-plan-summary"><span>✦ ${(journey?.strengths || []).map(escapeHtml).join(" + ")}</span><span>◎ ${escapeHtml(plan.goal || "Current goal")}</span></div><div class="reach-plan-grid">${plan.steps.map((step) => `<article class="reach-step"><div class="reach-step-title"><i aria-hidden="true">${icons[step.type] || "→"}</i><div><small>${escapeHtml(step.type)}</small><strong>${escapeHtml(step.title)}</strong></div></div><p>${escapeHtml(step.description)}</p><small>${escapeHtml(step.reason || "")}</small>${step.resource ? `<a href="${escapeHtml(step.resource.url)}" target="_blank" rel="noreferrer"><span>${escapeHtml(step.resource.name)}</span><small>${escapeHtml([step.resource.category, step.resource.location].filter(Boolean).join(" · "))}</small> →</a>` : `<span class="record-empty">No matching database resource yet.</span>`}</article>`).join("")}</div>`;
+}
+
+function formatRecordBytes(value) {
+  const bytes = Number(value || 0);
+  return bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1000))} KB`;
+}
+
+function documentKindLabel(kind) {
+  return ({ diagnosis: "Diagnosis / assessment", insurance: "Insurance", "support-plan": "Support plan", other: "Other record" })[kind] || "Other record";
+}
+
+function lineValues(values) {
+  return (Array.isArray(values) ? values : []).join("\n");
+}
+
+function renderRecordDocuments(documents = []) {
+  if (!documents.length) return `<p class="record-empty">No documents have been imported.</p>`;
+  return `<div class="record-document-list">${documents.slice().reverse().map((document) => {
+    const extracted = document.extracted || {};
+    const insurance = extracted.insurance || {};
+    return `<article class="record-document ${document.reviewed ? "reviewed" : "needs-review"}"><header><div><small>${escapeHtml(documentKindLabel(document.kind))} · ${escapeHtml(formatRecordBytes(document.size))}</small><strong>${escapeHtml(document.name)}</strong></div><span>${document.reviewed ? "✓ Used for matching" : "Review required"}</span></header><p>${escapeHtml(extracted.summary || "No summary was extracted.")}</p><div class="document-facts">${(extracted.diagnoses || []).map((item) => `<span>Diagnosis: ${escapeHtml(item.name)}${item.status ? ` · ${escapeHtml(item.status)}` : ""}</span>`).join("")}${insurance.provider ? `<span>Insurance: ${escapeHtml(insurance.provider)}</span>` : ""}${insurance.planType ? `<span>${escapeHtml(insurance.planType)}</span>` : ""}</div>${(extracted.warnings || []).length ? `<p class="document-warning">Check: ${escapeHtml(extracted.warnings.join(" "))}</p>` : ""}<details><summary>Review or edit extracted details</summary><form class="record-document-edit-form" data-document-id="${escapeHtml(document.id)}"><label>Record type<select name="kind"><option value="diagnosis" ${document.kind === "diagnosis" ? "selected" : ""}>Diagnosis / assessment</option><option value="insurance" ${document.kind === "insurance" ? "selected" : ""}>Insurance</option><option value="support-plan" ${document.kind === "support-plan" ? "selected" : ""}>Support plan</option><option value="other" ${document.kind === "other" ? "selected" : ""}>Other</option></select></label><label>Diagnoses (one per line)<textarea name="diagnoses" rows="3">${escapeHtml(lineValues((extracted.diagnoses || []).map((item) => item.name)))}</textarea></label><div class="record-document-fields"><label>Insurance provider<input name="insuranceProvider" value="${escapeHtml(insurance.provider || "")}"></label><label>Plan name<input name="planName" value="${escapeHtml(insurance.planName || "")}"></label><label>Plan type<input name="planType" value="${escapeHtml(insurance.planType || "")}" placeholder="PPO, HMO, Medicaid…"></label><label>Network type<input name="networkType" value="${escapeHtml(insurance.networkType || "")}"></label></div><label>Covered programs (one per line)<textarea name="coveragePrograms" rows="3">${escapeHtml(lineValues(insurance.coveragePrograms))}</textarea></label><label>Accommodations (one per line)<textarea name="accommodations" rows="3">${escapeHtml(lineValues(extracted.accommodations))}</textarea></label><label>Support needs (one per line)<textarea name="supportNeeds" rows="3">${escapeHtml(lineValues(extracted.supportNeeds))}</textarea></label><label class="document-review-check"><input type="checkbox" name="reviewed" ${document.reviewed ? "checked" : ""}> I reviewed these fields and want them used for future matching.</label><div class="document-form-actions"><button class="secondary-button" type="submit">Save review</button><button class="text-button danger-text" type="button" data-action="delete-record-document" data-document-id="${escapeHtml(document.id)}">Delete import</button></div><p class="form-error" role="status"></p></form></details></article>`;
+  }).join("")}</div>`;
+}
+
+function chooseJourneyPathway(pathway) {
+  if (!["caregiver", "young-person"].includes(pathway)) return;
+  state.journeyDraft = { ...(state.journeyDraft || journeyBlank()), pathway };
+  state.journeyStep = 1;
+  journeyPanel();
+}
+
+function submitJourneyStrengths(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const strengths = data.getAll("strengths");
+  const strengthOther = String(data.get("strengthOther") || "").trim();
+  if (strengthOther) strengths.push(strengthOther);
+  if (!strengths.length) return form.querySelector(".form-error").textContent = "Choose or write at least one strength.";
+  state.journeyDraft = { ...state.journeyDraft, strengths: [...new Set(strengths)], strengthOther };
+  state.journeyStep = 2;
+  journeyPanel();
+}
+
+function submitJourneyGoal(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const goal = String(data.get("goal") || "");
+  const goalOther = String(data.get("goalOther") || "").trim();
+  if (!goal && !goalOther) return form.querySelector(".form-error").textContent = "Choose or describe one current goal.";
+  state.journeyDraft = { ...state.journeyDraft, goal, goalOther };
+  state.journeyStep = 3;
+  journeyPanel();
+}
+
+function submitJourneyHelps(event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const helps = Object.fromEntries(["learnBetterWhen", "overwhelmedWhen", "helpsMe", "wishPeopleUnderstood"].map((key) => [key, String(data.get(key) || "").trim()]));
+  if (!Object.values(helps).some(Boolean)) return form.querySelector(".form-error").textContent = "Add at least one detail about what helps.";
+  state.journeyDraft = { ...state.journeyDraft, helps, aboutMe: "" };
+  state.journeyStep = 4;
+  journeyPanel();
+}
+
+async function submitJourneyAbout(event) {
+  event.preventDefault();
+  const form = event.target;
+  const button = form.querySelector("button[type='submit']");
+  const status = form.querySelector(".form-error");
+  state.journeyDraft.aboutMe = String(new FormData(form).get("aboutMe") || "").trim();
+  button.disabled = true;
+  button.textContent = "Creating your plan…";
+  status.textContent = "";
+  try {
+    const { user } = await api("/api/profile/journey", { method: "POST", body: JSON.stringify({ journey: state.journeyDraft }) });
+    state.user = user;
+    state.journeyDraft = null;
+    profilePanel();
+    toast("Your About Me statement and REACH Plan were saved.");
+  } catch (error) {
+    status.textContent = error.message;
+    button.disabled = false;
+    button.textContent = "Save and create my plan";
+  }
+}
+
+function recordMime(file) {
+  if (file.type) return file.type;
+  const extension = String(file.name || "").toLowerCase().split(".").pop();
+  return ({ txt: "text/plain", md: "text/markdown", pdf: "application/pdf", doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", rtf: "application/rtf", odt: "application/vnd.oasis.opendocument.text" })[extension] || "";
+}
+
+async function submitRecordDocumentUpload(event) {
+  event.preventDefault();
+  const form = event.target;
+  const file = form.elements.document.files?.[0];
+  const button = form.querySelector("button[type='submit']");
+  const status = form.querySelector(".form-error");
+  if (!file) return status.textContent = "Choose a photo or document.";
+  const mime = recordMime(file);
+  const allowed = /^(?:image\/(?:jpeg|png|webp)|application\/(?:pdf|msword|rtf|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|vnd\.oasis\.opendocument\.text)|text\/(?:plain|markdown|rtf))$/i;
+  button.disabled = true;
+  button.textContent = "Scanning privately…";
+  status.textContent = "AI is reading the file. Keep this panel open.";
+  try {
+    const fileForRead = mime === file.type ? file : new File([file], file.name, { type: mime });
+    const dataUrl = await readCommunityFile(fileForRead, { maxBytes: 5_000_000, pattern: allowed, label: "record document" });
+    const { user } = await api("/api/profile/documents/scan", { method: "POST", body: JSON.stringify({ name: file.name, mime, size: file.size, kind: new FormData(form).get("kind"), dataUrl }) });
+    state.user = user;
+    profilePanel();
+    toast("Document scanned. Review the extracted fields before using them for matching.");
+  } catch (error) {
+    status.textContent = error.message;
+    button.disabled = false;
+    button.textContent = "Scan and import";
+  }
+}
+
+function splitRecordLines(value) {
+  return String(value || "").split(/\n|;/).map((item) => item.trim()).filter(Boolean);
+}
+
+async function submitRecordDocumentEdit(event) {
+  event.preventDefault();
+  const form = event.target;
+  const documentId = form.dataset.documentId;
+  const data = new FormData(form);
+  const status = form.querySelector(".form-error");
+  const button = form.querySelector("button[type='submit']");
+  button.disabled = true;
+  status.textContent = "Saving and updating matching signals…";
+  try {
+    const payload = {
+      kind: data.get("kind"),
+      reviewed: data.get("reviewed") === "on",
+      extracted: {
+        diagnoses: splitRecordLines(data.get("diagnoses")).map((name) => ({ name, status: "user reviewed" })),
+        insurance: { provider: data.get("insuranceProvider"), planName: data.get("planName"), planType: data.get("planType"), networkType: data.get("networkType"), coveragePrograms: splitRecordLines(data.get("coveragePrograms")) },
+        accommodations: splitRecordLines(data.get("accommodations")),
+        supportNeeds: splitRecordLines(data.get("supportNeeds"))
+      }
+    };
+    const { user } = await api(`/api/profile/documents/${encodeURIComponent(documentId)}`, { method: "PATCH", body: JSON.stringify(payload) });
+    state.user = user;
+    profilePanel();
+    toast(payload.reviewed ? "Reviewed details are now used for matching." : "Imported details saved but not used for matching.");
+  } catch (error) {
+    status.textContent = error.message;
+    button.disabled = false;
+  }
+}
+
+async function deleteRecordDocument(documentId) {
+  if (!confirm("Delete this imported record and all extracted details?")) return;
+  try {
+    const { user } = await api(`/api/profile/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+    state.user = user;
+    profilePanel();
+    toast("Imported record deleted.");
+  } catch (error) { toast(error.message); }
+}
+
 function profilePanel() {
   if (state.user?.guest) return openPanel({ title: "Guest visit", eyebrow: "Temporary access", html: `<p class="panel-intro">You can explore both islands and use resource search during this visit.</p><article class="record-card"><strong>Community is locked for guests</strong><p>Create an account to save a personal record, post Moments, join group chats, or message friends.</p></article><button type="button" class="primary-button" data-action="logout">Create or log in to an account</button>` });
   const profile = state.user?.profile;
   const history = state.user?.history || [];
   const likedResources = state.user?.likedResources || [];
   const dislikedResources = state.user?.dislikedResources || [];
+  const journey = profile?.journey;
+  const documents = Array.isArray(profile?.documents) ? profile.documents : [];
   openPanel({
     title: t("recordTitle"),
     eyebrow: state.user?.name || "Village visitor",
@@ -3839,7 +4071,9 @@ function profilePanel() {
         <button type="button" class="primary-button" data-action="restart-introduction">${escapeHtml(t("restartIntro"))}</button>
         <button type="button" class="secondary-button" data-action="edit-survey">${escapeHtml(t("updateSurvey"))}</button>
       </div>
-      <div class="card-list"><article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
+      <div class="card-list"><article class="record-card journey-record-card"><div class="record-section-heading"><div><small>Strengths → goal → action</small><strong>Personalized Neurodiversity Journey</strong></div><button type="button" class="secondary-button" data-action="open-journey">${journey ? "Edit journey" : "Start journey"}</button></div>${journey ? `<blockquote>${escapeHtml(journey.aboutMe || "")}</blockquote><div class="journey-inline-actions"><button type="button" class="text-button" data-action="print-reach-plan">Print About Me + plan</button></div>${renderReachPlan(profile?.reachPlan, journey)}` : `<p>Build an editable About Me statement and receive exactly three next steps: Learn, Advocate, and Connect.</p>`}</article>
+      <article class="record-card private-record-card"><div class="record-section-heading"><div><small>Private · AI-assisted import</small><strong>Diagnosis, insurance & support documents</strong></div></div><p>Upload a photo or document. AI extracts only facts useful for resource matching; the original file is not kept after scanning.</p><form id="record-document-upload-form" class="record-document-upload"><label>Record type<select name="kind"><option value="diagnosis">Diagnosis / assessment</option><option value="insurance">Insurance policy or card</option><option value="support-plan">IEP, 504, or support plan</option><option value="other">Other document</option></select></label><label>Photo or document<input type="file" name="document" required accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,text/markdown,.doc,.docx,.rtf,.odt"></label><button class="primary-button" type="submit">Scan and import</button><small>Maximum 5 MB. Review is required before extracted facts affect matching. AI can make mistakes.</small><p class="form-error" role="status"></p></form>${renderRecordDocuments(documents)}</article>
+      <article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>
       <form id="feedback-form" class="feedback-form"><label>${escapeHtml(t("feedbackLabel"))}<textarea name="feedback" rows="4" placeholder="What felt helpful or confusing?">${escapeHtml(state.user?.feedback || "")}</textarea></label><button class="secondary-button" type="submit">${escapeHtml(t("feedbackSave"))}</button><p id="feedback-status" role="status"></p></form>
@@ -4999,6 +5233,11 @@ document.addEventListener("click", (event) => {
   if (action === "open-quick-search") quickSearchPanel();
   if (action === "restart-introduction") { closePanel(); openWafflesIntro({ force: true }); }
   if (action === "edit-survey") startSurveyEdit();
+  if (action === "open-journey") openJourney();
+  if (action === "choose-journey-pathway") chooseJourneyPathway(actionElement.dataset.pathway);
+  if (action === "journey-back") journeyBack();
+  if (action === "print-reach-plan") window.print();
+  if (action === "delete-record-document") deleteRecordDocument(actionElement.dataset.documentId);
   if (action === "cancel-survey-edit") cancelSurveyEdit();
   if (action === "open-settings") settingsPanel();
   if (action === "open-admin-functions") adminFunctionsPanel();
@@ -5099,6 +5338,12 @@ document.addEventListener("submit", (event) => {
   if (event.target.id === "password-request-form") submitPasswordRequest(event);
   if (event.target.id === "password-confirm-form") submitPasswordConfirm(event);
   if (event.target.id === "survey-form") submitSurvey(event);
+  if (event.target.id === "journey-strengths-form") submitJourneyStrengths(event);
+  if (event.target.id === "journey-goal-form") submitJourneyGoal(event);
+  if (event.target.id === "journey-helps-form") submitJourneyHelps(event);
+  if (event.target.id === "journey-about-form") submitJourneyAbout(event);
+  if (event.target.id === "record-document-upload-form") submitRecordDocumentUpload(event);
+  if (event.target.matches(".record-document-edit-form")) submitRecordDocumentEdit(event);
   if (event.target.id === "quick-search-form") submitQuickSearch(event);
   if (event.target.id === "ai-form") submitAi(event);
   if (event.target.id === "guide-form") submitGuide(event);

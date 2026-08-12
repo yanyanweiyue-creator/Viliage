@@ -19,7 +19,7 @@ const SYNONYMS = {
 };
 
 export const DEFAULT_SCORE_CONFIG = {
-  version: "3.0",
+  version: "3.1",
   weights: {
     primaryExactTag: 25,
     primarySimilarTag: 15,
@@ -36,6 +36,8 @@ export const DEFAULT_SCORE_CONFIG = {
     predictedExactTag: 3,
     predictedSimilarTag: 1,
     predictedDescription: 1,
+    coverageMatch: 6,
+    coverageConflictPenalty: -8,
     majorIssuePenalty: -5,
     minorIssuePenalty: -2
   },
@@ -190,10 +192,10 @@ function addReason(result, seen, key, points, label, keyword) {
 }
 
 function diagnosisMatches(resourceDiagnosis, requiredDiagnosis) {
-  const required = singularize(normalizeText(requiredDiagnosis));
-  if (!required) return true;
+  const required = uniqueNormalized(Array.isArray(requiredDiagnosis) ? requiredDiagnosis : [requiredDiagnosis], 6);
+  if (!required.length) return true;
   const diagnoses = normalizedList([resourceDiagnosis]);
-  return diagnoses.some((value) => value === "both" || value === required || value.includes(required));
+  return diagnoses.some((value) => value === "both" || required.some((item) => value === item || value.includes(item)));
 }
 
 function categoryMatches(resourceCategories, requiredCategory) {
@@ -251,7 +253,7 @@ export function descriptionGateEvidence(resource, { primaryGateKeywords = [], se
   };
 }
 
-export function scoreResource(resource, { primaryKeywords = [], confirmedSecondaryKeywords = [], predictedKeywords = [], rejectedKeywords = [], issuePreferences = [], config = DEFAULT_SCORE_CONFIG, tier = 1 } = {}) {
+export function scoreResource(resource, { primaryKeywords = [], confirmedSecondaryKeywords = [], predictedKeywords = [], rejectedKeywords = [], issuePreferences = [], coverageKeywords = [], config = DEFAULT_SCORE_CONFIG, tier = 1 } = {}) {
   const weights = { ...DEFAULT_SCORE_CONFIG.weights, ...(config.weights || {}) };
   const tags = normalizedList(resource.tags);
   const description = singularize(normalizeText([resource.name, resource.description].filter(Boolean).join(" ")));
@@ -292,6 +294,16 @@ export function scoreResource(resource, { primaryKeywords = [], confirmedSeconda
     addReason(result, seen, `issue:${issue}`, major ? weights.majorIssuePenalty : weights.minorIssuePenalty, `${major ? "major" : "minor"} issue`, issue);
   }
 
+  const coverage = uniqueNormalized(coverageKeywords, 20);
+  const coverageText = singularize(normalizeText([resource.name, resource.description, resource.tags, resource.price, resource.issues].flat(Infinity).filter(Boolean).join(" ")));
+  const matchedCoverage = coverage.filter((keyword) => descriptionStrength(keyword, coverageText) !== "none");
+  if (matchedCoverage.length) {
+    addReason(result, seen, `coverage:${matchedCoverage[0]}`, weights.coverageMatch, "insurance or coverage match", matchedCoverage[0]);
+  }
+  if (coverage.length && /\b(no insurance|insurance not accepted|does not accept insurance|out of network|self pay only)\b/.test(coverageText)) {
+    addReason(result, seen, "coverage:conflict", weights.coverageConflictPenalty, "insurance or coverage conflict", "coverage conflict");
+  }
+
   result.score = Math.round(result.score * 10) / 10;
   result.matchedKeywords = [...new Set(result.matchedKeywords)];
   return result;
@@ -312,10 +324,11 @@ function scorePool(resources, options, tier, keywordOptions) {
       else scored.tier = 3;
     }
     scored.passedFilters = [
-      ...(options.diagnosis ? [`Diagnosis: ${options.diagnosis}`] : []),
+      ...((Array.isArray(options.diagnosis) ? options.diagnosis.length : options.diagnosis) ? [`Diagnosis: ${Array.isArray(options.diagnosis) ? options.diagnosis.join(", ") : options.diagnosis}`] : []),
       ...(options.personalRecordMode ? ["Personal record"] : []),
       `Category: ${options.category}`,
       ...(options.lifeStages?.length ? [`Life stage: ${options.lifeStages.join(", ")}`] : []),
+      ...(options.coverageKeywords?.length ? ["Insurance considered"] : []),
       "Description gate"
     ];
     return { ...resource, ...scored };
