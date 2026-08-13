@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { CLARIFICATION_TRANSLATIONS, DEFAULT_SCORE_CONFIG, clarificationQuestions, extractGateKeywords, extractKeywords, extractLifeStages, heuristicKeywordExpansion, inferIssuePreferences, normalizeKeywordList, normalizeResultCount, rankResources } from "./scoring-engine.mjs";
-import { buildReachPlan, createStoredDocument, generateAboutMe, personalRecordSignals, sanitizeJourney, scanPersonalRecordDocument, updateStoredDocument, validateJourney } from "./personal-record.mjs";
+import { buildReachPlan, generateAboutMe, personalRecordSignals, sanitizeJourney, validateJourney } from "./personal-record.mjs";
 import { communityModerationState, communitySimilarity, containsBlockedLanguage, isCommunityChatWrite, maskBlockedLanguage, normalizeBlockedTerms, normalizeCommunitySanctionInput, normalizeMeetingSignalInput, pairKey, safeDisplayName } from "./community-logic.mjs";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -3860,25 +3860,17 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/profile/documents/scan") {
-    if (user.guest) return sendError(res, 403, "Create an account to import a private record document.");
-    const input = await readJsonBody(req, 7_100_000);
-    const { file, extracted } = await scanPersonalRecordDocument({ apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL, input });
-    const document = createStoredDocument({ file, extracted, id: randomBytes(12).toString("hex") });
-    const profile = { ...(user.profile || {}), documents: [...(Array.isArray(user.profile?.documents) ? user.profile.documents : []), document].slice(-20), updatedAt: new Date().toISOString() };
-    const saved = await updateUser(user.id, (item) => ({ ...item, profile }));
-    return sendJson(res, 201, { user: safeUser(saved), document });
+    return sendError(res, 410, "Personal record document scanning is temporarily unavailable.");
   }
 
   const profileDocumentMatch = url.pathname.match(/^\/api\/profile\/documents\/([^/]+)$/);
   if ((req.method === "PATCH" || req.method === "DELETE") && profileDocumentMatch) {
     if (user.guest) return sendError(res, 403, "Create an account to manage private record documents.");
+    if (req.method === "PATCH") return sendError(res, 410, "Personal record document review is temporarily unavailable.");
     const documentId = decodeURIComponent(profileDocumentMatch[1]);
     const documents = Array.isArray(user.profile?.documents) ? user.profile.documents : [];
     if (!documents.some((item) => item.id === documentId)) return sendError(res, 404, "Imported document not found.");
-    const input = req.method === "PATCH" ? await readJsonBody(req) : {};
-    const nextDocuments = req.method === "DELETE"
-      ? documents.filter((item) => item.id !== documentId)
-      : documents.map((item) => item.id === documentId ? updateStoredDocument(item, input) : item);
+    const nextDocuments = documents.filter((item) => item.id !== documentId);
     const profile = { ...(user.profile || {}), documents: nextDocuments, updatedAt: new Date().toISOString() };
     if (profile.journey) {
       const { rows } = await getResources();

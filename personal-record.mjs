@@ -1,6 +1,7 @@
 import { extractKeywords, extractLifeStages, normalizeText, rankResources } from "./scoring-engine.mjs";
 
 export const RECORD_DOCUMENT_MAX_BYTES = 5_000_000;
+export const PERSONAL_RECORD_IMPORTS_ENABLED = false;
 
 const PATHWAYS = new Set(["caregiver", "young-person"]);
 const DOCUMENT_KINDS = new Set(["diagnosis", "insurance", "support-plan", "other"]);
@@ -107,6 +108,7 @@ function normalizedDiagnosisName(value) {
 }
 
 export function personalRecordSignals(profile = {}) {
+  if (!PERSONAL_RECORD_IMPORTS_ENABLED) return { diagnosisNames: [], confirmedDiagnoses: [], insuranceKeywords: [], supportKeywords: [] };
   const documents = Array.isArray(profile?.documents) ? profile.documents : [];
   const diagnosisNames = [];
   const confirmedDiagnoses = [];

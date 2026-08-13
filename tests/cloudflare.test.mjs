@@ -1618,7 +1618,7 @@ test("recommendation API applies diagnosis and category before scoring database 
   }
 });
 
-test("personal journey and reviewed document imports persist and affect later matching", async () => {
+test("personal journey persists while document importing and review are suspended", async () => {
   const database = new DatabaseSync(":memory:");
   await applyAccountSchema(database);
   const env = cloudflareEnv(database, { OPENAI_API_KEY: "test-key", OPENAI_MODEL: "test-model" });
@@ -1677,35 +1677,17 @@ test("personal journey and reviewed document imports persist and affect later ma
     const scanResponse = await worker.fetch(new Request("https://village.example/api/profile/documents/scan", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ name: "assessment.png", mime: "image/png", size: 12, kind: "diagnosis", dataUrl })
     }), env, ctx);
-    assert.equal(scanResponse.status, 201);
-    const scanResult = await scanResponse.json();
-    assert.equal(scanRequest.store, false);
-    assert.equal(scanResult.document.reviewed, false);
-    assert.equal("dataUrl" in scanResult.document, false);
+    assert.equal(scanResponse.status, 410);
+    assert.match((await scanResponse.json()).error, /temporarily unavailable/i);
+    assert.equal(scanRequest, undefined);
 
-    const beforeReview = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+    const recommendation = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
       method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ topic: "Education", description: "school learning support", count: 5, usePersonalRecord: true })
     }), env, ctx);
-    assert.equal((await beforeReview.json()).researchContext.diagnosis, "");
-
-    const reviewResponse = await worker.fetch(new Request(`https://village.example/api/profile/documents/${scanResult.document.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ reviewed: true })
-    }), env, ctx);
-    assert.equal(reviewResponse.status, 200);
-    const reviewed = await reviewResponse.json();
-    assert.equal(reviewed.user.profile.documents[0].reviewed, true);
-
-    const afterReview = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
-      method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ topic: "Education", description: "school learning support", count: 5, usePersonalRecord: true })
-    }), env, ctx);
-    const matched = await afterReview.json();
-    assert.deepEqual(matched.researchContext.diagnosis, ["Autism"]);
-    assert.deepEqual(matched.resources.map((item) => item.url), ["https://example.com/autism-learning"]);
-    assert.ok(matched.resources[0].passedFilters.includes("Insurance considered"));
-
-    const deleteResponse = await worker.fetch(new Request(`https://village.example/api/profile/documents/${scanResult.document.id}`, { method: "DELETE", headers: { Cookie: cookie } }), env, ctx);
-    assert.equal(deleteResponse.status, 200);
-    assert.equal((await deleteResponse.json()).user.profile.documents.length, 0);
+    assert.equal(recommendation.status, 200);
+    const matched = await recommendation.json();
+    assert.equal(matched.researchContext.diagnosis, "");
+    assert.equal(matched.researchContext.personalRecordMode, true);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
