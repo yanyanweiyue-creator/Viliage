@@ -550,18 +550,21 @@ test("community groups keep descriptions and menus aligned and documents open th
   assert.match(exporter, /word\/document\.xml/);
 });
 
-test("header offers quick search while keeping My record in the status row", async () => {
+test("header offers Quick search and My Record tabs while retaining the avatar shortcut", async () => {
   const [html, app, css] = await Promise.all([
     readFile(new URL("../public/index.html", import.meta.url), "utf8"),
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")
   ]);
   assert.match(html, /data-action="open-quick-search"[^>]*data-i18n="quickSearch"/);
+  assert.match(html, /data-action="open-profile"[^>]*class="nav-button"[^>]*data-i18n="myRecord"/);
+  assert.match(html, /class="avatar-button" data-action="open-profile"/);
   assert.match(html, /id="record-status-action" data-action="open-profile"/);
   assert.match(app, /function quickSearchPanel\(\)/);
   assert.match(app, /id="quick-search-form"/);
   assert.match(app, /aiPanel\(String\(formData\.get\("topic"\)/);
   assert.match(css, /\.quick-search-filters\s*\{[^}]*grid-template-columns:\s*repeat\(2/);
+  assert.match(css, /\.app-header nav\s*\{[^}]*grid-area:\s*nav;[^}]*display:\s*flex/);
 });
 
 test("the header avatar opens My Record, where the shared profile photo can be changed", async () => {

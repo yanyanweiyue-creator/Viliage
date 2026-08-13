@@ -764,7 +764,12 @@ body.theme-high .secondary-button, body.theme-high .setting-option, body.theme-h
 @media (max-width: 900px) {
   .auth-shell { grid-template-columns: 1fr; }.auth-art { display: none; }.auth-card { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
   .survey-grid { grid-template-columns: 1fr; }.wide-field, .form-actions, .survey-grid > .form-error { grid-column: 1; }
-  .app-header { grid-template-columns: 1fr auto; }.app-header nav { display: none; }.pill-button { width: 2.7rem; height: 2.7rem; justify-content: center; padding: 0; font-size: 0; }.pill-button > span[aria-hidden="true"] { font-size: 1rem; }.pill-button > span[data-i18n] { display: none; }.header-tools { gap: .4rem; }
+  .app-header { grid-template: "brand tools" auto "nav nav" auto / minmax(0, 1fr) auto; height: auto; min-height: 5.35rem; gap: .35rem .6rem; padding-top: .35rem; padding-bottom: .45rem; }
+  .app-header > .brand-lockup { grid-area: brand; }
+  .app-header nav { grid-area: nav; display: flex; justify-content: center; width: 100%; overflow-x: auto; }
+  .app-header .nav-button { flex: 1 1 auto; padding: .48rem .7rem; white-space: nowrap; }
+  .header-tools { grid-area: tools; gap: .4rem; }
+  .pill-button { width: 2.7rem; height: 2.7rem; justify-content: center; padding: 0; font-size: 0; }.pill-button > span[aria-hidden="true"] { font-size: 1rem; }.pill-button > span[data-i18n] { display: none; }
   .hero-copy { align-items: flex-start; flex-direction: column; }.village-main { width: 96vw; }.village-map { border-radius: 1.2rem; overflow-x: auto; }.map-stage { width: 70rem; max-width: none; }
   .map-stage.focus-autism { transform: scale(1.34) translate(9.5%, 0); }.map-stage.focus-adhd { transform: scale(1.34) translate(-9.5%, 0); }
   .environment-status { position: absolute; left: 50%; bottom: .75rem; top: auto; transform: translateX(-50%); width: min(28rem, calc(100vw - 3rem)); max-width: none; margin-bottom: 0; }
