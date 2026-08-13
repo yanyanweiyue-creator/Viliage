@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildReachPlan, createStoredDocument, generateAboutMe, personalRecordSignals, sanitizeJourney, scanPersonalRecordDocument, updateStoredDocument, validateJourney, validateRecordDocumentInput } from "../personal-record.mjs";
+import { buildReachPlan, createStoredDocument, generateAboutMe, PERSONAL_RECORD_IMPORTS_ENABLED, personalRecordSignals, sanitizeJourney, scanPersonalRecordDocument, updateStoredDocument, validateJourney, validateRecordDocumentInput } from "../personal-record.mjs";
 
 const journey = {
   pathway: "young-person",
@@ -47,7 +47,7 @@ test("REACH Plan always returns one Learn, Advocate, and Connect step", () => {
   assert.ok(plan.steps.every((step) => step.resource?.url.startsWith("https://")));
 });
 
-test("imported facts do not affect matching until the user reviews them", () => {
+test("document-derived facts stay out of matching while imports are suspended", () => {
   const document = createStoredDocument({
     id: "doc-1",
     file: { name: "record.pdf", mime: "application/pdf", size: 200, kind: "diagnosis" },
@@ -56,9 +56,8 @@ test("imported facts do not affect matching until the user reviews them", () => 
   assert.deepEqual(personalRecordSignals({ documents: [document] }).confirmedDiagnoses, []);
   const reviewed = updateStoredDocument(document, { reviewed: true });
   const signals = personalRecordSignals({ documents: [reviewed] });
-  assert.deepEqual(signals.confirmedDiagnoses, ["Autism"]);
-  assert.ok(signals.insuranceKeywords.includes("Medi-Cal"));
-  assert.ok(signals.supportKeywords.includes("Extra processing time"));
+  assert.equal(PERSONAL_RECORD_IMPORTS_ENABLED, false);
+  assert.deepEqual(signals, { diagnosisNames: [], confirmedDiagnoses: [], insuranceKeywords: [], supportKeywords: [] });
 });
 
 test("document scan sends ephemeral image input and strips direct identifiers from stored fields", async () => {

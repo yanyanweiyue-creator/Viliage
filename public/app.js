@@ -1824,7 +1824,7 @@ function communityRoomPreview(room = {}) {
 
 function communityUnreadBadge(count, className = "") {
   const unread = Math.max(0, Number(count || 0));
-  return `<span class="community-unread-badge ${className} ${unread ? "" : "hidden"}" data-room-unread aria-label="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread || ""}</span>`;
+  return `<span class="community-unread-badge ${className} ${unread ? "" : "hidden"}" data-room-unread aria-label="${unread} unread message${unread === 1 ? "" : "s"}"></span>`;
 }
 
 function communityRailHtml(data, activeTab) {
@@ -2030,24 +2030,25 @@ function communityOverviewHtml(data, posts = state.communityPosts, activeTab = s
   </section>`;
   const groups = `<section><div class="community-section-heading"><div><h3>${escapeHtml(t("communityGroups"))}</h3><p>${escapeHtml(t("communityGroupsIntro"))}</p></div></div><form id="community-group-form" class="stack-form community-create-group"><label>${escapeHtml(t("communityGroupName"))}<input name="name" ${writeDisabled} maxlength="40" required></label><label>${escapeHtml(t("communityDescription"))}<textarea name="description" ${writeDisabled} maxlength="240"></textarea></label><strong>${escapeHtml(t("communityInviteFriends"))}</strong><div class="friend-choices">${communityFriendChoices(data, "memberIds", { disabled: !chatWritable })}</div><button class="primary-button" ${writeDisabled}>${escapeHtml(t("communityCreateGroup"))}</button>${chatWritable ? "" : `<p class="community-write-restricted">${escapeHtml(communityChatMuteMessage())}</p>`}<p class="form-error" role="alert"></p></form><div class="community-grid">${groupCards}</div></section>`;
   const direct = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityDirect"))}</h3><p>${escapeHtml(t("communityDirectIntro"))}</p></div><div class="community-direct-list">${directRooms || `<p class="community-empty">${escapeHtml(t("communityDirectEmpty"))}</p>`}</div></section><section><div class="community-section-heading"><h3>${escapeHtml(t("communitySuggestions"))}</h3><p>${escapeHtml(t("communitySuggestionsIntro"))}</p></div><div class="community-grid">${suggestions}</div></section>`;
-  const inbox = `<section><div class="community-section-heading"><h3>${escapeHtml(t("communityNotificationsTitle"))}</h3><p>${escapeHtml(t("communityNotificationsIntro"))}</p></div><div class="community-notification-list">${communityNotificationsHtml(state.communityNotifications)}</div><button type="button" class="text-button" data-action="mark-community-read">${escapeHtml(t("communityMarkAllRead"))}</button></section><section><h3>${escapeHtml(t("communityFriendRequests"))}</h3><div class="community-grid">${incoming || `<p class="community-empty">${escapeHtml(t("communityNoFriendRequests"))}</p>`}</div></section><section><h3>${escapeHtml(t("communityGroupInvitations"))}</h3><div class="community-grid">${groupInvites || `<p class="community-empty">${escapeHtml(t("communityNoGroupInvitations"))}</p>`}</div></section>${blocks ? `<section><h3>${escapeHtml(t("communityBlockedUsers"))}</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
+  const inbox = `<section><h3>${escapeHtml(t("communityFriendRequests"))}</h3><div class="community-grid">${incoming || `<p class="community-empty">${escapeHtml(t("communityNoFriendRequests"))}</p>`}</div></section><section><h3>${escapeHtml(t("communityGroupInvitations"))}</h3><div class="community-grid">${groupInvites || `<p class="community-empty">${escapeHtml(t("communityNoGroupInvitations"))}</p>`}</div></section>${blocks ? `<section><h3>${escapeHtml(t("communityBlockedUsers"))}</h3><div class="community-grid">${blocks}</div></section>` : ""}`;
   const self = communitySelfHtml(data);
   const tabContent = activeTab === "groups" ? groups : activeTab === "moments" ? moments : activeTab === "inbox" ? inbox : activeTab === "self" ? self : direct;
   const navItems = [["direct", t("communityPrivateTab")], ["groups", t("communityGroupsTab")], ["moments", t("communityMomentsTab")], ["inbox", t("communityRequestsTab")], ["self", t("communitySelfTab")]];
   const counts = data.notificationCounts || {};
   const badgeFor = (tab) => Number(tab === "direct" ? counts.direct : tab === "groups" ? counts.groups : tab === "moments" ? counts.moments : tab === "inbox" ? counts.requests : 0);
+  const requestUnread = Math.max(0, Number(counts.requests || 0));
   const showSearch = ["direct", "groups", "inbox"].includes(activeTab);
   const mainHtml = `<div class="community-shell ${activeTab === "moments" ? "moments-active" : ""}">
     ${communityModerationBanner(data.moderation)}
     ${activeTab === "moments" ? "" : `<header class="community-village-header">
       <div class="community-village-art"><img src="/assets/interior-village.jpg" alt=""><span></span></div>
       <div class="community-village-brand"><img src="/assets/it-takes-a-village-logo.svg" alt=""><div><small>${escapeHtml(t("communityCommons"))}</small><strong>${escapeHtml(data.displayName)}</strong></div></div>
-      <button type="button" class="community-bell ${data.notificationCount ? "has-unread" : ""}" data-action="community-tab" data-community-tab="inbox" title="${escapeHtml(t("communityNotificationsTitle"))}">${communityNavIcon("inbox")}<span class="sr-only">${escapeHtml(t("communityNotificationsTitle"))}</span>${data.notificationCount ? `<b>${Number(data.notificationCount)}</b>` : ""}</button>
+      <button type="button" class="community-bell ${requestUnread ? "has-unread" : ""}" data-action="community-tab" data-community-tab="inbox" title="${escapeHtml(t("communityRequestsTab"))}">${communityNavIcon("inbox")}<span class="sr-only">${escapeHtml(t("communityRequestsTab"))}</span>${requestUnread ? `<b aria-label="${requestUnread} unread request${requestUnread === 1 ? "" : "s"}"></b>` : ""}</button>
     </header>`}
     ${showSearch ? `<div class="community-search-fixed"><form id="community-search-form" class="inline-form"><label class="sr-only" for="community-query">${escapeHtml(t("communitySearchPeople"))}</label><input id="community-query" name="query" minlength="2" placeholder="${escapeHtml(t("communitySearchPlaceholder"))}" required><button class="secondary-button">${escapeHtml(t("search"))}</button></form><div id="community-search-results"></div></div>` : ""}
     <main class="community-tab-content">${tabContent}</main>
     <p class="privacy-note">${escapeHtml(t("communitySafety"))}</p>
-    <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span><b class="${badge ? "" : "hidden"}" data-community-tab-badge="${tab}" aria-label="${badge} unread ${escapeHtml(label)} item${badge === 1 ? "" : "s"}">${badge > 99 ? "99+" : badge || ""}</b></button>`; }).join("")}</nav>
+    <nav class="community-dock" aria-label="Community sections">${navItems.map(([tab, label]) => { const badge = badgeFor(tab); return `<button type="button" class="${activeTab === tab ? "active" : ""}" data-action="community-tab" data-community-tab="${tab}" aria-current="${activeTab === tab ? "page" : "false"}">${communityNavIcon(tab)}<span>${escapeHtml(label)}</span><b class="${badge ? "" : "hidden"}" data-community-tab-badge="${tab}" aria-label="${badge} unread ${escapeHtml(label)} item${badge === 1 ? "" : "s"}"></b></button>`; }).join("")}</nav>
   </div>`;
   return mainHtml;
 }
@@ -2071,16 +2072,15 @@ async function communityPanel() {
       $("#panel-content").innerHTML = communityRestrictedByPenaltyHtml(data);
       return;
     }
-    const [feed, notifications, documents, stickers, saved] = await Promise.all([
+    const [feed, documents, stickers, saved] = await Promise.all([
       api("/api/community/posts"),
-      optional("/api/community/notifications", { notifications: [] }),
       optional("/api/community/documents", { documents: [] }),
       optional("/api/community/stickers", { stickers: [] }),
       optional("/api/community/saved", { messages: [] })
     ]);
     state.communityPosts = feed.posts || [];
     state.communityPostsProfile = feed.profile || null;
-    state.communityNotifications = notifications.notifications || [];
+    state.communityNotifications = [];
     state.communityDocuments = documents.documents || [];
     state.communityStickers = stickers.stickers || [];
     state.communitySavedMessages = saved.messages || [];
@@ -2223,7 +2223,7 @@ async function markCommunityRoomRead(roomId) {
   const rowBadge = document.querySelector(`.community-conversation-row[data-room-id="${CSS.escape(roomId)}"] [data-room-unread]`);
   rowBadge?.classList.toggle("hidden", unreadCount === 0);
   if (rowBadge) {
-    rowBadge.textContent = unreadCount ? (unreadCount > 99 ? "99+" : String(unreadCount)) : "";
+    rowBadge.textContent = "";
     rowBadge.setAttribute("aria-label", `${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`);
   }
 }
@@ -2232,7 +2232,7 @@ function renderCommunityBadges() {
   const unread = Math.max(0, Number(state.communityUnreadCount || 0));
   $$("[data-community-unread-badge]").forEach((badge) => {
     badge.classList.toggle("hidden", unread === 0);
-    badge.textContent = unread ? (unread > 99 ? "99+" : String(unread)) : "";
+    badge.textContent = "";
   });
   if (!state.communityOverview) return;
   communityAllRooms(state.communityOverview).forEach((room) => {
@@ -2241,7 +2241,7 @@ function renderCommunityBadges() {
     const count = Math.max(0, Number(room.unreadCount || 0));
     [row?.querySelector("[data-room-unread]"), overviewRoom?.querySelector("[data-room-unread]")].filter(Boolean).forEach((badge) => {
       badge.classList.toggle("hidden", count === 0);
-      badge.textContent = count ? (count > 99 ? "99+" : String(count)) : "";
+      badge.textContent = "";
       badge.setAttribute("aria-label", `${count} unread message${count === 1 ? "" : "s"}`);
     });
     const preview = row?.querySelector(".conversation-copy small");
@@ -2260,7 +2260,7 @@ function renderCommunityBadges() {
       document.querySelector(`.community-dock [data-community-tab-badge="${tab}"]`)
     ].filter(Boolean).forEach((badge) => {
       badge.classList.toggle("hidden", value === 0);
-      badge.textContent = value ? (value > 99 ? "99+" : String(value)) : "";
+      badge.textContent = "";
       badge.setAttribute("aria-label", `${value} unread ${label} item${value === 1 ? "" : "s"}`);
     });
   });
@@ -2286,10 +2286,8 @@ async function pollCommunityUpdates() {
   state.communityUpdateBusy = true;
   try {
     const hadCursor = Boolean(state.communityUpdateCursor);
-    const hadNotificationCursor = Boolean(state.communityNotificationCursor);
     const parameters = new URLSearchParams();
     if (hadCursor) parameters.set("after", state.communityUpdateCursor);
-    if (hadNotificationCursor) parameters.set("notificationAfter", state.communityNotificationCursor);
     const update = await api(`/api/community/updates${parameters.size ? `?${parameters}` : ""}`);
     state.communityUpdateCursor = String(update.cursor || state.communityUpdateCursor || "");
     state.communityNotificationCursor = String(update.notificationCursor || state.communityNotificationCursor || "");
@@ -2315,14 +2313,6 @@ async function pollCommunityUpdates() {
         window.setTimeout(() => state.audio?.playChatDing(), Math.min(index, 5) * 190);
       });
       if (state.communityRoom?.id && events.some((event) => event.roomId === state.communityRoom.id)) await refreshCommunityRoom();
-    }
-    if (hadNotificationCursor && Array.isArray(update.notifications) && update.notifications.length) {
-      const existingIds = new Set((state.communityNotifications || []).map((item) => item.id));
-      const incoming = update.notifications.filter((item) => !existingIds.has(item.id));
-      state.communityNotifications = [...incoming.reverse(), ...(state.communityNotifications || [])].slice(0, 100);
-      incoming.filter((item) => item.kind === "meeting-invite").forEach((_, index) => {
-        window.setTimeout(() => state.audio?.playChatDing(), Math.min(index, 3) * 190);
-      });
     }
   } catch {}
   finally { state.communityUpdateBusy = false; }
@@ -2930,7 +2920,10 @@ async function communityAction(element, action) {
     )) return requireCommunityChatWrite();
     if (action === "community-tab") {
       const tab = element.dataset.communityTab || "direct";
-      if (tab === "moments") return openCommunityProfile(state.user?.id);
+      if (tab === "moments") {
+        await markCommunityKindsRead(["moment", "moment-comment"], tab);
+        return openCommunityProfile(state.user?.id);
+      }
       state.communityTab = tab;
       state.communityDirectoryOpen = false;
       const kinds = tab === "inbox" ? ["request", "group-invite", "meeting-invite"] : [];
@@ -4055,7 +4048,6 @@ function profilePanel() {
   const likedResources = state.user?.likedResources || [];
   const dislikedResources = state.user?.dislikedResources || [];
   const journey = profile?.journey;
-  const documents = Array.isArray(profile?.documents) ? profile.documents : [];
   openPanel({
     title: t("recordTitle"),
     eyebrow: state.user?.name || "Village visitor",
@@ -4072,7 +4064,6 @@ function profilePanel() {
         <button type="button" class="secondary-button" data-action="edit-survey">${escapeHtml(t("updateSurvey"))}</button>
       </div>
       <div class="card-list"><article class="record-card journey-record-card"><div class="record-section-heading"><div><small>Strengths → goal → action</small><strong>Personalized Neurodiversity Journey</strong></div><button type="button" class="secondary-button" data-action="open-journey">${journey ? "Edit journey" : "Start journey"}</button></div>${journey ? `<blockquote>${escapeHtml(journey.aboutMe || "")}</blockquote><div class="journey-inline-actions"><button type="button" class="text-button" data-action="print-reach-plan">Print About Me + plan</button></div>${renderReachPlan(profile?.reachPlan, journey)}` : `<p>Build an editable About Me statement and receive exactly three next steps: Learn, Advocate, and Connect.</p>`}</article>
-      <article class="record-card private-record-card"><div class="record-section-heading"><div><small>Private · AI-assisted import</small><strong>Diagnosis, insurance & support documents</strong></div></div><p>Upload a photo or document. AI extracts only facts useful for resource matching; the original file is not kept after scanning.</p><form id="record-document-upload-form" class="record-document-upload"><label>Record type<select name="kind"><option value="diagnosis">Diagnosis / assessment</option><option value="insurance">Insurance policy or card</option><option value="support-plan">IEP, 504, or support plan</option><option value="other">Other document</option></select></label><label>Photo or document<input type="file" name="document" required accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,text/markdown,.doc,.docx,.rtf,.odt"></label><button class="primary-button" type="submit">Scan and import</button><small>Maximum 5 MB. Review is required before extracted facts affect matching. AI can make mistakes.</small><p class="form-error" role="status"></p></form>${renderRecordDocuments(documents)}</article>
       <article class="record-card"><strong>${escapeHtml(t("recentSearches"))}</strong><ul class="gentle-list">${history.length ? history.slice(-5).reverse().map((item) => `<li><strong>${escapeHtml(item.topic)}</strong> · ${escapeHtml(item.description)}</li>`).join("") : `<li>${escapeHtml(t("noSearches"))}</li>`}</ul></article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("savedResourcesTitle"))}</strong>${recordResourceList(likedResources, "noSavedResources")}</article>
       <article class="record-card resource-record-card"><strong>${escapeHtml(t("dislikedResourcesTitle"))}</strong>${recordResourceList(dislikedResources, "noDislikedResources")}</article></div>

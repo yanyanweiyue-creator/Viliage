@@ -74,6 +74,7 @@ test("settings use a dedicated control, the avatar opens My Record, and no setti
   vm.runInNewContext(source, context);
   assert.equal(context.window.CAPY_CONFIG.buildings.some((building) => building.type === "settings"), false);
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /journey-icon-button" data-action="open-journey"/);
   assert.match(html, /settings-icon-button" data-action="open-settings"/);
   assert.match(html, /avatar-button" data-action="open-profile"/);
   assert.match(html, /id="record-status-action" data-action="open-profile"/);

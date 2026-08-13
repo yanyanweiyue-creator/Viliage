@@ -283,6 +283,10 @@ test("Community overview and chat rooms both stay inside the original Village si
   assert.match(overview, /data-overview-room-id/);
   assert.match(overview, /class="overview-room-avatar"/);
   assert.match(overview, /data-community-tab-badge/);
+  assert.match(overview, /communityFriendRequests/);
+  assert.doesNotMatch(overview, /communityNotificationsHtml\(state\.communityNotifications\)/);
+  assert.doesNotMatch(overview, /data-action="mark-community-read"/);
+  assert.doesNotMatch(overview, /99\+/);
   assert.match(overview, /return mainHtml;/);
   assert.doesNotMatch(overview, /return communityWorkspaceHtml/);
   assert.doesNotMatch(panel, /className: "community-workspace-panel"/);
@@ -298,6 +302,7 @@ test("Community overview and chat rooms both stay inside the original Village si
   assert.match(badges, /\.community-dock \[data-community-tab-badge/);
   assert.match(css, /\.overview-room-avatar \{ position: relative; \}/);
   assert.match(css, /\.community-dock b\.hidden \{ display: none; \}/);
+  assert.match(css, /\.community-launch \{[^}]*linear-gradient\(135deg, #eee9ff 0%, #dff5ef 52%, #ffe7f1 100%\)/);
 });
 
 test("Community chat rooms use a responsive original side-panel layout with per-room sound and unread controls", async () => {
@@ -599,7 +604,7 @@ test("dynamic Community and Support controls use the selected language", async (
     readFile(new URL("../public/app.js", import.meta.url), "utf8"),
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   ]);
-  for (const key of ["yourVillageProfile", "savedFromChat", "villageDocuments", "privacyNotifications", "communitySelfTab", "communitySearchPlaceholder", "communityDirectIntro", "communityNotificationsTitle", "communityGroupsIntro", "supportIntroBody", "supportSearchPlaceholder", "resourcesReadyCount"]) {
+  for (const key of ["yourVillageProfile", "savedFromChat", "villageDocuments", "privacyNotifications", "communitySelfTab", "communitySearchPlaceholder", "communityDirectIntro", "communityRequestsTab", "communityGroupsIntro", "supportIntroBody", "supportSearchPlaceholder", "resourcesReadyCount"]) {
     assert.match(app, new RegExp(`t\\("${key}"\\)`));
   }
   assert.match(html, /data-i18n="backIsland"/);
