@@ -327,6 +327,13 @@ test("registration and survey automatically send the expected Google Sheet field
       });
       assert.ok([200, 201].includes(communityResponse.status));
     }
+    const blockedCustomSticker = await httpRequest(`http://127.0.0.1:${port}/api/community/rooms/group-general/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ messageType: "sticker", attachment: { name: "Custom sticker", mime: "image/png", dataUrl: `data:image/png;base64,${Buffer.from("custom-sticker").toString("base64")}` } })
+    });
+    assert.equal(blockedCustomSticker.status, 403);
+    assert.match(JSON.parse(blockedCustomSticker.text).error, /custom stickers are not available/i);
     const latestSheetWrite = received.at(-1);
     assert.equal(latestSheetWrite.action, "upsert-user");
     assert.equal("Chat History" in latestSheetWrite, false);

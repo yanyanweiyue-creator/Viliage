@@ -1965,7 +1965,7 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
   const disabled = chatWritable ? "" : "disabled";
   const stickerButtons = [["wave","👋"],["love","🫶"],["laugh","😂"],["celebrate","🎉"],["hug","🤗"],["yes","👍"],["cry","😭"],["paws","🐾"]].map(([key, emoji]) => `<button type="button" ${disabled} data-action="send-sticker" data-sticker="${key}" aria-label="Send ${key} sticker">${emoji}</button>`).join("");
   const rawCustomStickers = communityStickerButtons();
-  const customStickers = chatWritable ? rawCustomStickers : rawCustomStickers.replaceAll("<button ", "<button disabled ");
+  const customStickers = room.systemManaged ? "" : chatWritable ? rawCustomStickers : rawCustomStickers.replaceAll("<button ", "<button disabled ");
   const meetings = (meetingData.meetings || []).filter((meeting) => meeting.status !== "ended").map((meeting) => `<article class="room-meeting-item"><div><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(new Date(meeting.startsAt).toLocaleString())}</small></div><button type="button" data-action="join-community-meeting" data-meeting-id="${escapeHtml(meeting.id)}">Join</button></article>`).join("");
   const announcement = room.kind === "group" && room.announcement ? `<aside class="community-group-announcement ${room.announcementPinned ? "pinned" : ""}"><span aria-hidden="true">${room.announcementPinned ? "◆" : "◇"}</span><div><strong>Group announcement${room.announcementPinned ? " · Pinned" : ""}</strong><p>${escapeHtml(room.announcement)}</p></div></aside>` : "";
   return `<section class="community-chat community-panel-chat">
