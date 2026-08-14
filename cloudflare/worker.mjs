@@ -4126,6 +4126,7 @@ async function api(request, env, ctx) {
       try { attachment = safeAttachment(input.attachment); } catch (error) { return fail(error.message); }
       const requestedType = String(input.messageType || "").toLowerCase();
       let messageType = requestedType === "location" ? "location" : requestedType === "sticker" && attachment?.mime?.startsWith("image/") ? "sticker" : attachment ? "file" : "text";
+      if (room.system_managed && messageType === "sticker") return fail("Custom stickers are not available in system groups.", 403);
       let metadata = {};
       if (messageType === "location") {
         if (!profile.location_sharing_enabled) return fail("Turn on location sharing in Community settings first.", 403);

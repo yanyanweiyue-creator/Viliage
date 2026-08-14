@@ -805,6 +805,14 @@ test("opted-in users can connect, accept, and exchange a private D1 message", as
   const roomId = (await accepted.json()).roomId;
   const sent = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: JSON.stringify({ message: "[[sticker:wave]]" }) }), env, ctx);
   assert.equal(sent.status, 201);
+  const stickerAttachment = { name: "Custom sticker", mime: "image/png", dataUrl: `data:image/png;base64,${Buffer.from("custom-sticker").toString("base64")}` };
+  const directCustomSticker = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: JSON.stringify({ messageType: "sticker", attachment: stickerAttachment }) }), env, ctx);
+  assert.equal(directCustomSticker.status, 201);
+  const joinedSystemGroup = await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/join", { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: "{}" }), env, ctx);
+  assert.equal(joinedSystemGroup.status, 200);
+  const blockedCustomSticker = await worker.fetch(new Request("https://village.example/api/community/rooms/group-general/messages", { method: "POST", headers: { "Content-Type": "application/json", Cookie: first.cookie }, body: JSON.stringify({ messageType: "sticker", attachment: stickerAttachment }) }), env, ctx);
+  assert.equal(blockedCustomSticker.status, 403);
+  assert.match((await blockedCustomSticker.json()).error, /custom stickers are not available/i);
   const messages = await worker.fetch(new Request(`https://village.example/api/community/rooms/${roomId}/messages`, { headers: { Cookie: second.cookie } }), env, ctx);
   assert.equal((await messages.json()).messages[0].body, "[[sticker:wave]]");
   database.close();

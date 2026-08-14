@@ -3772,6 +3772,7 @@ async function handleApi(req, res, url) {
       try { attachment = safeAttachment(input.attachment); } catch (error) { return sendError(res, 400, error.message); }
       const requestedType = String(input.messageType || "").toLowerCase();
       const messageType = requestedType === "location" ? "location" : requestedType === "sticker" && attachment?.mime?.startsWith("image/") ? "sticker" : attachment ? "file" : "text";
+      if (room.systemManaged && messageType === "sticker") return sendError(res, 403, "Custom stickers are not available in system groups.");
       let metadata = {};
       if (messageType === "location") {
         if (!community.profiles[user.id]?.locationSharingEnabled) return sendError(res, 403, "Turn on location sharing in Community settings first.");
