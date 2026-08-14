@@ -1982,7 +1982,7 @@ function communityRoomWorkspaceMainHtml(data, meetingData = { meetings: [] }) {
         <button type="button" ${disabled} class="compose-tool" data-action="share-community-location" title="Share current location">⌖</button>
         <button type="button" ${disabled} class="compose-tool" data-action="create-community-document" title="Create a Village document">▤</button>
         <button type="button" ${disabled} class="compose-tool" data-action="toggle-meeting-scheduler" title="Schedule a video meeting">◉</button>`}
-        <label class="compose-tool" title="Upload a custom sticker">☺<input type="file" ${disabled} accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>
+        ${room.systemManaged ? "" : `<label class="compose-tool" title="Upload a custom sticker">☺<input type="file" ${disabled} accept="image/png,image/jpeg,image/webp,image/gif" data-community-sticker></label>`}
       </div>
       <div id="community-attachment-preview" class="community-attachment-preview"></div>
       <div class="sticker-picker" aria-label="Stickers">${stickerButtons}${customStickers}</div>
