@@ -118,6 +118,8 @@ test("every building opens through a capybara loading walk into its illustrated 
   assert.match(css, /@keyframes buildingWalk/);
   assert.match(app, /function enterBuilding\(building\)/);
   assert.match(app, /showBuildingInterior\(building\)/);
+  assert.match(app, /if \(state\.settings\.calm\) \{\s*hideBuildingInterior\(\);\s*state\.activeBuilding = building;\s*openBuildingDestination\(building\);\s*return;\s*\}/);
+  assert.doesNotMatch(app, /state\.settings\.calm \? 320 : 1500/);
   assert.match(app, /data-action="toggle-precision-research"/);
   assert.match(app, /allowFollowUpQuestions:\s*Boolean\(state\.settings\.precisionResearch\)/);
   assert.match(app, /data-action="restart-introduction"/);
@@ -189,6 +191,7 @@ test("low-stimulation mode removes animals and weather while forcing the lowest 
   assert.match(app, /visualQualityBeforeCalm/);
   assert.match(app, /weatherKind: "clear"/);
   assert.match(app, /state\.surfaceMotion\?\.setEnabled\(sceneMode !== "3d" && !calm\)/);
+  assert.match(app, /if \(calm && state\.activeBuilding && !\$\("#building-interior"\)\?\.classList\.contains\("hidden"\)\) \{[\s\S]*?hideBuildingInterior\(\);[\s\S]*?state\.activeBuilding = activeBuilding;/);
   assert.match(app, /if \(!enabled \|\| state\.settings\.calm\) \{ clearTimeout\(this\.animalTimer\); this\.stopEnvironment\(\); this\.stopMusic\(\); \}/);
   assert.match(css, /body\.low-stimulation #environment-status,[\s\S]*body\.low-stimulation \.ecosystem-actor,[\s\S]*body\.low-stimulation #app-screen \.village-character,[\s\S]*\{ display: none !important; \}/);
   assert.match(live3d, /group\.userData\.isAnimal = true/);

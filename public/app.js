@@ -4411,6 +4411,12 @@ function showBuildingInterior(building) {
 }
 
 function enterBuilding(building) {
+  if (state.settings.calm) {
+    hideBuildingInterior();
+    state.activeBuilding = building;
+    openBuildingDestination(building);
+    return;
+  }
   const scene = buildingInteriorScene(building);
   const guide = GUIDE_CHARACTERS[buildingGuideTopic(building)] || GUIDE_CHARACTERS.Waffles;
   const loading = $("#building-loading");
@@ -4430,7 +4436,7 @@ function enterBuilding(building) {
     loading.classList.remove("active");
     loading.setAttribute("aria-hidden", "true");
     showBuildingInterior(building);
-  }, state.settings.calm ? 320 : 1500);
+  }, 1500);
 }
 
 function handleBuilding(id) {
@@ -4481,6 +4487,11 @@ function applySettings() {
   state.interior3d?.setQuality(visualQuality);
   state.interior3d?.setReducedMotion(calm);
   state.interior3d?.setEnvironment(renderedEnvironment);
+  if (calm && state.activeBuilding && !$("#building-interior")?.classList.contains("hidden")) {
+    const activeBuilding = state.activeBuilding;
+    hideBuildingInterior();
+    state.activeBuilding = activeBuilding;
+  }
   if (state.activeBuilding && !$("#building-interior")?.classList.contains("hidden")) {
     if (sceneMode === "3d") {
       state.interior3d?.open(state.activeBuilding, {
