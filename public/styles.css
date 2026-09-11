@@ -327,7 +327,8 @@ body.scene-3d .celestial { display: none; }
 .map-stage.weather-snow .weather-particles { opacity: .85; background-image: radial-gradient(circle, #fff 0 2px, transparent 2.8px), radial-gradient(circle, #e9f6ff 0 1.4px, transparent 2.2px); background-position: 0 0, 29px 17px; background-size: 58px 52px, 73px 69px; animation: snowFall 7s linear infinite; }
 .map-stage.weather-fog .weather-particles { opacity: .72; background: repeating-linear-gradient(0deg, rgba(236,244,242,.72) 0 7%, rgba(218,232,231,.3) 13% 20%, transparent 28% 35%); filter: blur(8px); animation: fogBreathe 8s ease-in-out infinite alternate; }
 .map-stage.weather-storm .lightning-flash { background: #f1f6ff; animation: lightning 7s steps(1) infinite; }
-.season-particles { z-index: 4; transition: opacity 1.5s ease; }
+.season-particles { display: none; z-index: 4; transition: opacity 1.5s ease; }
+body.seasonal-easter-eggs-enabled:not(.low-stimulation) .season-particles { display: block; }
 .map-stage.season-spring .season-particles { opacity: .42; background-image: radial-gradient(circle, #fff2fb 0 2px, transparent 2.5px), radial-gradient(circle, #ffd1df 0 1.6px, transparent 2.2px); background-size: 71px 65px, 93px 79px; background-position: 8px 4px, 39px 31px; }
 .map-stage.season-autumn .season-particles { opacity: .55; background-image: radial-gradient(ellipse at 30% 50%, #d98236 0 3px, transparent 4px), radial-gradient(ellipse at 60% 50%, #e8b64b 0 2.5px, transparent 3.5px); background-size: 92px 83px, 117px 101px; animation: leavesDrift 13s linear infinite; }
 .map-stage.season-winter .season-particles { opacity: .35; background: linear-gradient(rgba(223,242,248,.25), rgba(238,249,252,.52)); }
@@ -471,14 +472,14 @@ body.scene-3d .map-stage:not(.focus-autism):not(.focus-adhd) .building { opacity
 .sound-toggle { justify-self: start; min-height: 2.7rem; }
 .volume-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .15rem .8rem; font-size: .82rem; font-weight: 700; }.volume-control output { color: var(--muted); font-variant-numeric: tabular-nums; }.volume-control input { grid-column: 1 / -1; padding: 0; accent-color: var(--sage-dark); }
 .voice-settings { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: color-mix(in srgb, var(--butter) 28%, white); }
-.precision-research-settings { display: grid; gap: .7rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--sage) 34%, var(--line)); border-radius: 1rem; background: color-mix(in srgb, var(--sage-soft) 46%, white); }
-.precision-research-settings > strong { margin: 0; }
-.precision-research-settings small { color: var(--muted); line-height: 1.45; }
-.precision-research-toggle { display: inline-grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; justify-self: start; border-radius: .8rem; text-align: left; }
+.precision-research-settings, .seasonal-easter-eggs-settings { display: grid; gap: .7rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--sage) 34%, var(--line)); border-radius: 1rem; background: color-mix(in srgb, var(--sage-soft) 46%, white); }
+.precision-research-settings > strong, .seasonal-easter-eggs-settings > strong { margin: 0; }
+.precision-research-settings small, .seasonal-easter-eggs-settings small { color: var(--muted); line-height: 1.45; }
+.precision-research-toggle, .seasonal-easter-eggs-toggle { display: inline-grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; justify-self: start; border-radius: .8rem; text-align: left; }
 .toggle-indicator { position: relative; width: 2.2rem; height: 1.25rem; border-radius: 999px; background: #bdc8c3; box-shadow: inset 0 0 0 1px rgba(32,57,48,.18); }
 .toggle-indicator::after { content: ""; position: absolute; left: .15rem; top: .15rem; width: .95rem; height: .95rem; border-radius: 50%; background: white; box-shadow: 0 .1rem .3rem rgba(0,0,0,.2); transition: transform .2s ease; }
-.precision-research-toggle.active .toggle-indicator { background: #63a07f; }
-.precision-research-toggle.active .toggle-indicator::after { transform: translateX(.95rem); }
+.precision-research-toggle.active .toggle-indicator, .seasonal-easter-eggs-toggle.active .toggle-indicator { background: #63a07f; }
+.precision-research-toggle.active .toggle-indicator::after, .seasonal-easter-eggs-toggle.active .toggle-indicator::after { transform: translateX(.95rem); }
 .admin-keyword-settings { display: grid; gap: .75rem; padding: 1rem; border: 1px solid #d9c797; border-radius: 1rem; background: #fffaf0; }
 .admin-keyword-settings small { display: block; margin-top: .25rem; color: var(--muted); line-height: 1.45; }
 .admin-keyword-settings textarea { min-height: 7rem; resize: vertical; }
