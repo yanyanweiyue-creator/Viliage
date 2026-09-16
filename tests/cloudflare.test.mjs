@@ -1,3 +1,4 @@
+import { resourceTable } from "./fixtures/resource-sheet.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -1742,6 +1743,43 @@ test("administrator blocklist removes noisy primary keywords from scoring and Er
     const result = await response.json();
     assert.deepEqual(result.researchContext.primaryKeywords, ["medicaid"]);
     assert.equal(errorPayloads[0]["Primary Keywords"], "medicaid");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+
+test("research accepts short tennis queries with live sheet headers and keeps hard filters", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /docs\.google\.com\/spreadsheets/);
+    return new Response(`google.visualization.Query.setResponse(${JSON.stringify({ table: resourceTable() })});`);
+  };
+  try {
+    for (const description of ["tennis", "I'm looking for tennis activity"]) {
+      const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+        body: JSON.stringify({ topic: "Recreation", diagnosis: "Autism", description, count: 5 })
+      }), env, ctx);
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.deepEqual(result.resources.map((item) => item.url).sort(), ["https://example.com/sports", "https://example.com/tennis"]);
+      assert.equal(result.resources.find((item) => item.url.endsWith("/tennis")).location, "Santa Clara, CA");
+    }
+    for (const description of ["", "   "]) {
+      const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+        body: JSON.stringify({ topic: "Recreation", diagnosis: "Autism", description })
+      }), env, ctx);
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /Enter a keyword/);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     database.close();

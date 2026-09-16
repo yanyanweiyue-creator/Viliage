@@ -1,3 +1,4 @@
+import { resourceTable } from "./fixtures/resource-sheet.mjs";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -1098,6 +1099,38 @@ test("local group administration mirrors owner, admin, mute, approval, transfer,
   } finally {
     if (previousAdmins === undefined) delete process.env.ADMIN_EMAILS;
     else process.env.ADMIN_EMAILS = previousAdmins;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+
+test("local research accepts short queries using the current resource sheet layout", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /docs\.google\.com\/spreadsheets/);
+    return new Response(`google.visualization.Query.setResponse(${JSON.stringify({ table: resourceTable() })});`);
+  };
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/api/ai/recommend`;
+  try {
+    for (const description of ["tennis", "I'm looking for tennis activity", "", "   "]) {
+      const body = JSON.stringify({ topic: "Recreation", diagnosis: "Autism", description, count: 5 });
+      const response = await httpRequest(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-Village-Guest": "1" },
+        body
+      });
+      const result = JSON.parse(response.text);
+      assert.equal(response.status, description.trim() ? 200 : 400);
+      if (description.trim()) {
+        assert.deepEqual(result.resources.map((item) => item.url).sort(), ["https://example.com/sports", "https://example.com/tennis"]);
+        assert.equal(result.resources.find((item) => item.url.endsWith("/tennis")).location, "Santa Clara, CA");
+      } else assert.match(result.error, /Enter a keyword/);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }

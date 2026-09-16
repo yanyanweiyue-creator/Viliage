@@ -1552,7 +1552,7 @@ function guideText(key, topic = state.currentTopic) {
 
 function resourceSearchForm(topic = "Support") {
   const examples = topic === "Support" ? t("supportSearchPlaceholder") : "Describe what kind of resource would help…";
-  return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>${escapeHtml(t("supportSearchTitle"))}</h3><p>${escapeHtml(t("supportSearchIntro"))}</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t(topic === "Support" ? "supportSearchDisclaimer" : "aiDisclaimer"))}</p></div>`;
+  return `<div class="ai-shell support-search-shell"><div class="support-search-intro"><h3>${escapeHtml(t("supportSearchTitle"))}</h3><p>${escapeHtml(t("supportSearchIntro"))}</p></div><form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required placeholder="${escapeHtml(examples)}"></textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form><div id="ai-results"></div><p class="privacy-note">${escapeHtml(t(topic === "Support" ? "supportSearchDisclaimer" : "aiDisclaimer"))}</p></div>`;
 }
 
 function supportPanel(tab = state.supportTab, island = state.supportIsland || state.selectedIsland) {
@@ -3376,7 +3376,7 @@ function quickSearchPanel() {
         <div class="quick-search-filters">
           <label>${escapeHtml(t("quickSearchTopic"))}<select name="topic">${topics.map((topic) => `<option value="${topic}" ${topic === selectedTopic ? "selected" : ""}>${escapeHtml(t(topic.toLowerCase()))}</option>`).join("")}</select></label>
         </div>
-        <label class="quick-search-query">${escapeHtml(t("quickSearchQuery"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(t("quickSearchPlaceholder"))}"></textarea></label>
+        <label class="quick-search-query">${escapeHtml(t("quickSearchQuery"))}<textarea name="description" required placeholder="${escapeHtml(t("quickSearchPlaceholder"))}"></textarea></label>
         <button class="primary-button" type="submit">${escapeHtml(t("quickSearchSubmit"))} <span aria-hidden="true">→</span></button>
         <p class="form-error" role="alert"></p>
       </form>
@@ -3389,7 +3389,7 @@ function submitQuickSearch(event) {
   event.preventDefault();
   const formData = new FormData(event.target);
   const description = String(formData.get("description") || "").trim();
-  if (description.length < 8) return;
+  if (!description) return;
   aiPanel(String(formData.get("topic") || "Education"), "", description, { autoSubmit: true, usePersonalRecord: true });
 }
 
@@ -3405,12 +3405,12 @@ function aiPanel(topic = "Education", island = state.selectedIsland, initialDesc
     eyebrow: guideText("aiEyebrow", topic),
     html: `<div class="ai-shell">
       <div class="mori-stage">${guideCharacter(topic, { id: "mori-character" })}<div><h3>${escapeHtml(characterGreeting(character.name))}</h3><p>${escapeHtml(t("aiExplain"))}</p></div></div>
-      <form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required minlength="8" placeholder="${escapeHtml(examples)}">${escapeHtml(descriptionValue)}</textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
+      <form id="ai-form" class="ai-form"><label>${escapeHtml(t("aiQuestion"))}<textarea name="description" required placeholder="${escapeHtml(examples)}">${escapeHtml(descriptionValue)}</textarea></label><label class="result-count">${escapeHtml(t("resultCount"))}<select name="count">${[3,4,5,6,7,8,9,10].map((value) => `<option value="${value}" ${value === Number(state.settings.resourceCount || 5) ? "selected" : ""}>${value}</option>`).join("")}</select></label><button class="primary-button" type="submit">${escapeHtml(t("aiFind"))} <span aria-hidden="true">→</span></button><p id="ai-error" class="form-error" role="alert"></p></form>
       <div id="ai-results"></div>
       <p class="privacy-note">${escapeHtml(guideText("aiDisclaimer", topic))}</p>
     </div>`
   });
-  if (options.autoSubmit && descriptionValue.length >= 8) {
+  if (options.autoSubmit && descriptionValue) {
     setTimeout(() => $("#ai-form")?.requestSubmit?.(), 0);
   }
 }

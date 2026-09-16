@@ -1,3 +1,4 @@
+import { normalizeSheetRows } from "./resource-sheet.mjs";
 import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -917,69 +918,7 @@ function stripGviz(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function cellValue(cell) {
-  if (!cell) return "";
-  if (cell.f != null) return String(cell.f).trim();
-  if (cell.v != null) return String(cell.v).trim();
-  return "";
-}
-
-function deriveName(description, url) {
-  const first = String(description || "").split(/[—–-]/)[0].trim();
-  if (first.length > 3 && first.length < 90) return first;
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "Community resource";
-  }
-}
-
-export function normalizeSheetRows(table) {
-  const columns = new Map(
-    (table.cols || []).map((column, index) => [String(column.label || column.id || "").trim().toLowerCase(), index])
-  );
-  const valueAt = (values, label, fallbackIndex) => {
-    const index = columns.has(label.toLowerCase()) ? columns.get(label.toLowerCase()) : fallbackIndex;
-    return values[index] || "";
-  };
-  const valuesAt = (values, labels) => labels.map((label) => valueAt(values, label, -1)).filter(Boolean);
-
-  return (table.rows || [])
-    .map((row) => {
-      const values = (row.c || []).map(cellValue);
-      const url = valueAt(values, "URL", 0);
-      const description = valueAt(values, "Description", 1);
-      const diagnosis = valueAt(values, "Diagnosis", 2) || "Both";
-      const categories = [valueAt(values, "Category1", 3), valueAt(values, "Category2", 4)]
-        .filter(Boolean)
-        .flatMap((value) => value.split(/[,;/]/))
-        .map((value) => value.trim())
-        .filter(Boolean);
-      const tags = ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"].map((label, index) => valueAt(values, label, index + 6)).filter(Boolean);
-      const locations = ["Location1", "Location2", "Location3", "Location4"]
-        .map((label, index) => valueAt(values, label, index + 12))
-        .filter(Boolean);
-      const issues = valuesAt(values, ["Issues", "Issue", "Issue1", "Issue2", "Issue3", "Issue4"])
-        .flatMap((value) => value.split(/[,;/]/))
-        .map((value) => value.trim())
-        .filter(Boolean);
-      return {
-        url,
-        name: valueAt(values, "Resource Name", -1) || valueAt(values, "Name", -1) || deriveName(description, url),
-        description,
-        diagnosis,
-        categories: categories.length ? categories : ["Education"],
-        age: valueAt(values, "Age", 5) || "All ages",
-        ageRange: valueAt(values, "Age Range") || valueAt(values, "Age range") || valueAt(values, "Age", 5) || "All ages",
-        lifeStage: valueAt(values, "Life Stage") || valueAt(values, "Life stage") || "",
-        tags,
-        issues,
-        location: locations[0] || "See website",
-        price: valueAt(values, "Price", 17) || "See website"
-      };
-    })
-    .filter((row) => /^https?:\/\//.test(row.url || ""));
-}
+export { normalizeSheetRows };
 
 async function getResources(force = false) {
   if (!force && resourceCache.rows.length && Date.now() - resourceCache.time < RESOURCE_CACHE_TTL_MS) {
@@ -3893,7 +3832,7 @@ async function handleApi(req, res, url) {
     const personalRecordMode = usePersonalRecord === true;
     const recordSignals = personalRecordMode ? personalRecordSignals(user.profile) : { confirmedDiagnoses: [], diagnosisNames: [], insuranceKeywords: [], supportKeywords: [] };
     const effectiveDiagnosis = personalRecordMode ? (recordSignals.confirmedDiagnoses.length ? recordSignals.confirmedDiagnoses : "") : String(diagnosis || "").trim();
-    if (String(description).trim().length < 8) return sendError(res, 400, "Tell Waffles a little more so the recommendations can be useful.");
+    if (!String(description).trim()) return sendError(res, 400, "Enter a keyword or describe what you are looking for.");
     if (!personalRecordMode && !effectiveDiagnosis) return sendError(res, 400, "Choose an island before searching for resources.");
     const config = await loadScoringConfig();
     const { rows, source } = await getResources();
