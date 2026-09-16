@@ -9,6 +9,8 @@ import { VillageMeetingRuntime } from "./community-meeting.mjs?v=meeting-media-c
 import { VillageDocumentStudio } from "./community-documents.mjs?v=village-docs-20260727";
 
 const config = window.CAPY_CONFIG;
+// Keep unfinished automatic voice tools unavailable in the main site.
+const VOICE_ASSISTANT_SETTINGS_ENABLED = false;
 const GUIDE_CHARACTERS = Object.freeze({
   Education: { name: "Muffins", src: "/assets/character-muffins-school.svg", alt: "Muffins, the School guide" },
   Legal: { name: "Bacon", src: "/assets/character-bacon-law.svg", alt: "Bacon, the Law guide" },
@@ -3216,13 +3218,13 @@ function settingsPanel() {
         <small>${escapeHtml(t("soundHint"))}</small>
         <div class="local-music-settings"><strong>${escapeHtml(t("customMusic"))}</strong>${musicRows}<small>${escapeHtml(t("musicLocalOnly"))}</small></div>
       </div>
-      <div class="setting-group voice-settings"><strong>${escapeHtml(t("voiceTools"))}</strong>
+      ${VOICE_ASSISTANT_SETTINGS_ENABLED ? `<div class="setting-group voice-settings"><strong>${escapeHtml(t("voiceTools"))}</strong>
         <div class="voice-toggle-grid">
           ${[["voiceAssistant",t("voiceAssistant")],["voiceControl",t("voiceControl")]].map(([key,label]) => `<button type="button" aria-pressed="${String(Boolean(current[key]))}" class="setting-option ${current[key] ? "active" : ""}" data-action="toggle-voice-setting" data-voice-setting="${key}">${escapeHtml(label)}</button>`).join("")}
         </div>
         <button type="button" class="secondary-button voice-listen" data-action="start-voice-command" ${current.voiceControl ? "" : "disabled"}>${escapeHtml(state.voiceListening ? t("voiceListening") : t("voiceListen"))}</button>
         <small>${escapeHtml(t("voiceHint"))}</small>
-      </div>`
+      </div>` : ""}`
   });
 }
 
@@ -4466,6 +4468,11 @@ function handleBuilding(id) {
 
 function applySettings() {
   state.settings = { fontSize: "normal", theme: "sage", language: "en", sceneMode: "2d", visualQuality: "high", calm: false, seasonalEasterEggs: false, soundEnabled: false, voiceAssistant: false, voiceControl: false, precisionResearch: false, masterVolume: .35, environmentVolume: .65, musicVolume: .26, animalVolume: .22, resourceCount: 5, ...state.settings };
+  if (!VOICE_ASSISTANT_SETTINGS_ENABLED) {
+    state.settings.voiceAssistant = false;
+    state.settings.voiceControl = false;
+    stopVoiceCommand();
+  }
   if (state.settings.calm && state.settings.visualQuality !== "low") {
     state.settings.visualQualityBeforeCalm ||= state.settings.visualQuality;
     state.settings.visualQuality = "low";
@@ -4535,6 +4542,7 @@ function updateSetting(key, value) {
 }
 
 function toggleVoiceSetting(key) {
+  if (!VOICE_ASSISTANT_SETTINGS_ENABLED) return;
   state.settings[key] = !state.settings[key];
   if (key === "voiceControl" && !state.settings[key]) stopVoiceCommand();
   applySettings();
@@ -4552,7 +4560,7 @@ function togglePrecisionResearch() {
 }
 
 function speakVillage(text, { force = false } = {}) {
-  if (!force && !state.settings.voiceAssistant) return;
+  if (!force && (!VOICE_ASSISTANT_SETTINGS_ENABLED || !state.settings.voiceAssistant)) return;
   const phrase = String(text || "").trim().slice(0, 500);
   if (!phrase) return;
   playGeneratedSpeech(phrase).catch(() => fallbackSpeech(phrase));
@@ -4609,6 +4617,7 @@ function stopVoiceCommand() {
 }
 
 function startVoiceCommand({ continuous = true, announce = true } = {}) {
+  if (!VOICE_ASSISTANT_SETTINGS_ENABLED) return;
   if (!state.settings.voiceControl) return toast("Turn on microphone commands first.");
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) return toast("Voice commands are not available in this browser.");
