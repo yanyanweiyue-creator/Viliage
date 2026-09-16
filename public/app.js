@@ -3486,7 +3486,8 @@ function parseResourcePayload(element) {
 
 function renderSourceFooter(data, fallbackVersion = "1.0") {
   const expandedBy = data.keywordExpansion?.ai ? t("aiExpandedKeywords") : t("localExpandedKeywords");
-  return `<p class="privacy-note">${escapeHtml(t("sourceLabel"))}: ${escapeHtml(data.source)} · ${escapeHtml(t("scoringLabel"))} v${escapeHtml(data.scoring?.version || fallbackVersion)} · ${escapeHtml(expandedBy)}</p>`;
+  const scoreNote = state.settings.language === "zh" ? "分数是匹配证据的累计分，不是百分比或资源质量评级；不同搜索的分数不能直接比较。" : state.settings.language === "es" ? "Los puntos suman coincidencias, no son un porcentaje ni una evaluación de calidad; no compares puntuaciones entre búsquedas." : "Points add up matching evidence, not a percentage or a quality rating; scores are not comparable across searches.";
+  return `<p class="privacy-note">${escapeHtml(scoreNote)}</p><p class="privacy-note">${escapeHtml(t("sourceLabel"))}: ${escapeHtml(data.source)} · ${escapeHtml(t("scoringLabel"))} v${escapeHtml(data.scoring?.version || fallbackVersion)} · ${escapeHtml(expandedBy)}</p>`;
 }
 
 function sortResourcesByScore(resources) {

@@ -1,4 +1,4 @@
-import { resourceTable } from "./fixtures/resource-sheet.mjs";
+import { resourceTable, researchFetch } from "./fixtures/resource-sheet.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -1784,4 +1784,42 @@ test("research accepts short tennis queries with live sheet headers and keeps ha
     globalThis.fetch = originalFetch;
     database.close();
   }
+});
+
+test("Cloudflare research handles acronyms, Chinese queries, warning penalties and low point totals", async () => {
+  const database = new DatabaseSync(":memory:");
+  await applyCommunitySchema(database);
+  const env = cloudflareEnv(database, { OPENAI_API_KEY: "test-key", OPENAI_MODEL: "test-model" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (...args) => researchFetch(...args);
+  try {
+    for (const description of ["tennis", "寻找网球活动", "IEP", "504"]) {
+      const topic = ["IEP", "504"].includes(description) ? "Legal" : "Recreation";
+      const response = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+        body: JSON.stringify({ topic, diagnosis: "Autism", description, count: 3, language: "zh" })
+      }), env, ctx);
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.researchContext.fullInput, description);
+      if (topic === "Recreation") {
+        assert.equal(result.resources.length, 3);
+        assert.ok(result.resources.every((item) => item.score === 1));
+        assert.deepEqual(result.errorSync, [], "three valid low-score matches do not trigger a quality failure");
+        assert.equal(result.researchContext.queryTranslated, description !== "tennis");
+        assert.equal(result.researchContext.searchInput, "tennis");
+      } else {
+        assert.ok(result.resources.some((item) => item.url.endsWith(`/${description.toLowerCase()}`) && item.score === 25));
+        if (description === "IEP") assert.equal(result.resources.find((item) => item.url.endsWith("/warning")).score, 23);
+      }
+      assert.ok(result.resources.every((item) => !item.url.includes("wrong-")));
+    }
+    globalThis.fetch = async (url, options) => String(url).includes("openai.com") ? new Response("Unavailable", { status: 503 }) : researchFetch(url, options);
+    const failed = await worker.fetch(new Request("https://village.example/api/ai/recommend", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Village-Guest": "1" },
+      body: JSON.stringify({ topic: "Recreation", diagnosis: "Autism", description: "寻找网球活动" })
+    }), env, ctx);
+    assert.equal(failed.status, 503);
+    assert.match((await failed.json()).error, /Search translation/);
+  } finally { globalThis.fetch = originalFetch; database.close(); }
 });

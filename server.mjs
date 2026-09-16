@@ -1,3 +1,4 @@
+import { prepareResearchQuery } from "./research-query.mjs";
 import { normalizeSheetRows } from "./resource-sheet.mjs";
 import http from "node:http";
 import { createReadStream, existsSync } from "node:fs";
@@ -3837,7 +3838,11 @@ async function handleApi(req, res, url) {
     const config = await loadScoringConfig();
     const { rows, source } = await getResources();
     const blockedPrimaryKeywords = await loadPrimaryKeywordBlocklist();
-    const primaryKeywords = filterPrimaryKeywords(extractKeywords([description], config.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, config.limits.maximumPrimaryKeywords);
+    let searchQuery;
+    try { searchQuery = await prepareResearchQuery(description, { apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL }); }
+    catch (error) { return sendError(res, 503, error.message); }
+    const searchDescription = searchQuery.text;
+    const primaryKeywords = filterPrimaryKeywords(extractKeywords([searchDescription], config.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, config.limits.maximumPrimaryKeywords);
     const profileResponses = user.profile?.responses || {};
     const profileKeywords = personalRecordMode
       ? filterPrimaryKeywords(extractKeywords([
@@ -3857,8 +3862,8 @@ async function handleApi(req, res, url) {
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...effectiveSecondaryKeywords], config);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...effectiveSecondaryKeywords], config.limits.maximumSecondaryKeywords, { category: topic });
     const profileAge = profileResponses.age || "";
-    const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
-    const issuePreferences = inferIssuePreferences([description, profileResponses.note || "", recordSignals.insuranceKeywords]);
+    const lifeStages = extractLifeStages([searchDescription, age, lifeStage, profileAge], 8);
+    const issuePreferences = inferIssuePreferences([searchDescription, profileResponses.note || "", recordSignals.insuranceKeywords]);
     const requestedCount = normalizeResultCount(count, config);
     const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, coverageKeywords: recordSignals.insuranceKeywords, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config, personalRecordMode };
     const expanded = { ai: false, keywords: [] };
@@ -3872,10 +3877,13 @@ async function handleApi(req, res, url) {
       answer = deterministicAnswer(topic, description, matches, language);
     }
     if (!answer) answer = deterministicAnswer(topic, description, matches, language);
+    // Legacy reporting field only; raw point totals are not a quality/failure threshold.
     const highScoreCount = matches.filter((match) => Number(match.score || 0) >= 20).length;
     const foundKeywords = locatedKeywords(matches);
     const researchContext = {
       fullInput: String(description),
+      searchInput: searchDescription,
+      queryTranslated: searchQuery.translated,
       diagnosis: effectiveDiagnosis,
       category: topic,
       personalRecordMode,
@@ -3892,9 +3900,6 @@ async function handleApi(req, res, url) {
     if (matches.length < requestedCount) {
       shortageReasons.push(`Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`);
     }
-    if (highScoreCount < 3) {
-      shortageReasons.push(`Only ${highScoreCount} displayed resources scored at least 20; at least 3 are required.`);
-    }
     let sync = { synced: false };
     if (!user.guest) {
       const saved = await updateUser(user.id, (item) => ({ ...item, history: [...(item.history || []), { topic, description, at: new Date().toISOString() }].slice(-50) }));
@@ -3904,7 +3909,7 @@ async function handleApi(req, res, url) {
     if (shortageReasons.length) {
       try {
         errorSync.push(await logErrorRecord({
-          event: matches.length < requestedCount && highScoreCount < 3 ? "insufficient_resources_and_high_scores" : matches.length < requestedCount ? "insufficient_resources" : "insufficient_high_score_resources",
+          event: "insufficient_resources",
           reason: shortageReasons.join(" "),
           user,
           topic,
@@ -3931,7 +3936,7 @@ async function handleApi(req, res, url) {
       ai,
       summaryGuide: buildingGuideName(topic),
       researchContext,
-      followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description, language, config }) : [],
+      followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description: searchDescription, language, config }) : [],
       keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] },
       scoring: { version: config.version, minimumScore: config.limits.minimumScore },
       errorSync,

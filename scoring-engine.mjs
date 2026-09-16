@@ -19,7 +19,7 @@ const SYNONYMS = {
 };
 
 export const DEFAULT_SCORE_CONFIG = {
-  version: "3.1",
+  version: "3.2",
   weights: {
     primaryExactTag: 25,
     primarySimilarTag: 15,
@@ -64,7 +64,7 @@ const LIFE_STAGE_ALIASES = Object.freeze({
 });
 
 export function normalizeText(value = "") {
-  return String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9+]+/g, " ").trim().replace(/\s+/g, " ");
+  return String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[’']/g, "").replace(/[^\p{L}\p{N}+]+/gu, " ").trim().replace(/\s+/g, " ");
 }
 
 function singularize(value) {
@@ -96,7 +96,10 @@ export function extractKeywords(values, limit = 20) {
       const words = segment.split(" ").filter(Boolean);
       if (words.length > 1 && words.length <= 4 && words.every((word) => !STOP_WORDS.has(word))) concepts.push(segment);
     }
-    concepts.push(...normalized.split(" ").filter((word) => word.length > 2));
+    const words = /\p{Script=Han}/u.test(normalized)
+      ? [...new Intl.Segmenter("zh", { granularity: "word" }).segment(normalized)].filter((item) => item.isWordLike).map((item) => item.segment)
+      : normalized.split(" ");
+    concepts.push(...words.filter((word) => word.length > 2 || /\p{Script=Han}/u.test(word)));
   }
   return uniqueNormalized(concepts, limit);
 }
@@ -119,7 +122,7 @@ export function extractGateKeywords(values, config = DEFAULT_SCORE_CONFIG) {
   if (!all.length) return [];
   const cap = Math.max(1, Math.floor(all.length * limits.maximumGateRatio));
   const phrases = all.filter((item) => /\b(small group|1 on 1|one on one|regional center|disability rights|executive function|low cost|sensory friendly|adaptive sport)\b/.test(item));
-  const distinctive = all.filter((item) => !item.includes(" ") && item.length > 3);
+  const distinctive = all.filter((item) => !item.includes(" ") && (item.length >= 3 || /\p{Script=Han}/u.test(item)));
   return uniqueNormalized([...phrases, ...distinctive], cap);
 }
 
@@ -289,8 +292,8 @@ export function scoreResource(resource, { primaryKeywords = [], confirmedSeconda
 
   const preferences = uniqueNormalized(issuePreferences, 30);
   for (const issue of issues) {
-    if (preferences.length && matchStrength(issue, preferences) === "none") continue;
     const major = /\b(major|severe|unsafe|closed|ineligible)\b/.test(issue);
+    if (!major && preferences.length && matchStrength(issue, preferences) === "none") continue;
     addReason(result, seen, `issue:${issue}`, major ? weights.majorIssuePenalty : weights.minorIssuePenalty, `${major ? "major" : "minor"} issue`, issue);
   }
 

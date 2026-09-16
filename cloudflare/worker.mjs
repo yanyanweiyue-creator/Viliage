@@ -1,3 +1,4 @@
+import { prepareResearchQuery } from "../research-query.mjs";
 import { normalizeSheetRows } from "../resource-sheet.mjs";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
@@ -4229,7 +4230,11 @@ async function api(request, env, ctx) {
     if (!personalRecordMode && !effectiveDiagnosis) return fail("Choose an island before searching for resources.");
     const data = await resources(env);
     const blockedPrimaryKeywords = await primaryKeywordBlocklist(env);
-    const primaryKeywords = filterPrimaryKeywords(extractKeywords([description], scoreConfig.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, scoreConfig.limits.maximumPrimaryKeywords);
+    let searchQuery;
+    try { searchQuery = await prepareResearchQuery(description, { apiKey: env.OPENAI_API_KEY, model: env.OPENAI_MODEL }); }
+    catch (error) { return fail(error.message, 503); }
+    const searchDescription = searchQuery.text;
+    const primaryKeywords = filterPrimaryKeywords(extractKeywords([searchDescription], scoreConfig.limits.maximumPrimaryKeywords), blockedPrimaryKeywords).slice(0, scoreConfig.limits.maximumPrimaryKeywords);
     const profileResponses = user.profile?.responses || {};
     const profileKeywords = personalRecordMode
       ? filterPrimaryKeywords(extractKeywords([
@@ -4249,8 +4254,8 @@ async function api(request, env, ctx) {
     const gateKeywords = extractGateKeywords([...primaryKeywords, ...effectiveSecondaryKeywords], scoreConfig);
     const expansionKeywords = heuristicKeywordExpansion([...primaryKeywords, ...effectiveSecondaryKeywords], scoreConfig.limits.maximumSecondaryKeywords, { category: topic });
     const profileAge = profileResponses.age || "";
-    const lifeStages = extractLifeStages([description, age, lifeStage, profileAge], 8);
-    const issuePreferences = inferIssuePreferences([description, profileResponses.note || "", recordSignals.insuranceKeywords]);
+    const lifeStages = extractLifeStages([searchDescription, age, lifeStage, profileAge], 8);
+    const issuePreferences = inferIssuePreferences([searchDescription, profileResponses.note || "", recordSignals.insuranceKeywords]);
     const requestedCount = normalizeResultCount(count, scoreConfig);
     const rankingInput = { diagnosis: effectiveDiagnosis, category: topic, gateKeywords, primaryKeywords, confirmedSecondaryKeywords: effectiveSecondaryKeywords, rejectedKeywords, expansionKeywords, issuePreferences, coverageKeywords: recordSignals.insuranceKeywords, age: profileAge || age, lifeStage, lifeStages, count: requestedCount, config: scoreConfig, personalRecordMode };
     const expanded = { ai: false, keywords: [] };
@@ -4259,10 +4264,13 @@ async function api(request, env, ctx) {
     let ai = false;
     try { answer = await aiAnswer(env, { topic, description, profile: user.profile, matches, language }); ai = Boolean(answer); } catch {}
     if (!answer) answer = deterministicAnswer(topic, description, matches, language);
+    // Legacy reporting field only; raw point totals are not a quality/failure threshold.
     const highScoreCount = matches.filter((match) => Number(match.score || 0) >= 20).length;
     const foundKeywords = locatedKeywords(matches);
     const researchContext = {
       fullInput: String(description),
+      searchInput: searchDescription,
+      queryTranslated: searchQuery.translated,
       diagnosis: effectiveDiagnosis,
       category: topic,
       personalRecordMode,
@@ -4279,9 +4287,6 @@ async function api(request, env, ctx) {
     if (matches.length < requestedCount) {
       shortageReasons.push(`Requested ${requestedCount} resources, but only ${matches.length} were available from the database.`);
     }
-    if (highScoreCount < 3) {
-      shortageReasons.push(`Only ${highScoreCount} displayed resources scored at least 20; at least 3 are required.`);
-    }
     if (!user.guest) {
       user.history = [...(user.history || []), { topic, description, at: new Date().toISOString() }].slice(-50);
       await env.DB.prepare("UPDATE users SET history_json = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(user.history), new Date().toISOString(), user.id).run();
@@ -4291,7 +4296,7 @@ async function api(request, env, ctx) {
     if (shortageReasons.length) {
       try {
         errorSync.push(await logErrorRecord(env, {
-          event: matches.length < requestedCount && highScoreCount < 3 ? "insufficient_resources_and_high_scores" : matches.length < requestedCount ? "insufficient_resources" : "insufficient_high_score_resources",
+          event: "insufficient_resources",
           reason: shortageReasons.join(" "),
           user,
           topic,
@@ -4311,7 +4316,7 @@ async function api(request, env, ctx) {
       }
     }
     await recordUserCountSafely(env, { [COUNT_TOTAL_SEARCHES_COMPLETED]: 1 });
-    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description, language }) : [], keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } });
+    return json({ answer, resources: matches, source: data.source, ai, summaryGuide: buildingGuideName(topic), researchContext, followUpQuestions: allowFollowUpQuestions ? localizedClarificationQuestions({ topic, description: searchDescription, language }) : [], keywordExpansion: { ai: expanded.ai, synonyms: expansionKeywords, predicted: expanded.keywords, suggested: [...expansionKeywords, ...expanded.keywords] }, scoring: { version: scoreConfig.version, minimumScore: scoreConfig.limits.minimumScore }, errorSync, sync: { queued: !user.guest && Boolean(env.USER_SHEET_WEBHOOK_URL && env.SHEET_WEBHOOK_SECRET) } });
   }
 
   if (request.method === "POST" && url.pathname === "/api/research-feedback") {

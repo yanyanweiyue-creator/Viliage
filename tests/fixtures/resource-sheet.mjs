@@ -14,3 +14,28 @@ export function resourceTable(columns = resourceColumns) {
   ];
   return { cols: columns.map((label) => ({ label })), rows: records.map((record) => ({ c: columns.map((label) => ({ v: record[label] || "" })) })) };
 }
+
+export function scoringTable() {
+  const columns = ["URL", "Description", "Diagnosis", "Category", "Age", "Tag1", "Error1"];
+  const records = [
+    ...[1, 2, 3].map((id) => [`https://example.com/tennis-${id}`, "Community tennis clinics", "Autism", "Recreation", "All ages", "", ""]),
+    ["https://example.com/iep", "", "Autism", "Legal", "All ages", "IEP", ""],
+    ["https://example.com/504", "", "Autism", "Legal", "All ages", "504", ""],
+    ["https://example.com/wrong-island", "Community tennis clinics", "ADHD", "Recreation", "All ages", "Tennis", ""],
+    ["https://example.com/wrong-building", "Community tennis clinics", "Autism", "Education", "All ages", "Tennis", ""],
+    ["https://example.com/warning", "", "Autism", "Legal", "All ages", "IEP", "⚠️ Waitlist"]
+  ];
+  return { cols: columns.map((label) => ({ label })), rows: records.map((values) => ({ c: values.map((v) => ({ v })) })) };
+}
+
+export function researchFetch(url, options = {}) {
+  if (String(url).includes("docs.google.com/spreadsheets")) {
+    return new Response(`google.visualization.Query.setResponse(${JSON.stringify({ table: scoringTable() })});`);
+  }
+  if (String(url) === "https://api.openai.com/v1/responses") {
+    const input = JSON.parse(options.body);
+    if (input.text?.format?.name === "research_query_translation") return Response.json({ output_text: '{"searchText":"tennis"}' });
+    return new Response("Summary unavailable", { status: 503 });
+  }
+  throw new Error(`Unexpected request: ${url}`);
+}

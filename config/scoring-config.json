@@ -1,5 +1,5 @@
 {
-  "version": "3.1",
+  "version": "3.2",
   "weights": {
     "primaryExactTag": 25,
     "primarySimilarTag": 15,

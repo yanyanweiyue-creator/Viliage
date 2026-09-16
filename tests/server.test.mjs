@@ -1,4 +1,4 @@
-import { resourceTable } from "./fixtures/resource-sheet.mjs";
+import { resourceTable, researchFetch } from "./fixtures/resource-sheet.mjs";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -490,7 +490,7 @@ test("resource shortages and dislikes are appended to the Error database webhook
     assert.equal(result.summaryGuide, "Bacon");
     assert.match(result.answer, /^Bacon did not find/);
     assert.equal("needsClarification" in result, false);
-    assert.deepEqual(errorRows.map((entry) => entry.Event), ["insufficient_resources_and_high_scores"]);
+    assert.deepEqual(errorRows.map((entry) => entry.Event), ["insufficient_resources"]);
     assert.equal(errorRows[0].spreadsheetId, "1e2424AmLESZRYQKy7g3Lhcx0LtTDtYRXH2_m03lVIA0");
     assert.equal(errorRows[0].sheetGid, "1952899933");
     assert.equal(errorRows[0]["Helpful?"], "No");
@@ -1131,6 +1131,43 @@ test("local research accepts short queries using the current resource sheet layo
     }
   } finally {
     globalThis.fetch = originalFetch;
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("local research handles acronyms, Chinese queries, warning penalties and low point totals", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+  globalThis.fetch = async (...args) => researchFetch(...args);
+  const server = createAppServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    for (const description of ["tennis", "寻找网球活动", "IEP", "504"]) {
+      const topic = ["IEP", "504"].includes(description) ? "Legal" : "Recreation";
+      const body = JSON.stringify({ topic, diagnosis: "Autism", description, count: 3 });
+      const response = await httpRequest(`http://127.0.0.1:${server.address().port}/api/ai/recommend`, {
+        method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-Village-Guest": "1" }, body
+      });
+      assert.equal(response.status, 200);
+      const result = JSON.parse(response.text);
+      assert.equal(result.researchContext.fullInput, description);
+      if (topic === "Recreation") {
+        assert.equal(result.resources.length, 3);
+        assert.ok(result.resources.every((item) => item.score === 1));
+        assert.deepEqual(result.errorSync, []);
+        assert.equal(result.researchContext.queryTranslated, description !== "tennis");
+      } else {
+        assert.ok(result.resources.some((item) => item.url.endsWith(`/${description.toLowerCase()}`) && item.score === 25));
+        if (description === "IEP") assert.equal(result.resources.find((item) => item.url.endsWith("/warning")).score, 23);
+      }
+      assert.ok(result.resources.every((item) => !item.url.includes("wrong-")));
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }

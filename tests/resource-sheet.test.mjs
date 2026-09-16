@@ -46,3 +46,14 @@ test("entirely unlabeled sheets retain the original positional layout", () => {
   assert.equal(resource.location, "San Jose");
   assert.equal(resource.price, "Free");
 });
+
+test("Error1 warnings reach scoring and retain the configured severity penalties", () => {
+  const table = resourceTable();
+  const index = resourceColumns.indexOf("Error1");
+  table.rows[0].c[index] = { v: "⚠️ Waitlist; Major: service closed" };
+  const [resource] = normalizeSheetRows(table);
+  assert.deepEqual(resource.issues, ["⚠️ Waitlist", "Major: service closed"]);
+  const primaryKeywords = extractKeywords(["tennis"]);
+  const [scored] = rankResources([resource], { diagnosis: "Autism", category: "Recreation", primaryKeywords });
+  assert.deepEqual(scored.explanation.filter((item) => item.points < 0).map((item) => item.points), [-2, -5]);
+});

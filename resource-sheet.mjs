@@ -30,7 +30,7 @@ export function normalizeSheetRows(table) {
   const categoryIndexes = groupIndexes(/^category\d*$/);
   const tagIndexes = groupIndexes(/^tags?\d*$/);
   const locationIndexes = groupIndexes(/^location\d*$/);
-  const issueIndexes = groupIndexes(/^issues?\d*$/);
+  const issueIndexes = groupIndexes(/^(?:issues?|errors?)\d*$/);
   const valuesAt = (values, indexes, legacyIndexes = []) =>
     (hasHeaders ? indexes : legacyIndexes).map((index) => values[index]).filter(Boolean);
   const splitList = (values) => [...new Set(values.flatMap((value) => value.split(/[,;/]/)).map((value) => value.trim()).filter(Boolean))];
