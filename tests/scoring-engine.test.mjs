@@ -180,3 +180,34 @@ test("requested resource count is rounded and clamped to configured limits", () 
   assert.equal(normalizeResultCount(99, config), 10);
   assert.equal(normalizeResultCount(undefined, config), 5);
 });
+
+test("IEP and 504 exact tag matches survive the automatically generated gate", () => {
+  for (const description of ["IEP", "504"]) {
+    const primaryKeywords = extractKeywords([description]);
+    const gateKeywords = extractGateKeywords(primaryKeywords);
+    assert.deepEqual(gateKeywords, [description.toLowerCase()]);
+    const ranked = rankResources([resource({ name: "Exact", tags: [description], description: "" })], {
+      diagnosis: "Autism", category: "Legal", primaryKeywords, gateKeywords
+    });
+    assert.equal(ranked.length, 1);
+    assert.equal(ranked[0].score, 25);
+  }
+});
+
+test("Chinese keywords are preserved and can match Chinese resource tags", () => {
+  const primaryKeywords = extractKeywords(["网球"]);
+  assert.deepEqual(primaryKeywords, ["网球"]);
+  const ranked = rankResources([resource({ categories: ["Recreation"], tags: ["网球"], description: "" })], {
+    diagnosis: "Autism", category: "Recreation", primaryKeywords
+  });
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0].score, 25);
+});
+
+test("major resource warnings remain penalized even with unrelated user preferences", () => {
+  const scored = scoreResource(resource({ issues: ["Major: service closed"] }), {
+    primaryKeywords: ["Medicaid"], issuePreferences: ["expensive"]
+  });
+  assert.equal(scored.score, 20);
+  assert.ok(scored.explanation.some((item) => item.label === "major issue" && item.points === -5));
+});

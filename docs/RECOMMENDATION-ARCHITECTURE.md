@@ -6,11 +6,15 @@ The engine is filter-first and score-second:
 
 1. In building research, filter by the diagnosis associated with the current island. In Quick Research, ignore the island and use only user-reviewed Autism/ADHD diagnoses imported into the personal record. `Both` is accepted for either diagnosis; every other diagnosis mismatch is permanently removed.
 2. Filter by the category associated with the selected building. The required category must be present in `Category1` or `Category2`.
-3. Ask zero to two clarification questions only for materially ambiguous requests. User-entered terms are primary, accepted suggestions are confirmed secondary, and explicitly rejected terms are removed from every later stage.
-4. Build the Description Gate from at most 20% of the strongest primary and confirmed-secondary concepts. At least one concept must occur in tags or the description.
+3. Translate Chinese search input into English before extracting search terms, preserving explicit constraints and keeping the original text in history and summaries. Translation failure returns an explicit retry/use-English error rather than an empty match list. User-entered terms are primary, accepted suggestions are confirmed secondary, and explicitly rejected terms are removed from every later stage.
+4. Build the Description Gate from at most 20% of the strongest primary and confirmed-secondary concepts. At least one concept must occur in tags or the description. Three-character acronyms and codes such as `IEP` and `504` participate in the direct gate; Unicode text is preserved.
 5. Score the gate survivors. Primary tag matches receive 25/15/4 points; confirmed-secondary tag matches receive 12/7/2. Description evidence is deliberately weaker. Reviewed insurance terms are soft evidence: an explicit match adds 6 and an explicit no-insurance/out-of-network conflict subtracts 8. Missing coverage data never excludes a resource. Major and minor issues subtract 5 and 2 points.
-6. Sort by tier and score. Direct results always precede synonym expansion, and synonym expansion always precedes AI-predicted results.
-7. Run expansion only when the requested count has not been filled. Pass 1 uses deterministic synonyms. Pass 2 calls AI lazily, only after the direct and synonym passes remain short, with maximum weights of 3/1/1.
+6. Sort by descending total points, then tier, gate confidence, and resource name. Scores are additive matching evidence, not percentages or resource-quality ratings, and should not be compared across different searches.
+7. Run deterministic synonym expansion when the requested count has not been filled, with lower weights of 3/1/1. The ranking engine also supports supplied predicted terms, but the live research endpoint currently passes none; its AI call summarizes candidates and does not score them.
+
+The shared resource-sheet reader recognizes `Category`/`Category1`, `Location`/`Location1`, all numbered tags, and both `ErrorN` and `IssueN` warning columns. Major warning penalties apply even when unrelated user preferences are present; minor warnings retain the existing preference filtering.
+
+Fewer results than requested still produce an `insufficient_resources` record. The former requirement for three results scoring at least 20 points has been removed. `highScoreCount` remains in legacy reporting payloads for compatibility only; it does not decide search success.
 
 Every result includes `tier`, `score`, `passedFilters`, `gateEvidence`, `matchedKeywords`, and an additive `explanation` array. Gate evidence records whether primary, confirmed-secondary, or fallback concepts allowed the result to proceed and exposes a confidence value for administrative review.
 
@@ -59,9 +63,9 @@ For tens of thousands of records, use PostgreSQL full-text search or OpenSearch 
 
 ## Configuration and examples
 
-All v3.1 weights and limits live in `config/scoring-config.json` and are exposed read-only at `GET /api/scoring-config`.
+All v3.2 weights and limits live in `config/scoring-config.json` and are exposed read-only at `GET /api/scoring-config`.
 
-Example: an Autism + Legal resource that passes the Description Gate, has an exact primary `Medicaid` tag, a confirmed-secondary exact `IEP` tag, an exact primary phrase in the description, and one minor issue scores `25 + 12 + 5 - 2 = 40`.
+Example: an Autism + Legal resource that passes the Description Gate, has an exact primary `Medicaid` tag, a confirmed-secondary exact `IEP` tag, and one applicable minor issue scores `25 + 12 - 2 = 35`. Each keyword receives its strongest tag match or a description match, never both.
 
 ## Verification
 
