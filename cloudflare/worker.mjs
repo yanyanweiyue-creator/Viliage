@@ -1,3 +1,4 @@
+import { normalizeSheetRows } from "../resource-sheet.mjs";
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import fallbackResources from "../data/resources-fallback.json" with { type: "json" };
 import scoreConfigFile from "../config/scoring-config.json" with { type: "json" };
@@ -812,53 +813,11 @@ async function createSession(env, userId) {
   return `capy_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}`;
 }
 
-function cellValue(cell) {
-  if (!cell) return "";
-  if (cell.f != null) return String(cell.f).trim();
-  if (cell.v != null) return String(cell.v).trim();
-  return "";
-}
-
 function stripGviz(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end < start) throw new Error("Unexpected sheet response.");
   return JSON.parse(text.slice(start, end + 1));
-}
-
-function deriveName(description, url) {
-  const first = String(description || "").split(/[—–-]/)[0].trim();
-  if (first.length > 3 && first.length < 90) return first;
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "Community resource"; }
-}
-
-function normalizeSheetRows(table) {
-  const columns = new Map((table.cols || []).map((column, index) => [String(column.label || column.id || "").trim().toLowerCase(), index]));
-  const valueAt = (values, label, fallbackIndex) => values[columns.has(label.toLowerCase()) ? columns.get(label.toLowerCase()) : fallbackIndex] || "";
-  const valuesAt = (values, labels) => labels.map((label) => valueAt(values, label, -1)).filter(Boolean);
-  return (table.rows || []).map((row) => {
-    const values = (row.c || []).map(cellValue);
-    const url = valueAt(values, "URL", 0);
-    const description = valueAt(values, "Description", 1);
-    const categories = [valueAt(values, "Category1", 3), valueAt(values, "Category2", 4)].filter(Boolean).flatMap((value) => value.split(/[,;/]/)).map((value) => value.trim()).filter(Boolean);
-    const tags = ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"].map((label, index) => valueAt(values, label, index + 6)).filter(Boolean);
-    const locations = ["Location1", "Location2", "Location3", "Location4"].map((label, index) => valueAt(values, label, index + 12)).filter(Boolean);
-    const issues = valuesAt(values, ["Issues", "Issue", "Issue1", "Issue2", "Issue3", "Issue4"]).flatMap((value) => value.split(/[,;/]/)).map((value) => value.trim()).filter(Boolean);
-    return {
-      url,
-      name: valueAt(values, "Resource Name", -1) || valueAt(values, "Name", -1) || deriveName(description, url),
-      description,
-      diagnosis: valueAt(values, "Diagnosis", 2) || "Both",
-      categories: categories.length ? categories : ["Education"],
-      age: valueAt(values, "Age", 5) || "All ages",
-      ageRange: valueAt(values, "Age Range") || valueAt(values, "Age range") || valueAt(values, "Age", 5) || "All ages",
-      lifeStage: valueAt(values, "Life Stage") || valueAt(values, "Life stage") || "",
-      tags,
-      issues,
-      location: locations[0] || "See website",
-      price: valueAt(values, "Price", 17) || "See website"
-    };
-  }).filter((row) => /^https?:\/\//.test(row.url || ""));
 }
 
 async function resources(env, force = false) {
@@ -4266,7 +4225,7 @@ async function api(request, env, ctx) {
     const personalRecordMode = usePersonalRecord === true;
     const recordSignals = personalRecordMode ? personalRecordSignals(user.profile) : { confirmedDiagnoses: [], diagnosisNames: [], insuranceKeywords: [], supportKeywords: [] };
     const effectiveDiagnosis = personalRecordMode ? (recordSignals.confirmedDiagnoses.length ? recordSignals.confirmedDiagnoses : "") : String(diagnosis || "").trim();
-    if (String(description).trim().length < 8) return fail("Tell Waffles a little more so the recommendations can be useful.");
+    if (!String(description).trim()) return fail("Enter a keyword or describe what you are looking for.");
     if (!personalRecordMode && !effectiveDiagnosis) return fail("Choose an island before searching for resources.");
     const data = await resources(env);
     const blockedPrimaryKeywords = await primaryKeywordBlocklist(env);
